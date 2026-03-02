@@ -10,6 +10,8 @@ configure_test.go:   覆盖 mask / validateJWT 的纯函数测试
 app.go:              app 命令组，挂载 app 相关子命令
 app_create.go:       app create 子命令，调用 Meta Server API（MakeService.CreateResource）创建 App；支持 --profile 和 --server flags
 app_create_test.go:  覆盖 runAppCreate 的单元测试（成功/无凭证/API错误/未知profile），用 httptest 隔离网络
+app_list.go:         app list 子命令，调用 MakeService.ListResources 列出 org 下全部 App，tabwriter 对齐输出；支持 --profile / --server / --size flags
+app_list_test.go:    覆盖 runAppList 的单元测试（成功/空列表/无凭证/API错误），用 httptest 隔离网络
 app_init.go:         app init 子命令，在已有 Folder 内创建 provider 对应配置文件（anthropic→CLAUDE.md / openai→AGENTS.md / google→GEMINI.md / cursor→.cursorrules）
 app_init_test.go:    覆盖 runAppInit 的文件系统测试（含全 provider 覆盖）
 
