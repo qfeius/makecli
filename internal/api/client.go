@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 bytes、encoding/json、fmt、net/http、time
- * [OUTPUT]: 对外提供 Client 类型、New 构造函数、App 类型、CreateApp / ListApps 方法
+ * [OUTPUT]: 对外提供 Client 类型、New 构造函数、App 类型、CreateApp / ListApps / DeleteApp 方法
  * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -83,6 +83,15 @@ func (c *Client) ListApps(offset, size int) ([]App, int, error) {
 		return nil, 0, fmt.Errorf("API 错误 [%d]: %s", result.Code, result.Message)
 	}
 	return result.Data, result.Pagination.Total, nil
+}
+
+// DeleteApp 调用 MakeService.DeleteResource 删除指定 App
+func (c *Client) DeleteApp(name string) error {
+	body := map[string]any{
+		"name": name,
+		"type": "Make.App",
+	}
+	return c.post("MakeService.DeleteResource", "/meta/v1/app", body)
 }
 
 // ---------------------------------- 核心请求 ----------------------------------

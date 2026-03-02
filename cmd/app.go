@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newAppCmd 函数
- * [POS]: cmd 模块的 app 命令组，挂载 create / list 等子命令
+ * [POS]: cmd 模块的 app 命令组，挂载 create / list / delete 等子命令
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -17,5 +17,6 @@ func newAppCmd() *cobra.Command {
 	cmd.AddCommand(newAppCreateCmd())
 	cmd.AddCommand(newAppListCmd())
 	cmd.AddCommand(newAppInitCmd())
+	cmd.AddCommand(newAppDeleteCmd())
 	return cmd
 }

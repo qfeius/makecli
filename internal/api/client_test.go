@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 internal/api 包内的 Client（包内白盒），encoding/json、net/http、net/http/httptest
- * [OUTPUT]: 覆盖 Client.CreateApp / Client.ListApps 的单元测试
+ * [OUTPUT]: 覆盖 Client.CreateApp / ListApps / DeleteApp 的单元测试
  * [POS]: internal/api client.go 的配套测试，用 httptest 隔离网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -51,6 +51,38 @@ func TestCreateApp(t *testing.T) {
 
 		if err := New(srv.URL, "test-token").CreateApp("myapp"); err == nil {
 			t.Fatal("expected error for invalid JSON response")
+		}
+	})
+}
+
+func TestDeleteApp(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("X-Make-Target") != "MakeService.DeleteResource" {
+				t.Errorf("unexpected X-Make-Target: %s", r.Header.Get("X-Make-Target"))
+			}
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			if body["name"] != "myapp" || body["type"] != "Make.App" {
+				t.Errorf("unexpected body: %v", body)
+			}
+			json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "delete app success"})
+		}))
+		defer srv.Close()
+
+		if err := New(srv.URL, "test-token").DeleteApp("myapp"); err != nil {
+			t.Fatalf("DeleteApp: %v", err)
+		}
+	})
+
+	t.Run("API error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			json.NewEncoder(w).Encode(map[string]any{"code": 500, "msg": "internal error"})
+		}))
+		defer srv.Close()
+
+		if err := New(srv.URL, "test-token").DeleteApp("myapp"); err == nil {
+			t.Fatal("expected error on API failure")
 		}
 	})
 }
