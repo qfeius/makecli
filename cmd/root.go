@@ -42,6 +42,7 @@ func Execute(version, buildDate string) error {
 	rootCmd.SetUsageTemplate(usageTemplate)
 	rootCmd.AddCommand(newVersionCmd(version, buildDate))
 	rootCmd.AddCommand(newConfigureCmd())
+	rootCmd.AddCommand(newApplyCmd())
 	rootCmd.AddCommand(newAppCmd())
 	rootCmd.AddCommand(newEntityCmd())
 	return rootCmd.Execute()

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 internal/config（Load）、internal/api（Client/CreateAppWithCode/CreateEntity）、fmt、os、io/fs、path/filepath、gopkg.in/yaml.v3、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newAppApplyCmd 函数
- * [POS]: cmd/app 的 apply 子命令，从 YAML 文件/目录批量创建资源，支持多文档 YAML
+ * [OUTPUT]: 对外提供 newApplyCmd 函数
+ * [POS]: cmd 模块的顶层 apply 命令，从 YAML 文件/目录批量创建资源
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -21,7 +21,7 @@ import (
 
 // ---------------------------------- 命令定义 ----------------------------------
 
-func newAppApplyCmd() *cobra.Command {
+func newApplyCmd() *cobra.Command {
 	var profile string
 	var server string
 	var path string
@@ -29,6 +29,11 @@ func newAppApplyCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:          "apply -f <path>",
 		Short:        "Apply resources from YAML file or directory",
+		Long: `Apply resources defined in YAML files or directories.
+Supports creating App and Entity resources.`,
+		Example: `  makecli apply -f app.yaml
+  makecli apply -f ./configs/
+  makecli apply --dry-run -f app.yaml`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

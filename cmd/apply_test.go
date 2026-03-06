@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd 包内函数（包内白盒）、internal/config、encoding/json、net/http、net/http/httptest、os、path/filepath、testing
- * [OUTPUT]: 覆盖 app apply 子命令核心逻辑的单元测试
- * [POS]: cmd 模块 app_apply.go 的配套测试，用 httptest 隔离网络、临时文件测试 YAML 解析
+ * [OUTPUT]: 覆盖 apply 子命令核心逻辑的单元测试
+ * [POS]: cmd 模块顶层 apply 命令的配套测试，用 httptest 隔离网络、临时文件测试 YAML 解析
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -50,7 +50,6 @@ properties:
 			w.Write([]byte(`{"code":200,"msg":"success","data":{}}`))
 		}))
 		defer srv.Close()
-
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
 		testDir := t.TempDir()
@@ -87,7 +86,6 @@ properties:
 			w.Write([]byte(`{"code":200,"msg":"success","data":{}}`))
 		}))
 		defer srv.Close()
-
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
 		testDir := t.TempDir()
@@ -143,7 +141,6 @@ properties:
 		t.Setenv("HOME", t.TempDir())
 		testDir := t.TempDir()
 		saveDefaultTokenForApply(t)
-
 		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `name: test
 type: Make.App
 meta:
@@ -201,7 +198,6 @@ properties:
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
 		testDir := t.TempDir()
-
 		bad := filepath.Join(testDir, "bad.yaml")
 		os.WriteFile(bad, []byte("invalid: yaml: ["), 0644)
 
@@ -295,7 +291,6 @@ func TestLoadManifestsFromDir(t *testing.T) {
 		testDir := t.TempDir()
 		writeYAMLFileForApply(t, testDir, "app1.yaml", "name: app1\ntype: Make.App\nmeta:\n  version: 1.0.0\nproperties:\n  code: app1")
 		writeYAMLFileForApply(t, testDir, "app2.yml", "name: app2\ntype: Make.App\nmeta:\n  version: 1.0.0\nproperties:\n  code: app2")
-
 		// 创建嵌套目录 - 应被忽略
 		os.Mkdir(filepath.Join(testDir, "nested"), 0755)
 		writeYAMLFileForApply(t, filepath.Join(testDir, "nested"), "ignored.yaml", "name: ignored\ntype: Make.App")
