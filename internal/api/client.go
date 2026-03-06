@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 bytes、encoding/json、fmt、net/http、time
- * [OUTPUT]: 对外提供 Client 类型、New 构造函数、App 类型、CreateApp / ListApps / DeleteApp 方法
+ * [OUTPUT]: 对外提供 Client 类型、New 构造函数、App / Field / Entity / EntityProperties 类型、CreateApp / CreateAppWithCode / ListApps / DeleteApp / CreateEntity / ListEntities / GetEntity 方法
  * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -48,13 +48,19 @@ type App struct {
 // ---------------------------------- App 操作 ----------------------------------
 
 // CreateApp 调用 MakeService.CreateResource 在 Meta Server 创建 App
+// code 默认为 name
 func (c *Client) CreateApp(name string) error {
+	return c.CreateAppWithCode(name, name)
+}
+
+// CreateAppWithCode 调用 MakeService.CreateResource 创建指定 code 的 App
+func (c *Client) CreateAppWithCode(name, code string) error {
 	body := map[string]any{
 		"name": name,
 		"type": "Make.App",
-		"meta": map[string]any{"version": "1.0.0"},
+		"meta":  map[string]any{"version": "1.0.0"},
 		"properties": map[string]any{
-			"code": name,
+			"code": code,
 		},
 	}
 	return c.post("MakeService.CreateResource", "/meta/v1/app", body)
@@ -92,6 +98,86 @@ func (c *Client) DeleteApp(name string) error {
 		"type": "Make.App",
 	}
 	return c.post("MakeService.DeleteResource", "/meta/v1/app", body)
+}
+
+// ---------------------------------- Entity 操作 ----------------------------------
+
+// Field 代表 Entity 下的单个字段定义
+type Field struct {
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	Meta       map[string]any `json:"meta"`
+	Properties map[string]any `json:"properties"`
+}
+
+// Entity 代表 Meta Server 返回的单个 Entity 资源
+type Entity struct {
+	Name       string           `json:"name"`
+	Type       string           `json:"type"`
+	App        string           `json:"app"`
+	Meta       map[string]any   `json:"meta"`
+	Properties EntityProperties `json:"properties"`
+}
+
+// EntityProperties 封装 Entity 的 fields 列表
+type EntityProperties struct {
+	Fields []Field `json:"fields"`
+}
+
+// CreateEntity 调用 MakeService.CreateResource 在指定 App 下创建 Entity
+func (c *Client) CreateEntity(name, app string, fields []Field) error {
+	body := map[string]any{
+		"name": name,
+		"type": "Make.Entity",
+		"app":  app,
+		"meta": map[string]any{"version": "1.0.0"},
+		"properties": map[string]any{
+			"fields": fields,
+		},
+	}
+	return c.post("MakeService.CreateResource", "/meta/v1/entity", body)
+}
+
+// ListEntities 调用 MakeService.ListResources 获取指定 App 下全部 Entity
+// 返回 Entity 列表和服务端 total 数量
+func (c *Client) ListEntities(app string, offset, size int) ([]Entity, int, error) {
+	reqBody := map[string]any{
+		"app":        app,
+		"sort":       []map[string]any{{"field": "id", "order": "asc"}},
+		"pagination": map[string]any{"offset": offset, "size": size},
+	}
+	var result struct {
+		Code    int      `json:"code"`
+		Message string   `json:"msg"`
+		Data    []Entity `json:"data"`
+		Pagination struct {
+			Total int `json:"total"`
+		} `json:"pagination"`
+	}
+	if err := c.do("MakeService.ListResources", "/meta/v1/entity", reqBody, &result); err != nil {
+		return nil, 0, err
+	}
+	if result.Code != 200 {
+		return nil, 0, fmt.Errorf("API 错误 [%d]: %s", result.Code, result.Message)
+	}
+	return result.Data, result.Pagination.Total, nil
+}
+
+// GetEntity 调用 MakeService.GetResource 获取指定 Entity 的详细信息
+func (c *Client) GetEntity(app, name string) (*Entity, error) {
+	reqBody := map[string]any{"app": app, "name": name}
+	var result struct {
+		Code    int    `json:"code"`
+		Message string `json:"msg"`
+		Data    Entity `json:"data"`
+	}
+	if err := c.do("MakeService.GetResource", "/meta/v1/entity", reqBody, &result); err != nil {
+		return nil, err
+	}
+	if result.Code != 200 {
+		return nil, fmt.Errorf("API 错误 [%d]: %s", result.Code, result.Message)
+	}
+	return &result.Data, nil
 }
 
 // ---------------------------------- 核心请求 ----------------------------------
