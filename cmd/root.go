@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra
  * [OUTPUT]: 对外提供 Execute 函数、rootCmd 根命令
- * [POS]: cmd 模块的入口，挂载 version / configure 子命令
+ * [POS]: cmd 模块的入口，挂载 version / configure / app / entity 子命令
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -43,5 +43,6 @@ func Execute(version, buildDate string) error {
 	rootCmd.AddCommand(newVersionCmd(version, buildDate))
 	rootCmd.AddCommand(newConfigureCmd())
 	rootCmd.AddCommand(newAppCmd())
+	rootCmd.AddCommand(newEntityCmd())
 	return rootCmd.Execute()
 }
