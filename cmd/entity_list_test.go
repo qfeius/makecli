@@ -26,7 +26,7 @@ func TestRunEntityList(t *testing.T) {
 					{"name": "项目", "type": "Make.Entity", "app": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
 					{"name": "任务", "type": "Make.Entity", "app": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
 				},
-				"pagination": map[string]any{"offset": 0, "size": 20, "total": 2},
+				"pagination": map[string]any{"page": 1, "size": 20, "total": 2},
 			})
 		}))
 		defer srv.Close()
@@ -43,7 +43,7 @@ func TestRunEntityList(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data":       []any{},
-				"pagination": map[string]any{"offset": 0, "size": 20, "total": 0},
+				"pagination": map[string]any{"page": 1, "size": 20, "total": 0},
 			})
 		}))
 		defer srv.Close()

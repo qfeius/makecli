@@ -100,12 +100,12 @@ func TestListApps(t *testing.T) {
 					{"name": "项目A", "type": "Make.App", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"code": "ProjectA"}},
 					{"name": "项目B", "type": "Make.App", "meta": map[string]any{"version": "2.0.0"}, "properties": map[string]any{"code": "ProjectB"}},
 				},
-				"pagination": map[string]any{"offset": 0, "size": 10, "total": 2},
+				"pagination": map[string]any{"page": 1, "size": 10, "total": 2},
 			})
 		}))
 		defer srv.Close()
 
-		apps, total, err := New(srv.URL, "test-token").ListApps(0, 10)
+		apps, total, err := New(srv.URL, "test-token").ListApps(1, 10)
 		if err != nil {
 			t.Fatalf("ListApps: %v", err)
 		}
@@ -126,7 +126,7 @@ func TestListApps(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		if _, _, err := New(srv.URL, "test-token").ListApps(0, 10); err == nil {
+		if _, _, err := New(srv.URL, "test-token").ListApps(1, 10); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 	})
@@ -136,12 +136,12 @@ func TestListApps(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "message": "success",
 				"data":       []any{},
-				"pagination": map[string]any{"offset": 0, "size": 10, "total": 0},
+				"pagination": map[string]any{"page": 1, "size": 10, "total": 0},
 			})
 		}))
 		defer srv.Close()
 
-		apps, total, err := New(srv.URL, "test-token").ListApps(0, 10)
+		apps, total, err := New(srv.URL, "test-token").ListApps(1, 10)
 		if err != nil {
 			t.Fatalf("ListApps: %v", err)
 		}

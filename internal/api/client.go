@@ -68,10 +68,10 @@ func (c *Client) CreateAppWithCode(name, code string) error {
 
 // ListApps 调用 MakeService.ListResources 获取 org 下全部 App
 // 返回 App 列表和服务端 total 数量
-func (c *Client) ListApps(offset, size int) ([]App, int, error) {
+func (c *Client) ListApps(page, size int) ([]App, int, error) {
 	reqBody := map[string]any{
 		"sort":       []map[string]any{{"field": "id", "order": "asc"}},
-		"pagination": map[string]any{"offset": offset, "size": size},
+		"pagination": map[string]any{"page": page, "size": size},
 	}
 
 	var result struct {
@@ -140,11 +140,11 @@ func (c *Client) CreateEntity(name, app string, fields []Field) error {
 
 // ListEntities 调用 MakeService.ListResources 获取指定 App 下全部 Entity
 // 返回 Entity 列表和服务端 total 数量
-func (c *Client) ListEntities(app string, offset, size int) ([]Entity, int, error) {
+func (c *Client) ListEntities(app string, page, size int) ([]Entity, int, error) {
 	reqBody := map[string]any{
 		"app":        app,
 		"sort":       []map[string]any{{"field": "id", "order": "asc"}},
-		"pagination": map[string]any{"offset": offset, "size": size},
+		"pagination": map[string]any{"page": page, "size": size},
 	}
 	var result struct {
 		Code    int      `json:"code"`

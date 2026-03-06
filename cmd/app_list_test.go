@@ -27,7 +27,7 @@ func TestRunAppList(t *testing.T) {
 						"meta":       map[string]any{"version": "1.0.0"},
 						"properties": map[string]any{"code": "ProjectA"}},
 				},
-				"pagination": map[string]any{"offset": 0, "size": 20, "total": 1},
+				"pagination": map[string]any{"page": 1, "size": 20, "total": 1},
 			})
 		}))
 		defer srv.Close()
@@ -44,7 +44,7 @@ func TestRunAppList(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "message": "success",
 				"data":       []any{},
-				"pagination": map[string]any{"offset": 0, "size": 20, "total": 0},
+				"pagination": map[string]any{"page": 1, "size": 20, "total": 0},
 			})
 		}))
 		defer srv.Close()
