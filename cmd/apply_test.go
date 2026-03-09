@@ -207,6 +207,23 @@ properties:
 	})
 }
 
+func TestRunAppApplyFailsWithoutRecognizedYAMLFiles(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultTokenForApply(t)
+	testDir := t.TempDir()
+	writeYAMLFileForApply(t, testDir, "app.json", `{"name":"app1"}`)
+
+	err := runAppApply(testDir, "default", "http://localhost")
+	if err == nil {
+		t.Fatal("expected error for directory without yaml files")
+	}
+
+	want := "error reading [" + testDir + "]: recognized file extensions are [.yaml .yml]"
+	if err.Error() != want {
+		t.Fatalf("expected %q, got %q", want, err.Error())
+	}
+}
+
 // ---------------------------------- loadManifestsFromFile 测试 ----------------------------------
 
 func TestLoadManifestsFromFile(t *testing.T) {
@@ -301,6 +318,54 @@ func TestLoadManifestsFromDir(t *testing.T) {
 		}
 		if len(manifests) != 2 {
 			t.Fatalf("expected 2 manifests, got %d", len(manifests))
+		}
+	})
+
+	t.Run("fails when directory has no recognized yaml files", func(t *testing.T) {
+		testDir := t.TempDir()
+		writeYAMLFileForApply(t, testDir, "app.json", `{"name":"app1"}`)
+		writeYAMLFileForApply(t, testDir, "README.txt", "ignored")
+
+		_, err := loadManifestsFromDir(testDir)
+		if err == nil {
+			t.Fatal("expected error for directory without yaml files")
+		}
+
+		want := "error reading [" + testDir + "]: recognized file extensions are [.yaml .yml]"
+		if err.Error() != want {
+			t.Fatalf("expected %q, got %q", want, err.Error())
+		}
+	})
+
+	t.Run("skips hidden yaml files", func(t *testing.T) {
+		testDir := t.TempDir()
+		writeYAMLFileForApply(t, testDir, ".goreleaser.yml", "name: hidden\ntype: Make.App")
+		writeYAMLFileForApply(t, testDir, "app.yaml", "name: visible\ntype: Make.App")
+
+		manifests, err := loadManifestsFromDir(testDir)
+		if err != nil {
+			t.Fatalf("loadManifestsFromDir: %v", err)
+		}
+		if len(manifests) != 1 {
+			t.Fatalf("expected 1 manifest, got %d", len(manifests))
+		}
+		if manifests[0].Name != "visible" {
+			t.Fatalf("expected visible manifest, got %s", manifests[0].Name)
+		}
+	})
+
+	t.Run("fails when only hidden yaml files exist", func(t *testing.T) {
+		testDir := t.TempDir()
+		writeYAMLFileForApply(t, testDir, ".goreleaser.yml", "name: hidden\ntype: Make.App")
+
+		_, err := loadManifestsFromDir(testDir)
+		if err == nil {
+			t.Fatal("expected error for directory without visible yaml files")
+		}
+
+		want := "error reading [" + testDir + "]: recognized file extensions are [.yaml .yml]"
+		if err.Error() != want {
+			t.Fatalf("expected %q, got %q", want, err.Error())
 		}
 	})
 }

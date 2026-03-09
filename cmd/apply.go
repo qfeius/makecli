@@ -15,8 +15,8 @@ import (
 
 	"github.com/MakeHQ/makecli/internal/api"
 	"github.com/MakeHQ/makecli/internal/config"
-	"gopkg.in/yaml.v3"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 // ---------------------------------- 命令定义 ----------------------------------
@@ -27,8 +27,8 @@ func newApplyCmd() *cobra.Command {
 	var path string
 
 	cmd := &cobra.Command{
-		Use:          "apply -f <path>",
-		Short:        "Apply resources from YAML file or directory",
+		Use:   "apply -f <path>",
+		Short: "Apply resources from YAML file or directory",
 		Long: `Apply resources defined in YAML files or directories.
 Supports creating App and Entity resources.`,
 		Example: `  makecli apply -f app.yaml
@@ -95,6 +95,8 @@ type ResourceManifest struct {
 	Properties map[string]any `yaml:"properties"`
 }
 
+var recognizedManifestExtensions = []string{".yaml", ".yml"}
+
 // ---------------------------------- YAML 解析 ----------------------------------
 
 // loadManifestsFromFile 从文件加载多文档 YAML
@@ -131,21 +133,42 @@ func loadManifestsFromDir(dir string) ([]ResourceManifest, error) {
 		return nil, fmt.Errorf("读取目录失败: %w", err)
 	}
 
+	matchedFiles := 0
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-		ext := filepath.Ext(entry.Name())
-		if ext != ".yaml" && ext != ".yml" {
+		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
+		ext := filepath.Ext(entry.Name())
+		if !isRecognizedManifestExtension(ext) {
+			continue
+		}
+		matchedFiles++
 		ms, err := loadManifestsFromFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("加载 %s 失败: %w", entry.Name(), err)
 		}
 		manifests = append(manifests, ms...)
 	}
+	if matchedFiles == 0 {
+		return nil, fmt.Errorf(
+			"error reading [%s]: recognized file extensions are [%s]",
+			dir,
+			strings.Join(recognizedManifestExtensions, " "),
+		)
+	}
 	return manifests, nil
+}
+
+func isRecognizedManifestExtension(ext string) bool {
+	for _, candidate := range recognizedManifestExtensions {
+		if ext == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------- 资源应用 ----------------------------------

@@ -40,6 +40,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 // Execute 是程序入口，由 main.go 调用
 func Execute(version, buildDate string) error {
 	rootCmd.SetUsageTemplate(usageTemplate)
+	rootCmd.SetErrPrefix("error:")
 	rootCmd.AddCommand(newVersionCmd(version, buildDate))
 	rootCmd.AddCommand(newConfigureCmd())
 	rootCmd.AddCommand(newApplyCmd())
