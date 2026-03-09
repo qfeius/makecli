@@ -180,6 +180,16 @@ func (c *Client) GetEntity(app, name string) (*Entity, error) {
 	return &result.Data, nil
 }
 
+// DeleteEntity 调用 MakeService.DeleteResource 删除指定 Entity
+func (c *Client) DeleteEntity(name, app string) error {
+	body := map[string]any{
+		"name": name,
+		"type": "Make.Entity",
+		"app":  app,
+	}
+	return c.post("MakeService.DeleteResource", "/meta/v1/entity", body)
+}
+
 // ---------------------------------- 核心请求 ----------------------------------
 
 // do 执行 POST 请求并将响应体解码到 result

@@ -15,6 +15,7 @@ func newEntityCmd() *cobra.Command {
 		Short: "Manage entities",
 	}
 	cmd.AddCommand(newEntityCreateCmd())
+	cmd.AddCommand(newEntityDeleteCmd())
 	cmd.AddCommand(newEntityListCmd())
 	return cmd
 }
