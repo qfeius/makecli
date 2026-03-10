@@ -20,7 +20,6 @@ import (
 func newEntityListCmd() *cobra.Command {
 	var profile string
 	var server string
-	var app string
 	var size int
 
 	cmd := &cobra.Command{
@@ -29,6 +28,7 @@ func newEntityListCmd() *cobra.Command {
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			app, _ := cmd.Parent().Flags().GetString("app")
 			entityName := ""
 			if len(args) == 1 {
 				entityName = args[0]
@@ -37,11 +37,9 @@ func newEntityListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&app, "app", "", "app name (required)")
 	cmd.Flags().StringVar(&profile, "profile", "default", "credentials profile to use")
 	cmd.Flags().StringVar(&server, "server", defaultMetaServer, "Meta Server base URL")
 	cmd.Flags().IntVar(&size, "size", 20, "number of entities per page")
-	cmd.MarkFlagRequired("app")
 	return cmd
 }
 
