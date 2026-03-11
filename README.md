@@ -64,6 +64,9 @@ makecli entity --app TODO list
 # 以 JSON 输出 entity 列表
 makecli entity --app TODO list --output json
 
+# 分页查看第 2 页，每页 10 条
+makecli entity --app TODO list --page 2 --size 10
+
 # 查看单个 entity 详情
 makecli entity --app TODO list Task
 
@@ -75,6 +78,7 @@ makecli entity --app TODO list Task --output json
 
 - `--output table` 默认表格/详情文本输出
 - `--output json` 列表模式输出 `data` 和 `pagination`，详情模式输出单个 `data` 对象
+- 列表模式支持 `--page` 和 `--size`，其中 `--page` 默认从 `1` 开始
 
 ## 开发指南
 ### 编译

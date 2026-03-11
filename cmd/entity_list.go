@@ -20,6 +20,7 @@ import (
 func newEntityListCmd() *cobra.Command {
 	var profile string
 	var server string
+	var page int
 	var size int
 	var output string
 
@@ -34,20 +35,24 @@ func newEntityListCmd() *cobra.Command {
 			if len(args) == 1 {
 				entityName = args[0]
 			}
-			return runEntityList(app, entityName, profile, server, size, output)
+			return runEntityList(app, entityName, profile, server, page, size, output)
 		},
 	}
 
 	cmd.Flags().StringVar(&profile, "profile", "default", "credentials profile to use")
 	cmd.Flags().StringVar(&server, "server", defaultMetaServer, "Meta Server base URL")
+	cmd.Flags().IntVar(&page, "page", 1, "page number to fetch (starts from 1)")
 	cmd.Flags().IntVar(&size, "size", 20, "number of entities per page")
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
 	return cmd
 }
 
-func runEntityList(app, entityName, profile, server string, size int, output string) error {
+func runEntityList(app, entityName, profile, server string, page, size int, output string) error {
 	if err := validateOutputFormat(output); err != nil {
 		return err
+	}
+	if page < 1 {
+		return fmt.Errorf("page must be greater than or equal to 1")
 	}
 
 	creds, err := config.Load()
@@ -64,11 +69,11 @@ func runEntityList(app, entityName, profile, server string, size int, output str
 	if entityName != "" {
 		return showEntity(client, app, entityName, output)
 	}
-	return listEntities(client, app, size, output)
+	return listEntities(client, app, page, size, output)
 }
 
-func listEntities(client *api.Client, app string, size int, output string) error {
-	entities, total, err := client.ListEntities(app, 0, size)
+func listEntities(client *api.Client, app string, page, size int, output string) error {
+	entities, total, err := client.ListEntities(app, page, size)
 	if err != nil {
 		return err
 	}
@@ -78,6 +83,7 @@ func listEntities(client *api.Client, app string, size int, output string) error
 			"data": entities,
 			"pagination": map[string]int{
 				"count": len(entities),
+				"page":  page,
 				"size":  size,
 				"total": total,
 			},
