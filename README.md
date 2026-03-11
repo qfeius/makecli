@@ -6,6 +6,10 @@ makecli 是 make 平台管理的命令行工具
 brew tap MakeHQ/makecli
 brew install makecli
 ```
+## 强制升级到最新版本
+```
+git -C $(brew --repo makehq/makecli) pull && brew upgrade makecli
+```
 ## 功能
 
 ### 配置凭证
