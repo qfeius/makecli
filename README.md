@@ -49,12 +49,16 @@ makecli app list
 
 # JSON 输出
 makecli app list --output json
+
+# 分页查看第 2 页，每页 10 条
+makecli app list --page 2 --size 10
 ```
 
 `app list` 支持的输出格式：
 
 - `--output table` 默认表格输出
 - `--output json` 输出 `data` 和 `pagination`，便于脚本或 AI Agent 消费
+- 列表模式支持 `--page` 和 `--size`，其中 `--page` 默认从 `1` 开始
 
 ### 列出 Entity
 ```bash

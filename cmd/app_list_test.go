@@ -21,6 +21,21 @@ func TestRunAppList(t *testing.T) {
 			if r.Header.Get("X-Make-Target") != "MakeService.ListResources" {
 				t.Errorf("unexpected X-Make-Target: %s", r.Header.Get("X-Make-Target"))
 			}
+			var req struct {
+				Pagination struct {
+					Page int `json:"page"`
+					Size int `json:"size"`
+				} `json:"pagination"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			if req.Pagination.Page != 1 {
+				t.Errorf("unexpected pagination page: %d", req.Pagination.Page)
+			}
+			if req.Pagination.Size != 20 {
+				t.Errorf("unexpected pagination size: %d", req.Pagination.Size)
+			}
 			json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "message": "success",
 				"data": []map[string]any{
@@ -35,7 +50,7 @@ func TestRunAppList(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 
-		if err := runAppList("default", srv.URL, 20, outputTable); err != nil {
+		if err := runAppList("default", srv.URL, 1, 20, outputTable); err != nil {
 			t.Fatalf("runAppList: %v", err)
 		}
 	})
@@ -52,7 +67,7 @@ func TestRunAppList(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 
-		if err := runAppList("default", srv.URL, 20, outputTable); err != nil {
+		if err := runAppList("default", srv.URL, 1, 20, outputTable); err != nil {
 			t.Fatalf("runAppList: %v", err)
 		}
 	})
@@ -74,7 +89,7 @@ func TestRunAppList(t *testing.T) {
 		saveDefaultToken(t)
 
 		output := captureStdout(t, func() {
-			if err := runAppList("default", srv.URL, 20, outputJSON); err != nil {
+			if err := runAppList("default", srv.URL, 2, 20, outputJSON); err != nil {
 				t.Fatalf("runAppList json: %v", err)
 			}
 		})
@@ -85,6 +100,9 @@ func TestRunAppList(t *testing.T) {
 		if !strings.Contains(output, "\"count\": 1") {
 			t.Fatalf("expected pagination count in JSON output, got %q", output)
 		}
+		if !strings.Contains(output, "\"page\": 2") {
+			t.Fatalf("expected pagination page in JSON output, got %q", output)
+		}
 		if strings.Contains(output, "Showing 1 of 1 apps") {
 			t.Fatalf("expected JSON-only output, got %q", output)
 		}
@@ -92,7 +110,7 @@ func TestRunAppList(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		if err := runAppList("default", "http://localhost", 20, outputTable); err == nil {
+		if err := runAppList("default", "http://localhost", 1, 20, outputTable); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
 	})
@@ -105,13 +123,19 @@ func TestRunAppList(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 
-		if err := runAppList("default", srv.URL, 20, outputTable); err == nil {
+		if err := runAppList("default", srv.URL, 1, 20, outputTable); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 	})
 
+	t.Run("fails when page is less than 1", func(t *testing.T) {
+		if err := runAppList("default", "http://localhost", 0, 20, outputTable); err == nil {
+			t.Fatal("expected error for invalid page")
+		}
+	})
+
 	t.Run("fails on unsupported output format", func(t *testing.T) {
-		if err := runAppList("default", "http://localhost", 20, "xml"); err == nil {
+		if err := runAppList("default", "http://localhost", 1, 20, "xml"); err == nil {
 			t.Fatal("expected error for unsupported output format")
 		}
 	})

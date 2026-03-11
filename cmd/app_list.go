@@ -20,6 +20,7 @@ import (
 func newAppListCmd() *cobra.Command {
 	var profile string
 	var server string
+	var page int
 	var size int
 	var output string
 
@@ -28,20 +29,24 @@ func newAppListCmd() *cobra.Command {
 		Short:        "List all apps",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAppList(profile, server, size, output)
+			return runAppList(profile, server, page, size, output)
 		},
 	}
 
 	cmd.Flags().StringVar(&profile, "profile", "default", "credentials profile to use")
 	cmd.Flags().StringVar(&server, "server", defaultMetaServer, "Meta Server base URL")
+	cmd.Flags().IntVar(&page, "page", 1, "page number to fetch (starts from 1)")
 	cmd.Flags().IntVar(&size, "size", 20, "number of apps per page")
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
 	return cmd
 }
 
-func runAppList(profile, server string, size int, output string) error {
+func runAppList(profile, server string, page, size int, output string) error {
 	if err := validateOutputFormat(output); err != nil {
 		return err
+	}
+	if page < 1 {
+		return fmt.Errorf("page must be greater than or equal to 1")
 	}
 
 	creds, err := config.Load()
@@ -54,7 +59,7 @@ func runAppList(profile, server string, size int, output string) error {
 		return fmt.Errorf("profile '%s' 未配置，请先运行: makecli configure --profile %s", profile, profile)
 	}
 
-	apps, total, err := api.New(server, p.AccessToken, DebugMode).ListApps(0, size)
+	apps, total, err := api.New(server, p.AccessToken, DebugMode).ListApps(page, size)
 	if err != nil {
 		return err
 	}
@@ -64,6 +69,7 @@ func runAppList(profile, server string, size int, output string) error {
 			"data": apps,
 			"pagination": map[string]int{
 				"count": len(apps),
+				"page":  page,
 				"size":  size,
 				"total": total,
 			},
