@@ -16,7 +16,7 @@ var DebugMode bool
 
 var rootCmd = &cobra.Command{
 	Use:   "makecli",
-	Short: "makecli — make your workflow faster",
+	Short: "makecli — agentic development platform cli",
 }
 
 // usageTemplate 对齐 GitHub CLI 风格：段落标题全大写

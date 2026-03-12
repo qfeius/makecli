@@ -51,7 +51,7 @@ brews:
       name: homebrew-makecli
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/MakeHQ/makecli
-    description: "makecli — make your workflow faster"
+    description: "makecli — agentic development platform cli"
     license: MIT
     install: |
       bin.install "makecli"
