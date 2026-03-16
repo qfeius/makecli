@@ -64,7 +64,7 @@ func TestAssetName(t *testing.T) {
 func TestFindAsset(t *testing.T) {
 	target := fmt.Sprintf("makecli_1.0.0_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
 	assets := []Asset{
-		{Name: "makecli_1.0.0_linux_amd64.tar.gz", BrowserDownloadURL: "https://example.com/linux"},
+		{Name: "makecli_1.0.0_fakeos_fakearch.tar.gz", BrowserDownloadURL: "https://example.com/other"},
 		{Name: target, BrowserDownloadURL: "https://example.com/match"},
 	}
 
@@ -79,7 +79,7 @@ func TestFindAsset(t *testing.T) {
 
 func TestFindAssetNotFound(t *testing.T) {
 	assets := []Asset{
-		{Name: "makecli_1.0.0_linux_amd64.tar.gz"},
+		{Name: "makecli_1.0.0_fakeos_fakearch.tar.gz"},
 	}
 	_, err := findAsset(assets, "1.0.0")
 	if err == nil {
