@@ -8,6 +8,10 @@ brew install makecli
 ```
 ## 强制升级到最新版本
 ```
+makecli update
+```
+或者使用下面命令
+```
 git -C $(brew --repo makehq/makecli) pull && brew upgrade makecli
 ```
 ## 功能
