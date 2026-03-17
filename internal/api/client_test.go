@@ -23,7 +23,7 @@ func TestCreateApp(t *testing.T) {
 			if r.Header.Get("Authorization") != "Bearer test-token" {
 				t.Errorf("unexpected Authorization: %s", r.Header.Get("Authorization"))
 			}
-			json.NewEncoder(w).Encode(map[string]any{"code": 200, "message": "create app success"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "message": "create app success"})
 		}))
 		defer srv.Close()
 
@@ -34,7 +34,7 @@ func TestCreateApp(t *testing.T) {
 
 	t.Run("API error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{"code": 400, "message": "invalid name"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 400, "message": "invalid name"})
 		}))
 		defer srv.Close()
 
@@ -45,7 +45,7 @@ func TestCreateApp(t *testing.T) {
 
 	t.Run("invalid response", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.Write([]byte("not json"))
+			_, _ = w.Write([]byte("not json"))
 		}))
 		defer srv.Close()
 
@@ -62,11 +62,11 @@ func TestDeleteApp(t *testing.T) {
 				t.Errorf("unexpected X-Make-Target: %s", r.Header.Get("X-Make-Target"))
 			}
 			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewDecoder(r.Body).Decode(&body)
 			if body["name"] != "myapp" || body["type"] != "Make.App" {
 				t.Errorf("unexpected body: %v", body)
 			}
-			json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "delete app success"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "delete app success"})
 		}))
 		defer srv.Close()
 
@@ -77,7 +77,7 @@ func TestDeleteApp(t *testing.T) {
 
 	t.Run("API error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{"code": 500, "msg": "internal error"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 500, "msg": "internal error"})
 		}))
 		defer srv.Close()
 
@@ -93,7 +93,7 @@ func TestListApps(t *testing.T) {
 			if r.Header.Get("X-Make-Target") != "MakeService.ListResources" {
 				t.Errorf("unexpected X-Make-Target: %s", r.Header.Get("X-Make-Target"))
 			}
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code":    200,
 				"message": "success",
 				"data": []map[string]any{
@@ -122,7 +122,7 @@ func TestListApps(t *testing.T) {
 
 	t.Run("API error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{"code": 500, "message": "internal error"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 500, "message": "internal error"})
 		}))
 		defer srv.Close()
 
@@ -133,7 +133,7 @@ func TestListApps(t *testing.T) {
 
 	t.Run("empty list", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "message": "success",
 				"data":       []any{},
 				"pagination": map[string]any{"page": 1, "size": 10, "total": 0},

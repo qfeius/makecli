@@ -106,8 +106,8 @@ func listEntities(client *api.Client, app string, page, size int, output string)
 
 	table := tablewriter.NewTable(os.Stdout)
 	table.Header("NAME", "VERSION")
-	table.Bulk(rows)
-	table.Render()
+	_ = table.Bulk(rows)
+	_ = table.Render()
 
 	fmt.Printf("\nShowing %d of %d entities\n", len(entities), total)
 	return nil
@@ -142,7 +142,7 @@ func showEntity(client *api.Client, app, name, output string) error {
 	}
 	table := tablewriter.NewTable(os.Stdout)
 	table.Header("NAME", "TYPE")
-	table.Bulk(rows)
-	table.Render()
+	_ = table.Bulk(rows)
+	_ = table.Render()
 	return nil
 }

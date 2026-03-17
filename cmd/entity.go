@@ -24,7 +24,7 @@ func newEntityCmd() *cobra.Command {
 	}
 
 	cmd.PersistentFlags().StringVar(&app, "app", "", "app name (required)")
-	cmd.MarkPersistentFlagRequired("app")
+	_ = cmd.MarkPersistentFlagRequired("app")
 
 	cmd.AddCommand(newEntityCreateCmd())
 	cmd.AddCommand(newEntityDeleteCmd())

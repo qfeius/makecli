@@ -7,7 +7,7 @@ LDFLAGS := -s -w \
 	-X $(MODULE)/internal/build.Version=$(VERSION) \
 	-X $(MODULE)/internal/build.Date=$(DATE)
 
-.PHONY: build local test vet clean
+.PHONY: build local test vet lint clean
 
 build:
 	mkdir -p bin
@@ -22,6 +22,9 @@ test:
 
 vet:
 	go vet ./...
+
+lint:
+	golangci-lint run ./...
 
 clean:
 	rm -rf bin/

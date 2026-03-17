@@ -44,7 +44,7 @@ Supports creating App and Entity resources.`,
 	cmd.Flags().StringVar(&profile, "profile", "default", "credentials profile to use")
 	cmd.Flags().StringVar(&server, "server", defaultMetaServer, "Meta Server base URL")
 	cmd.Flags().StringVarP(&path, "file", "f", "", "path to YAML file or directory (required)")
-	cmd.MarkFlagRequired("file")
+	_ = cmd.MarkFlagRequired("file")
 	return cmd
 }
 

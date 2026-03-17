@@ -240,7 +240,7 @@ func replaceBinary(newBinaryPath string) error {
 	// 步骤 3: 安装新二进制
 	if err := os.Rename(stagePath, exe); err != nil {
 		// 回滚
-		os.Rename(backupPath, exe)
+		_ = os.Rename(backupPath, exe)
 		return fmt.Errorf("failed to install new binary: %w", err)
 	}
 

@@ -97,8 +97,8 @@ func TestCheckLatest_Newer(t *testing.T) {
 		Assets:  []Asset{{Name: "test.tar.gz"}},
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(release)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(release)
 	}))
 	defer server.Close()
 
@@ -121,8 +121,8 @@ func TestCheckLatest_Newer(t *testing.T) {
 func TestCheckLatest_UpToDate(t *testing.T) {
 	release := Release{TagName: "v1.0.0"}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(release)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(release)
 	}))
 	defer server.Close()
 

@@ -36,7 +36,7 @@ func TestRunAppList(t *testing.T) {
 			if req.Pagination.Size != 20 {
 				t.Errorf("unexpected pagination size: %d", req.Pagination.Size)
 			}
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "message": "success",
 				"data": []map[string]any{
 					{"name": "项目A", "type": "Make.App",
@@ -57,7 +57,7 @@ func TestRunAppList(t *testing.T) {
 
 	t.Run("empty list prints message", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "message": "success",
 				"data":       []any{},
 				"pagination": map[string]any{"page": 1, "size": 20, "total": 0},
@@ -74,7 +74,7 @@ func TestRunAppList(t *testing.T) {
 
 	t.Run("prints json when requested", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "message": "success",
 				"data": []map[string]any{
 					{"name": "项目A", "type": "Make.App",
@@ -117,7 +117,7 @@ func TestRunAppList(t *testing.T) {
 
 	t.Run("fails on API error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{"code": 500, "message": "server error"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 500, "message": "server error"})
 		}))
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())

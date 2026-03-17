@@ -84,7 +84,7 @@ func newMockMeta(t *testing.T, code int, message string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"code":    code,
 			"message": message,
 			"data":    map[string]any{},

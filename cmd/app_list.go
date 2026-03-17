@@ -93,8 +93,8 @@ func runAppList(profile, server string, page, size int, output string) error {
 
 	table := tablewriter.NewTable(os.Stdout)
 	table.Header("NAME", "CODE", "VERSION")
-	table.Bulk(rows)
-	table.Render()
+	_ = table.Bulk(rows)
+	_ = table.Render()
 
 	fmt.Printf("\nShowing %d of %d apps\n", len(apps), total)
 	return nil

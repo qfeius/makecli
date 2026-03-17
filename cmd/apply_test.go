@@ -47,7 +47,7 @@ properties:
 			callCount++
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"code":200,"msg":"success","data":{}}`))
+			_, _ = w.Write([]byte(`{"code":200,"msg":"success","data":{}}`))
 		}))
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
@@ -84,7 +84,7 @@ properties:
 			callCount++
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"code":200,"msg":"success","data":{}}`))
+			_, _ = w.Write([]byte(`{"code":200,"msg":"success","data":{}}`))
 		}))
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
@@ -220,7 +220,7 @@ properties:
 		saveDefaultTokenForApply(t)
 		testDir := t.TempDir()
 		bad := filepath.Join(testDir, "bad.yaml")
-		os.WriteFile(bad, []byte("invalid: yaml: ["), 0644)
+		_ = os.WriteFile(bad, []byte("invalid: yaml: ["), 0644)
 
 		if err := runAppApply(bad, "default", "http://localhost"); err == nil {
 			t.Fatal("expected error for invalid YAML")
@@ -330,7 +330,7 @@ func TestLoadManifestsFromDir(t *testing.T) {
 		writeYAMLFileForApply(t, testDir, "app1.yaml", "name: app1\ntype: Make.App\nmeta:\n  version: 1.0.0\nproperties:\n  code: app1")
 		writeYAMLFileForApply(t, testDir, "app2.yml", "name: app2\ntype: Make.App\nmeta:\n  version: 1.0.0\nproperties:\n  code: app2")
 		// 创建嵌套目录 - 应被忽略
-		os.Mkdir(filepath.Join(testDir, "nested"), 0755)
+		_ = os.Mkdir(filepath.Join(testDir, "nested"), 0755)
 		writeYAMLFileForApply(t, filepath.Join(testDir, "nested"), "ignored.yaml", "name: ignored\ntype: Make.App")
 
 		manifests, err := loadManifestsFromDir(testDir)
@@ -398,7 +398,7 @@ func newMockMetaForApply(t *testing.T, code int, message string) *httptest.Serve
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"code":    code,
 			"message": message,
 			"data":    map[string]any{},

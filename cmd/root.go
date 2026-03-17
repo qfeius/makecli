@@ -45,7 +45,7 @@ func Execute(version, buildDate string) error {
 	rootCmd.SetUsageTemplate(usageTemplate)
 	rootCmd.SetErrPrefix("error:")
 	rootCmd.PersistentFlags().BoolVar(&DebugMode, "debug", false, "enable debug mode to show curl output")
-	rootCmd.PersistentFlags().MarkHidden("debug")
+	_ = rootCmd.PersistentFlags().MarkHidden("debug")
 	rootCmd.AddCommand(newVersionCmd(version, buildDate))
 	rootCmd.AddCommand(newConfigureCmd())
 	rootCmd.AddCommand(newApplyCmd())

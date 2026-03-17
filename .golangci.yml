@@ -1,0 +1,19 @@
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - errcheck      # 检查未处理的 error 返回值
+    - govet         # go vet 的超集
+    - staticcheck   # 高质量静态分析
+    - unused        # 未使用的代码
+    - gosimple      # 代码简化建议
+    - ineffassign   # 无效赋值检测
+    - gocritic      # 代码风格与性能建议
+    - misspell      # 拼写检查
+
+linters-settings:
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance

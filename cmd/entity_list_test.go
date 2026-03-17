@@ -36,7 +36,7 @@ func TestRunEntityList(t *testing.T) {
 			if req.Pagination.Size != 20 {
 				t.Errorf("unexpected pagination size: %d", req.Pagination.Size)
 			}
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": []map[string]any{
 					{"name": "项目", "type": "Make.Entity", "app": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
@@ -56,7 +56,7 @@ func TestRunEntityList(t *testing.T) {
 
 	t.Run("empty list prints message", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data":       []any{},
 				"pagination": map[string]any{"page": 1, "size": 20, "total": 0},
@@ -73,7 +73,7 @@ func TestRunEntityList(t *testing.T) {
 
 	t.Run("prints list as json when requested", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": []map[string]any{
 					{"name": "项目", "type": "Make.Entity", "app": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
@@ -110,7 +110,7 @@ func TestRunEntityList(t *testing.T) {
 			if r.Header.Get("X-Make-Target") != "MakeService.GetResource" {
 				t.Errorf("unexpected X-Make-Target: %s", r.Header.Get("X-Make-Target"))
 			}
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": map[string]any{
 					"name": "项目", "type": "Make.Entity", "app": "TODO",
@@ -135,7 +135,7 @@ func TestRunEntityList(t *testing.T) {
 
 	t.Run("prints specific entity as json when requested", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": map[string]any{
 					"name": "项目", "type": "Make.Entity", "app": "TODO",
@@ -168,7 +168,7 @@ func TestRunEntityList(t *testing.T) {
 
 	t.Run("shows specific entity with no fields", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": map[string]any{
 					"name": "空实体", "type": "Make.Entity", "app": "TODO",
@@ -203,7 +203,7 @@ func TestRunEntityList(t *testing.T) {
 
 	t.Run("fails on list API error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{"code": 500, "msg": "server error"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 500, "msg": "server error"})
 		}))
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
@@ -216,7 +216,7 @@ func TestRunEntityList(t *testing.T) {
 
 	t.Run("fails on get API error", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			json.NewEncoder(w).Encode(map[string]any{"code": 404, "msg": "entity not found"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 404, "msg": "entity not found"})
 		}))
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())

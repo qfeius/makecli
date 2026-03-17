@@ -87,7 +87,7 @@ func TestRunEntityCreate(t *testing.T) {
 		saveDefaultToken(t)
 
 		bad := filepath.Join(t.TempDir(), "bad.json")
-		os.WriteFile(bad, []byte("not json"), 0644)
+		_ = os.WriteFile(bad, []byte("not json"), 0644)
 
 		if err := runEntityCreate("项目", "TODO", bad, "default", "http://localhost"); err == nil {
 			t.Fatal("expected error for invalid JSON")
