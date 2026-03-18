@@ -51,7 +51,7 @@ func Execute(version, buildDate string) error {
 	rootCmd.SetErrPrefix("error:")
 	rootCmd.PersistentFlags().BoolVar(&DebugMode, "debug", false, "enable debug mode to show curl output")
 	_ = rootCmd.PersistentFlags().MarkHidden("debug")
-	rootCmd.PersistentFlags().StringVar(&ServerURL, "server", defaultMetaServer, "Meta Server base URL")
+	rootCmd.PersistentFlags().StringVar(&ServerURL, "server-url", defaultMetaServer, "Meta Server base URL")
 	rootCmd.AddCommand(newVersionCmd(version, buildDate))
 	rootCmd.AddCommand(newConfigureCmd())
 	rootCmd.AddCommand(newApplyCmd())
