@@ -115,7 +115,7 @@ func runConfigureConfig(profile string) error {
 		current.ServerURL = serverURL
 	}
 
-	tenantID, err := prompt("x-tenant-id", current.XTenantID)
+	tenantID, err := prompt("X-Tenant-ID", current.XTenantID)
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func runConfigureConfig(profile string) error {
 		current.XTenantID = tenantID
 	}
 
-	operatorID, err := prompt("operator-id", current.OperatorID)
+	operatorID, err := prompt("X-Operator-ID", current.OperatorID)
 	if err != nil {
 		return err
 	}
@@ -143,7 +143,7 @@ func runConfigureConfig(profile string) error {
 
 // ---------------------------------- set 子命令 ----------------------------------
 
-var validConfigKeys = []string{"server-url", "x-tenant-id", "operator-id"}
+var validConfigKeys = []string{"server-url", "X-Tenant-ID", "X-Operator-ID"}
 
 func validateConfigKey(key string) error {
 	for _, k := range validConfigKeys {
@@ -178,9 +178,9 @@ func runConfigureSet(profile, key, value string) error {
 	switch key {
 	case "server-url":
 		p.ServerURL = value
-	case "x-tenant-id":
+	case "X-Tenant-ID":
 		p.XTenantID = value
-	case "operator-id":
+	case "X-Operator-ID":
 		p.OperatorID = value
 	}
 	cfg[profile] = p
@@ -213,9 +213,9 @@ func runConfigureGet(profile, key string) error {
 	switch key {
 	case "server-url":
 		fmt.Println(p.ServerURL)
-	case "x-tenant-id":
+	case "X-Tenant-ID":
 		fmt.Println(p.XTenantID)
-	case "operator-id":
+	case "X-Operator-ID":
 		fmt.Println(p.OperatorID)
 	}
 	return nil

@@ -62,11 +62,11 @@ func TestValidConfigKeys(t *testing.T) {
 	if err := validateConfigKey("server-url"); err != nil {
 		t.Errorf("server-url should be valid: %v", err)
 	}
-	if err := validateConfigKey("x-tenant-id"); err != nil {
-		t.Errorf("x-tenant-id should be valid: %v", err)
+	if err := validateConfigKey("X-Tenant-ID"); err != nil {
+		t.Errorf("X-Tenant-ID should be valid: %v", err)
 	}
-	if err := validateConfigKey("operator-id"); err != nil {
-		t.Errorf("operator-id should be valid: %v", err)
+	if err := validateConfigKey("X-Operator-ID"); err != nil {
+		t.Errorf("X-Operator-ID should be valid: %v", err)
 	}
 	if err := validateConfigKey("bad-key"); err == nil {
 		t.Error("bad-key should be invalid")

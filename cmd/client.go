@@ -39,10 +39,10 @@ func newClientFromProfile(profile string) (*api.Client, error) {
 			server = cp.ServerURL
 		}
 		if cp.XTenantID != "" {
-			headers["x-tenant-id"] = cp.XTenantID
+			headers["X-Tenant-ID"] = cp.XTenantID
 		}
 		if cp.OperatorID != "" {
-			headers["operator-id"] = cp.OperatorID
+			headers["X-Operator-ID"] = cp.OperatorID
 		}
 	}
 	if ServerURL != "" {

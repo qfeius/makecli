@@ -46,30 +46,30 @@ access_token = AKIAUXFQEUPWGEXEYDUW
 
 ### 配置请求参数
 ```bash
-# 交互式配置 x-tenant-id 和 operator-id
+# 交互式配置 X-Tenant-ID 和 X-Operator-ID
 makecli configure config
 
 # 配置指定 profile
 makecli configure config --profile todo
 
 # 单条设置
-makecli configure set x-tenant-id tenant_abc
-makecli configure set operator-id op_123
+makecli configure set X-Tenant-ID tenant_abc
+makecli configure set X-Operator-ID op_123
 
 # 单条读取
-makecli configure get x-tenant-id
+makecli configure get X-Tenant-ID
 ```
 
 配置保存在 `~/.make/config`，格式：
 ```ini
 [default]
 server-url = https://dev-make.qtech.cn/api/make
-x-tenant-id = tenant_abc
-operator-id = op_123
+X-Tenant-ID = tenant_abc
+X-Operator-ID = op_123
 ```
 
 - `server-url` — Meta Server 地址，优先级：`--server-url` 命令行参数 > config 文件 > 默认值
-- `x-tenant-id` 和 `operator-id` 会自动作为 HTTP Header 附加到所有 API 请求中
+- `X-Tenant-ID` 和 `X-Operator-ID` 会自动作为 HTTP Header 附加到所有 API 请求中
 
 ### 全局参数
 

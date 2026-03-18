@@ -79,7 +79,7 @@ func TestSaveConfigAndLoad(t *testing.T) {
 
 func TestParseConfigINI(t *testing.T) {
 	t.Run("both keys", func(t *testing.T) {
-		f := writeTempINI(t, "[default]\nx-tenant-id = t1\noperator-id = o1\n")
+		f := writeTempINI(t, "[default]\nX-Tenant-ID = t1\nX-Operator-ID = o1\n")
 		defer func() { _ = f.Close() }()
 
 		cfg, err := parseConfigINI(f)
@@ -92,7 +92,7 @@ func TestParseConfigINI(t *testing.T) {
 	})
 
 	t.Run("partial keys", func(t *testing.T) {
-		f := writeTempINI(t, "[default]\nx-tenant-id = t1\n")
+		f := writeTempINI(t, "[default]\nX-Tenant-ID = t1\n")
 		defer func() { _ = f.Close() }()
 
 		cfg, err := parseConfigINI(f)

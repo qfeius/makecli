@@ -35,7 +35,7 @@ func WithDebug(on bool) Option {
 	return func(c *Client) { c.debug = on }
 }
 
-// WithHeaders 设置额外请求头（如 x-tenant-id、operator-id）
+// WithHeaders 设置额外请求头（如 X-Tenant-ID、X-Operator-ID）
 func WithHeaders(h map[string]string) Option {
 	return func(c *Client) { c.headers = h }
 }

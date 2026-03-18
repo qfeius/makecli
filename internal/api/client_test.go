@@ -153,19 +153,19 @@ func TestListApps(t *testing.T) {
 
 func TestWithHeaders(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("x-tenant-id"); got != "tenant-abc" {
-			t.Errorf("x-tenant-id = %q, want %q", got, "tenant-abc")
+		if got := r.Header.Get("X-Tenant-ID"); got != "tenant-abc" {
+			t.Errorf("X-Tenant-ID = %q, want %q", got, "tenant-abc")
 		}
-		if got := r.Header.Get("operator-id"); got != "op-123" {
-			t.Errorf("operator-id = %q, want %q", got, "op-123")
+		if got := r.Header.Get("X-Operator-ID"); got != "op-123" {
+			t.Errorf("X-Operator-ID = %q, want %q", got, "op-123")
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "ok"})
 	}))
 	defer srv.Close()
 
 	headers := map[string]string{
-		"x-tenant-id": "tenant-abc",
-		"operator-id": "op-123",
+		"X-Tenant-ID":  "tenant-abc",
+		"X-Operator-ID": "op-123",
 	}
 	client := New(srv.URL, "test-token", WithHeaders(headers))
 	if err := client.CreateApp("test"); err != nil {

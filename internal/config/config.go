@@ -98,9 +98,9 @@ func parseConfigINI(f *os.File) (Config, error) {
 		switch key {
 		case "server-url":
 			p.ServerURL = val
-		case "x-tenant-id":
+		case "X-Tenant-ID":
 			p.XTenantID = val
-		case "operator-id":
+		case "X-Operator-ID":
 			p.OperatorID = val
 		}
 		cfg[current] = p
@@ -151,10 +151,10 @@ func SaveConfig(cfg Config) error {
 			_, _ = fmt.Fprintf(w, "server-url = %s\n", p.ServerURL)
 		}
 		if p.XTenantID != "" {
-			_, _ = fmt.Fprintf(w, "x-tenant-id = %s\n", p.XTenantID)
+			_, _ = fmt.Fprintf(w, "X-Tenant-ID = %s\n", p.XTenantID)
 		}
 		if p.OperatorID != "" {
-			_, _ = fmt.Fprintf(w, "operator-id = %s\n", p.OperatorID)
+			_, _ = fmt.Fprintf(w, "X-Operator-ID = %s\n", p.OperatorID)
 		}
 	}
 
