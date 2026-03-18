@@ -2,10 +2,10 @@
 Go + github.com/spf13/cobra
 
 <directory>
-cmd/            - Cobra 子命令层（root、version、configure）
-internal/api/    - Make Meta Service HTTP 客户端（Client/CreateApp，X-Make-Target 路由）
+cmd/            - Cobra 子命令层（root、version、configure[token/config/set/get]、app、entity、apply、diff、update）
+internal/api/    - Make Meta Service HTTP 客户端（Client + functional options，X-Make-Target 路由 + 自定义 headers 注入）
 internal/build/ - 构建元数据（Version/Date，由 ldflags 注入）
-internal/config/ - 凭证管理（读写 ~/.make/credentials，INI 格式）
+internal/config/ - 凭证与配置管理（读写 ~/.make/credentials 和 ~/.make/config，INI 格式）
 internal/update/ - 自更新引擎（GitHub Releases 查询、下载、原子替换二进制）
 </directory>
 
