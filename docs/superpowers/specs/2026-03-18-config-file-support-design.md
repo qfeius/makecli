@@ -45,6 +45,7 @@ makecli configure get <key> [--profile xxx]          → 单条读取 config
 
 ### configure set / get
 
+- `set` / `get` 仅操作 `~/.make/config`；token 管理请用 `configure token`
 - `set` 合法 key：`x-tenant-id`、`operator-id`
 - `get` 输出对应 profile 下的值，不存在则输出空行
 - 非法 key 报错：`unknown config key 'xxx', valid keys: x-tenant-id, operator-id`
@@ -101,7 +102,7 @@ for k, v := range c.headers {
 }
 ```
 
-debug 模式同步输出这些 header 到 curl 命令。
+debug 模式同步输出这些 header 到 curl 命令，格式为额外的 `-H 'key: value'` 行。
 
 ### 3. `cmd/configure.go`（重构）
 
@@ -115,32 +116,42 @@ configure (RunE = runConfigureToken，裸调兼容)
 └── get     (RunE = runConfigureGet, Args = ExactArgs(1))
 ```
 
+- `--profile` 设为 `configure` 的 **PersistentFlag**，所有子命令自动继承
 - `prompt` / `mask` / `validateJWT` 保留在同一文件
 - config 交互和 set/get 逻辑可放同文件或拆分（视行数决定）
 
-### 4. 各命令 `runXxx` 函数（批量修改）
+### 4. `cmd/client.go`（新文件）— 提取公共 helper
 
-统一模式：
+8 个命令文件重复「加载 creds + config → 校验 profile → 构建 client」逻辑，**必须**提取：
 
 ```go
-creds, _ := config.Load()
-cfg, _ := config.LoadConfig()
-
-// 构建 headers
-headers := map[string]string{}
-if cp, ok := cfg[profile]; ok {
-    if cp.XTenantID != "" {
-        headers["x-tenant-id"] = cp.XTenantID
-    }
-    if cp.OperatorID != "" {
-        headers["operator-id"] = cp.OperatorID
-    }
-}
-
-client := api.New(server, p.AccessToken, api.WithDebug(DebugMode), api.WithHeaders(headers))
+// newClientFromProfile 从 credentials + config 构建 API 客户端
+func newClientFromProfile(profile, server string) (*api.Client, error)
 ```
 
-受影响文件：
+内部逻辑：
+1. `config.Load()` → 取 `profile` 的 `AccessToken`，缺失报错
+2. `config.LoadConfig()` → 取 `profile` 的 `XTenantID` / `OperatorID`，缺失静默跳过
+3. 构建 `headers map[string]string`
+4. 返回 `api.New(server, token, api.WithDebug(DebugMode), api.WithHeaders(headers))`
+
+### 5. 各命令 `runXxx` 函数（批量迁移）
+
+所有 `api.New(server, p.AccessToken, DebugMode)` 调用替换为 `newClientFromProfile(profile, server)`。
+
+**迁移前：**
+```go
+creds, err := config.Load()
+p, ok := creds[profile]
+client := api.New(server, p.AccessToken, DebugMode)
+```
+
+**迁移后：**
+```go
+client, err := newClientFromProfile(profile, server)
+```
+
+受影响文件（8 个）：
 - `cmd/app_create.go`
 - `cmd/app_list.go`
 - `cmd/app_delete.go`
@@ -149,16 +160,6 @@ client := api.New(server, p.AccessToken, api.WithDebug(DebugMode), api.WithHeade
 - `cmd/entity_delete.go`
 - `cmd/apply.go`
 - `cmd/diff.go`
-
-### 5. 提取公共 helper（可选）
-
-各命令重复的「加载 creds + config → 校验 profile → 构建 client」逻辑，可提取为：
-
-```go
-func newClientFromProfile(profile, server string) (*api.Client, error)
-```
-
-放在 `cmd/output.go` 或新建 `cmd/client.go`。减少 8 个文件的重复代码。
 
 ## 不变的
 
