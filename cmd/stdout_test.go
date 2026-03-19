@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 os、bytes、io、testing
+ * [OUTPUT]: 对外提供 captureStdout 测试辅助函数，劫持 os.Stdout 捕获输出
+ * [POS]: cmd 模块的测试基础设施，被各子命令测试文件复用
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
+
 package cmd
 
 import (
