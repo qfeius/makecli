@@ -148,6 +148,12 @@ internal/api/client.go       # 新增 Relation 类型 + 5 个方法
 - **captureStdout()** 捕获输出，断言表格/JSON 内容
 - 每个子命令覆盖正常路径 + 错误路径（缺 `--app`、缺 `--json`、API 错误）
 
+## 约束
+
+- **`--json` 是 create/update 的必需参数**：与 entity 的 `--fields`（可选）不同，relation 没有 from/to 无意义。使用 `cmd.MarkFlagRequired("json")` 强制校验。
+- **ListRelations 排序字段**：使用 `sort: [{"field": "id", "order": "asc"}]`，与 entity/app 的 ListEntities/ListApps 保持一致（API 文档示例中的 `createdAt` 仅为示意）。
+- **VERSION 列取自 `meta.version`**：表格和详情视图中的版本号均从 `Relation.Meta["version"]` 提取，与 entity list 行为一致。
+
 ## 设计决策
 
 1. **`--json` 文件输入（非命令行参数）**：与 entity 的 `--fields` 模式一致，通过 apply 命令覆盖批量场景
