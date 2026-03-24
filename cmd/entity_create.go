@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Field）、encoding/json、fmt、os、strings、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newEntityCreateCmd 函数
- * [POS]: cmd/entity 的 create 子命令，校验 fields、调用 Meta Server API 创建 Entity
+ * [POS]: cmd/entity 的 create 子命令，从 JSON 文件加载 fields、校验后调用 Meta Server API 创建 Entity
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -19,7 +19,7 @@ import (
 
 func newEntityCreateCmd() *cobra.Command {
 	var profile string
-	var fieldsFile string
+	var jsonFile string
 
 	cmd := &cobra.Command{
 		Use:          "create <name>",
@@ -28,22 +28,22 @@ func newEntityCreateCmd() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			app, _ := cmd.Parent().Flags().GetString("app")
-			return runEntityCreate(args[0], app, fieldsFile, profile)
+			return runEntityCreate(args[0], app, jsonFile, profile)
 		},
 	}
 
-	cmd.Flags().StringVar(&fieldsFile, "fields", "", "path to JSON file containing fields array")
+	cmd.Flags().StringVar(&jsonFile, "json", "", "path to JSON file containing fields array")
 	cmd.Flags().StringVar(&profile, "profile", "default", "credentials profile to use")
 	return cmd
 }
 
-func runEntityCreate(name, app, fieldsFile, profile string) error {
+func runEntityCreate(name, app, jsonFile, profile string) error {
 	client, err := newClientFromProfile(profile)
 	if err != nil {
 		return err
 	}
 
-	fields, err := loadFields(fieldsFile)
+	fields, err := loadFields(jsonFile)
 	if err != nil {
 		return err
 	}
