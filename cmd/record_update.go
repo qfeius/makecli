@@ -25,12 +25,7 @@ func newRecordUpdateCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "update <record-id> [record-id...]",
-		Short: "Update one or more records",
-		Long: `Update records with data from a JSON file.
-
-When a single record ID is provided, updates that record via the record API.
-When multiple record IDs are provided, applies the same data to all records
-via the batch field API. The routing is transparent to the user.`,
+		Short: "Update one or more records (single ID → record API, multiple IDs → batch field API)",
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
