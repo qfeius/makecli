@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 cmd 包内函数（包内白盒）、internal/config、encoding/json、net/http、net/http/httptest、os、path/filepath、testing
- * [OUTPUT]: 覆盖 apply 子命令核心逻辑的单元测试
+ * [INPUT]: 依赖 cmd 包内函数（包内白盒）、internal/config、encoding/json、net/http、net/http/httptest、os、path/filepath、strings、testing
+ * [OUTPUT]: 覆盖 apply 子命令核心逻辑的单元测试（App/Entity/Relation）
  * [POS]: cmd 模块顶层 apply 命令的配套测试，用 httptest 隔离网络、临时文件测试 YAML 解析
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -122,6 +122,189 @@ properties:
 		// 1x GetApp + 1x CreateApp + 1x GetEntity + 1x CreateEntity = 4 calls
 		if callCount != 4 {
 			t.Fatalf("expected 4 API calls, got %d", callCount)
+		}
+	})
+
+	t.Run("applies relation from file", func(t *testing.T) {
+		callCount := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			callCount++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":200,"msg":"success","data":{}}`))
+		}))
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultTokenForApply(t)
+		ServerURL = srv.URL
+		testDir := t.TempDir()
+
+		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `name: project-has-tasks
+type: Make.Relation
+app: myapp
+meta:
+  version: 1.0.0
+properties:
+  from:
+    entity: Project
+    cardinality: one
+  to:
+    entity: Task
+    cardinality: many
+`)
+
+		if err := runAppApply(yamlFile, "default"); err != nil {
+			t.Fatalf("runAppApply relation: %v", err)
+		}
+		// 1x GetRelation + 1x CreateRelation = 2 calls
+		if callCount != 2 {
+			t.Fatalf("expected 2 API calls, got %d", callCount)
+		}
+	})
+
+	t.Run("updates existing relation", func(t *testing.T) {
+		callCount := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+			w.Header().Set("Content-Type", "application/json")
+			target := r.Header.Get("X-Make-Target")
+			if target == "MakeService.GetResource" {
+				_, _ = w.Write([]byte(`{"code":200,"msg":"ok","data":{"name":"project-has-tasks","type":"Make.Relation","app":"myapp"}}`))
+			} else {
+				_, _ = w.Write([]byte(`{"code":200,"msg":"success","data":{}}`))
+			}
+		}))
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultTokenForApply(t)
+		ServerURL = srv.URL
+		testDir := t.TempDir()
+
+		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `name: project-has-tasks
+type: Make.Relation
+app: myapp
+meta:
+  version: 1.0.0
+properties:
+  from:
+    entity: Project
+    cardinality: one
+  to:
+    entity: Task
+    cardinality: many
+`)
+
+		if err := runAppApply(yamlFile, "default"); err != nil {
+			t.Fatalf("runAppApply update relation: %v", err)
+		}
+		// 1x GetRelation + 1x UpdateRelation = 2 calls
+		if callCount != 2 {
+			t.Fatalf("expected 2 API calls, got %d", callCount)
+		}
+	})
+
+	t.Run("fails with relation missing app", func(t *testing.T) {
+		srv := newMockMetaForApply(t, 200, "success")
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultTokenForApply(t)
+		ServerURL = srv.URL
+		testDir := t.TempDir()
+
+		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `name: project-has-tasks
+type: Make.Relation
+meta:
+  version: 1.0.0
+properties:
+  from:
+    entity: Project
+    cardinality: one
+  to:
+    entity: Task
+    cardinality: many
+`)
+
+		if err := runAppApply(yamlFile, "default"); err == nil {
+			t.Fatal("expected error for missing app field")
+		}
+	})
+
+	t.Run("fails with relation missing from", func(t *testing.T) {
+		srv := newMockMetaForApply(t, 200, "success")
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultTokenForApply(t)
+		ServerURL = srv.URL
+		testDir := t.TempDir()
+
+		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `name: project-has-tasks
+type: Make.Relation
+app: myapp
+meta:
+  version: 1.0.0
+properties:
+  to:
+    entity: Task
+    cardinality: many
+`)
+
+		if err := runAppApply(yamlFile, "default"); err == nil {
+			t.Fatal("expected error for missing from field")
+		}
+	})
+
+	t.Run("applies app + entity + relation from directory", func(t *testing.T) {
+		callCount := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			callCount++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"code":200,"msg":"success","data":{}}`))
+		}))
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultTokenForApply(t)
+		ServerURL = srv.URL
+		testDir := t.TempDir()
+
+		writeYAMLFileForApply(t, testDir, "app.yaml", `name: myapp
+type: Make.App
+meta:
+  version: 1.0.0
+properties:
+  code: myapp
+`)
+		writeYAMLFileForApply(t, testDir, "entity.yaml", `name: Task
+type: Make.Entity
+app: myapp
+meta:
+  version: 1.0.0
+properties:
+  fields:
+    - name: title
+      type: Make.Field.Text
+      meta:
+        version: 1.0.0
+      properties: {}
+`)
+		writeYAMLFileForApply(t, testDir, "relation.yaml", `name: project-has-tasks
+type: Make.Relation
+app: myapp
+meta:
+  version: 1.0.0
+properties:
+  from:
+    entity: Project
+    cardinality: one
+  to:
+    entity: Task
+    cardinality: many
+`)
+
+		if err := runAppApply(testDir, "default"); err != nil {
+			t.Fatalf("runAppApply dir with relation: %v", err)
+		}
+		// 2(App) + 2(Entity) + 2(Relation) = 6 calls
+		if callCount != 6 {
+			t.Fatalf("expected 6 API calls, got %d", callCount)
 		}
 	})
 

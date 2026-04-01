@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client/GetApp/ListEntities）、cmd/apply（loadManifestsFromFile/Dir/ResourceManifest）、cmd/output（validateOutputFormat/writeJSON）、encoding/json、fmt、os、reflect、sort
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client/GetApp/ListEntities/ListRelations/Entity/Relation/RelationProperties/RelationEnd）、cmd/apply（loadManifestsFromFile/Dir/ResourceManifest/getFieldMap）、cmd/output（validateOutputFormat/writeJSON）、encoding/json、fmt、os、reflect、sort、strings
  * [OUTPUT]: 对外提供 newDiffCmd 函数
- * [POS]: cmd 模块的顶层 diff 命令，对比远端 Meta Server 上的 App DSL 与本地 YAML 文件的差异
+ * [POS]: cmd 模块的顶层 diff 命令，对比远端 Meta Server 上的 App DSL（Entity + Relation）与本地 YAML 文件的差异
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -11,8 +11,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"reflect"
+	"sort"
+	"strings"
 
 	"github.com/qfeius/makecli/internal/api"
 	"github.com/spf13/cobra"
@@ -50,9 +51,10 @@ The app name is inferred from the Make.App manifest or entity's app field in the
 
 // DiffResult 整体对比结果
 type DiffResult struct {
-	AppName  string       `json:"app"`
-	Entities []EntityDiff `json:"entities"`
-	Summary  DiffSummary  `json:"summary"`
+	AppName   string         `json:"app"`
+	Entities  []EntityDiff   `json:"entities"`
+	Relations []RelationDiff `json:"relations"`
+	Summary   DiffSummary    `json:"summary"`
 }
 
 // EntityDiff 单个 Entity 的对比结果
@@ -66,6 +68,13 @@ type EntityDiff struct {
 type FieldDiff struct {
 	Name   string `json:"name"`
 	Status string `json:"status"` // added | removed | changed
+	Detail string `json:"detail,omitempty"`
+}
+
+// RelationDiff 单个 Relation 的对比结果
+type RelationDiff struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // added | removed | changed | unchanged
 	Detail string `json:"detail,omitempty"`
 }
 
@@ -120,8 +129,9 @@ func runDiff(path, profile, output string) error {
 		return fmt.Errorf("无法推断 App 名称：YAML 中未找到 Make.App 定义或 entity 的 app 字段")
 	}
 
-	// 提取本地 Entity 清单
+	// 提取本地 Entity / Relation 清单
 	localEntities := filterEntities(resources)
+	localRelations := filterRelations(resources)
 
 	// 获取远端数据
 	if _, err := client.GetApp(app); err != nil {
@@ -131,9 +141,25 @@ func runDiff(path, profile, output string) error {
 	if err != nil {
 		return fmt.Errorf("获取远端 Entity 失败: %w", err)
 	}
+	remoteRelations, err := fetchAllRelations(client, app)
+	if err != nil {
+		return fmt.Errorf("获取远端 Relation 失败: %w", err)
+	}
 
 	// 计算差异
-	result := computeDiff(app, localEntities, remoteEntities)
+	entityResult := computeDiff(app, localEntities, remoteEntities)
+	relationDiffs, relationSummary := computeRelationDiff(localRelations, remoteRelations)
+	result := DiffResult{
+		AppName:   app,
+		Entities:  entityResult.Entities,
+		Relations: relationDiffs,
+		Summary: DiffSummary{
+			Added:     entityResult.Summary.Added + relationSummary.Added,
+			Removed:   entityResult.Summary.Removed + relationSummary.Removed,
+			Changed:   entityResult.Summary.Changed + relationSummary.Changed,
+			Unchanged: entityResult.Summary.Unchanged + relationSummary.Unchanged,
+		},
+	}
 
 	// 输出
 	if output == outputJSON {
@@ -181,8 +207,37 @@ func filterEntities(resources []ResourceManifest) []ResourceManifest {
 	return entities
 }
 
+// filterRelations 从混合资源清单中提取 Relation 类型的 Manifest
+func filterRelations(resources []ResourceManifest) []ResourceManifest {
+	var relations []ResourceManifest
+	for _, r := range resources {
+		if r.Type == "Make.Relation" {
+			relations = append(relations, r)
+		}
+	}
+	return relations
+}
+
+// fetchAllRelations 分页获取指定 App 下的全部 Relation
+func fetchAllRelations(client *api.Client, app string) ([]api.Relation, error) {
+	var all []api.Relation
+	page := 1
+	for {
+		batch, total, err := client.ListRelations(app, page, 100)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, batch...)
+		if len(all) >= total {
+			break
+		}
+		page++
+	}
+	return all, nil
+}
+
 // resolveAppName 从资源清单推断 App 名称
-// 优先级: Make.App 的 name > 第一个 Make.Entity 的 app 字段
+// 优先级: Make.App 的 name > 第一个 Make.Entity 的 app 字段 > 第一个 Make.Relation 的 app 字段
 func resolveAppName(resources []ResourceManifest) string {
 	for _, r := range resources {
 		if r.Type == "Make.App" && r.Name != "" {
@@ -190,7 +245,7 @@ func resolveAppName(resources []ResourceManifest) string {
 		}
 	}
 	for _, r := range resources {
-		if r.Type == "Make.Entity" && r.App != "" {
+		if (r.Type == "Make.Entity" || r.Type == "Make.Relation") && r.App != "" {
 			return r.App
 		}
 	}
@@ -259,6 +314,85 @@ func computeDiff(app string, local []ResourceManifest, remote []api.Entity) Diff
 	}
 
 	return DiffResult{AppName: app, Entities: diffs, Summary: summary}
+}
+
+// computeRelationDiff 对比本地和远端的 Relation 集合
+func computeRelationDiff(local []ResourceManifest, remote []api.Relation) ([]RelationDiff, DiffSummary) {
+	remoteByName := make(map[string]api.Relation, len(remote))
+	for _, r := range remote {
+		remoteByName[r.Name] = r
+	}
+
+	var diffs []RelationDiff
+	visited := make(map[string]bool)
+
+	for _, m := range local {
+		visited[m.Name] = true
+		rr, exists := remoteByName[m.Name]
+		if !exists {
+			diffs = append(diffs, RelationDiff{Name: m.Name, Status: diffAdded})
+			continue
+		}
+		detail := compareRelationEndpoints(m, rr)
+		status := diffUnchanged
+		if detail != "" {
+			status = diffChanged
+		}
+		diffs = append(diffs, RelationDiff{Name: m.Name, Status: status, Detail: detail})
+	}
+
+	for _, r := range remote {
+		if visited[r.Name] {
+			continue
+		}
+		diffs = append(diffs, RelationDiff{Name: r.Name, Status: diffRemoved})
+	}
+
+	sort.Slice(diffs, func(i, j int) bool {
+		return diffOrder(diffs[i].Status) < diffOrder(diffs[j].Status)
+	})
+
+	var summary DiffSummary
+	for _, d := range diffs {
+		switch d.Status {
+		case diffAdded:
+			summary.Added++
+		case diffRemoved:
+			summary.Removed++
+		case diffChanged:
+			summary.Changed++
+		case diffUnchanged:
+			summary.Unchanged++
+		}
+	}
+
+	return diffs, summary
+}
+
+// compareRelationEndpoints 对比 Relation 的 from/to 端点，返回变化描述
+func compareRelationEndpoints(local ResourceManifest, remote api.Relation) string {
+	localFrom := getFieldMap(local.Properties, "from")
+	localTo := getFieldMap(local.Properties, "to")
+
+	var changes []string
+
+	localFromEntity, _ := localFrom["entity"].(string)
+	localFromCard, _ := localFrom["cardinality"].(string)
+	if localFromEntity != remote.Properties.From.Entity || localFromCard != remote.Properties.From.Cardinality {
+		changes = append(changes, fmt.Sprintf("from: %s(%s) → %s(%s)",
+			remote.Properties.From.Entity, remote.Properties.From.Cardinality,
+			localFromEntity, localFromCard))
+	}
+
+	localToEntity, _ := localTo["entity"].(string)
+	localToCard, _ := localTo["cardinality"].(string)
+	if localToEntity != remote.Properties.To.Entity || localToCard != remote.Properties.To.Cardinality {
+		changes = append(changes, fmt.Sprintf("to: %s(%s) → %s(%s)",
+			remote.Properties.To.Entity, remote.Properties.To.Cardinality,
+			localToEntity, localToCard))
+	}
+
+	return strings.Join(changes, "; ")
 }
 
 // diffOrder 差异状态排序权重
@@ -410,33 +544,54 @@ func normalize(v any) any {
 func renderDiffTable(result DiffResult) {
 	fmt.Printf("App: %s\n\n", result.AppName)
 
-	if len(result.Entities) == 0 {
-		fmt.Println("No entities found.")
-		return
+	hasDiff := false
+
+	// Entity 差异
+	if len(result.Entities) > 0 {
+		fmt.Println("Entities:")
+		for _, e := range result.Entities {
+			switch e.Status {
+			case diffChanged:
+				hasDiff = true
+				fmt.Printf("  ~ %s\n", e.Name)
+				for _, f := range e.Fields {
+					switch f.Status {
+					case diffAdded:
+						fmt.Printf("    + %s: %s (only in local)\n", f.Name, f.Detail)
+					case diffRemoved:
+						fmt.Printf("    - %s: %s (only on server)\n", f.Name, f.Detail)
+					case diffChanged:
+						fmt.Printf("    ~ %s: %s\n", f.Name, f.Detail)
+					}
+				}
+			case diffAdded:
+				hasDiff = true
+				fmt.Printf("  + %s (only in local)\n", e.Name)
+			case diffRemoved:
+				hasDiff = true
+				fmt.Printf("  - %s (only on server)\n", e.Name)
+			}
+		}
 	}
 
-	hasDiff := false
-	for _, e := range result.Entities {
-		switch e.Status {
-		case diffChanged:
-			hasDiff = true
-			fmt.Printf("  ~ %s\n", e.Name)
-			for _, f := range e.Fields {
-				switch f.Status {
-				case diffAdded:
-					fmt.Printf("    + %s: %s (only in local)\n", f.Name, f.Detail)
-				case diffRemoved:
-					fmt.Printf("    - %s: %s (only on server)\n", f.Name, f.Detail)
-				case diffChanged:
-					fmt.Printf("    ~ %s: %s\n", f.Name, f.Detail)
+	// Relation 差异
+	if len(result.Relations) > 0 {
+		fmt.Println("\nRelations:")
+		for _, r := range result.Relations {
+			switch r.Status {
+			case diffChanged:
+				hasDiff = true
+				fmt.Printf("  ~ %s\n", r.Name)
+				if r.Detail != "" {
+					fmt.Printf("    %s\n", r.Detail)
 				}
+			case diffAdded:
+				hasDiff = true
+				fmt.Printf("  + %s (only in local)\n", r.Name)
+			case diffRemoved:
+				hasDiff = true
+				fmt.Printf("  - %s (only on server)\n", r.Name)
 			}
-		case diffAdded:
-			hasDiff = true
-			fmt.Printf("  + %s (only in local)\n", e.Name)
-		case diffRemoved:
-			hasDiff = true
-			fmt.Printf("  - %s (only on server)\n", e.Name)
 		}
 	}
 

@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 cmd 包内函数（包内白盒）、internal/config、internal/api、encoding/json、net/http、net/http/httptest、os、path/filepath、testing
- * [OUTPUT]: 覆盖 diff 子命令核心逻辑的单元测试
+ * [INPUT]: 依赖 cmd 包内函数（包内白盒）、internal/config、internal/api、encoding/json、net/http、net/http/httptest、os、path/filepath、strings、testing
+ * [OUTPUT]: 覆盖 diff 子命令核心逻辑的单元测试（Entity + Relation）
  * [POS]: cmd 模块顶层 diff 命令的配套测试，用 httptest 隔离网络、临时文件测试差异对比
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/qfeius/makecli/internal/api"
@@ -46,7 +47,7 @@ func TestRunDiff(t *testing.T) {
 	})
 
 	t.Run("fails when remote app not found", func(t *testing.T) {
-		srv := newDiffServer(t, nil)
+		srv := newDiffServer(t, nil, nil)
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDiffToken(t)
@@ -418,6 +419,23 @@ properties:
 `
 }
 
+// relationYAML 生成单 Relation 的 YAML 字符串
+func relationYAML(name, app, fromEntity, fromCard, toEntity, toCard string) string {
+	return `name: ` + name + `
+type: Make.Relation
+app: ` + app + `
+meta:
+  version: 1.0.0
+properties:
+  from:
+    entity: ` + fromEntity + `
+    cardinality: ` + fromCard + `
+  to:
+    entity: ` + toEntity + `
+    cardinality: ` + toCard + `
+`
+}
+
 // writeDiffYAML 写入 YAML 到临时目录，返回目录路径
 func writeDiffYAML(t *testing.T, content string) string {
 	t.Helper()
@@ -440,9 +458,183 @@ func saveDiffToken(t *testing.T) {
 	}
 }
 
-// newDiffServer 创建 mock Meta Server，根据 X-Make-Target 路由请求
+// ---------------------------------- computeRelationDiff 测试 ----------------------------------
+
+func TestComputeRelationDiff(t *testing.T) {
+	t.Run("no differences", func(t *testing.T) {
+		local := []ResourceManifest{
+			makeLocalRelation("rel1", "Project", "one", "Task", "many"),
+		}
+		remote := []api.Relation{
+			makeRemoteRelation("rel1", "Project", "one", "Task", "many"),
+		}
+
+		diffs, summary := computeRelationDiff(local, remote)
+		if summary.Unchanged != 1 {
+			t.Errorf("expected 1 unchanged, got %d", summary.Unchanged)
+		}
+		if len(diffs) != 1 || diffs[0].Status != diffUnchanged {
+			t.Errorf("expected unchanged status")
+		}
+	})
+
+	t.Run("relation only in local", func(t *testing.T) {
+		local := []ResourceManifest{
+			makeLocalRelation("new-rel", "A", "one", "B", "many"),
+		}
+		var remote []api.Relation
+
+		_, summary := computeRelationDiff(local, remote)
+		if summary.Added != 1 {
+			t.Errorf("expected 1 added, got %d", summary.Added)
+		}
+	})
+
+	t.Run("relation only on server", func(t *testing.T) {
+		var local []ResourceManifest
+		remote := []api.Relation{
+			makeRemoteRelation("old-rel", "A", "one", "B", "many"),
+		}
+
+		_, summary := computeRelationDiff(local, remote)
+		if summary.Removed != 1 {
+			t.Errorf("expected 1 removed, got %d", summary.Removed)
+		}
+	})
+
+	t.Run("from endpoint changed", func(t *testing.T) {
+		local := []ResourceManifest{
+			makeLocalRelation("rel1", "ProjectV2", "one", "Task", "many"),
+		}
+		remote := []api.Relation{
+			makeRemoteRelation("rel1", "Project", "one", "Task", "many"),
+		}
+
+		diffs, summary := computeRelationDiff(local, remote)
+		if summary.Changed != 1 {
+			t.Errorf("expected 1 changed, got %d", summary.Changed)
+		}
+		if !strings.Contains(diffs[0].Detail, "from:") {
+			t.Errorf("expected detail to contain 'from:', got %q", diffs[0].Detail)
+		}
+	})
+
+	t.Run("to cardinality changed", func(t *testing.T) {
+		local := []ResourceManifest{
+			makeLocalRelation("rel1", "Project", "one", "Task", "one"),
+		}
+		remote := []api.Relation{
+			makeRemoteRelation("rel1", "Project", "one", "Task", "many"),
+		}
+
+		diffs, summary := computeRelationDiff(local, remote)
+		if summary.Changed != 1 {
+			t.Errorf("expected 1 changed, got %d", summary.Changed)
+		}
+		if !strings.Contains(diffs[0].Detail, "to:") {
+			t.Errorf("expected detail to contain 'to:', got %q", diffs[0].Detail)
+		}
+	})
+}
+
+// ---------------------------------- fetchAllRelations 测试 ----------------------------------
+
+func TestFetchAllRelations(t *testing.T) {
+	t.Run("single page", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200,
+				"msg":  "ok",
+				"data": []map[string]any{
+					{"name": "R1", "type": "Make.Relation", "app": "a", "meta": map[string]any{}, "properties": map[string]any{"from": map[string]any{"entity": "A", "cardinality": "one"}, "to": map[string]any{"entity": "B", "cardinality": "many"}}},
+				},
+				"pagination": map[string]any{"total": 1},
+			})
+		}))
+		defer srv.Close()
+
+		client := api.New(srv.URL, "tok")
+		relations, err := fetchAllRelations(client, "a")
+		if err != nil {
+			t.Fatalf("fetchAllRelations: %v", err)
+		}
+		if len(relations) != 1 {
+			t.Fatalf("expected 1, got %d", len(relations))
+		}
+	})
+
+	t.Run("multi page", func(t *testing.T) {
+		callCount := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			callCount++
+			w.Header().Set("Content-Type", "application/json")
+			var data []map[string]any
+			if callCount == 1 {
+				data = []map[string]any{
+					{"name": "R1", "type": "Make.Relation", "app": "a", "meta": map[string]any{}, "properties": map[string]any{"from": map[string]any{"entity": "A", "cardinality": "one"}, "to": map[string]any{"entity": "B", "cardinality": "many"}}},
+				}
+			} else {
+				data = []map[string]any{
+					{"name": "R2", "type": "Make.Relation", "app": "a", "meta": map[string]any{}, "properties": map[string]any{"from": map[string]any{"entity": "C", "cardinality": "many"}, "to": map[string]any{"entity": "D", "cardinality": "many"}}},
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code":       200,
+				"msg":        "ok",
+				"data":       data,
+				"pagination": map[string]any{"total": 2},
+			})
+		}))
+		defer srv.Close()
+
+		client := api.New(srv.URL, "tok")
+		relations, err := fetchAllRelations(client, "a")
+		if err != nil {
+			t.Fatalf("fetchAllRelations: %v", err)
+		}
+		if len(relations) != 2 {
+			t.Fatalf("expected 2, got %d", len(relations))
+		}
+		if callCount != 2 {
+			t.Fatalf("expected 2 API calls, got %d", callCount)
+		}
+	})
+}
+
+// ---------------------------------- Relation 辅助函数 ----------------------------------
+
+// makeLocalRelation 构造本地 Relation Manifest
+func makeLocalRelation(name, fromEntity, fromCard, toEntity, toCard string) ResourceManifest {
+	return ResourceManifest{
+		Name: name,
+		Type: "Make.Relation",
+		App:  "myapp",
+		Meta: map[string]any{"version": "1.0.0"},
+		Properties: map[string]any{
+			"from": map[string]any{"entity": fromEntity, "cardinality": fromCard},
+			"to":   map[string]any{"entity": toEntity, "cardinality": toCard},
+		},
+	}
+}
+
+// makeRemoteRelation 构造远端 Relation 对象
+func makeRemoteRelation(name, fromEntity, fromCard, toEntity, toCard string) api.Relation {
+	return api.Relation{
+		Name: name,
+		Type: "Make.Relation",
+		App:  "myapp",
+		Meta: map[string]any{"version": "1.0.0"},
+		Properties: api.RelationProperties{
+			From: api.RelationEnd{Entity: fromEntity, Cardinality: fromCard},
+			To:   api.RelationEnd{Entity: toEntity, Cardinality: toCard},
+		},
+	}
+}
+
+// newDiffServer 创建 mock Meta Server，根据 X-Make-Target + URL path 路由请求
 // remoteEntities 为 nil 时 GetApp 返回 404（app 不存在）
-func newDiffServer(t *testing.T, remoteEntities []api.Entity) *httptest.Server {
+func newDiffServer(t *testing.T, remoteEntities []api.Entity, remoteRelations []api.Relation) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		target := r.Header.Get("X-Make-Target")
@@ -450,7 +642,7 @@ func newDiffServer(t *testing.T, remoteEntities []api.Entity) *httptest.Server {
 
 		switch target {
 		case "MakeService.GetResource":
-			if remoteEntities == nil {
+			if remoteEntities == nil && remoteRelations == nil {
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"code": 404,
 					"msg":  "not found",
@@ -469,16 +661,29 @@ func newDiffServer(t *testing.T, remoteEntities []api.Entity) *httptest.Server {
 			})
 
 		case "MakeService.ListResources":
-			entities := remoteEntities
-			if entities == nil {
-				entities = []api.Entity{}
+			if r.URL.Path == "/meta/v1/relation" {
+				relations := remoteRelations
+				if relations == nil {
+					relations = []api.Relation{}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"code":       200,
+					"msg":        "ok",
+					"data":       relations,
+					"pagination": map[string]any{"total": len(relations)},
+				})
+			} else {
+				entities := remoteEntities
+				if entities == nil {
+					entities = []api.Entity{}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"code":       200,
+					"msg":        "ok",
+					"data":       entities,
+					"pagination": map[string]any{"total": len(entities)},
+				})
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"code":       200,
-				"msg":        "ok",
-				"data":       entities,
-				"pagination": map[string]any{"total": len(entities)},
-			})
 
 		default:
 			_ = json.NewEncoder(w).Encode(map[string]any{

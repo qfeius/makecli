@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client/CreateAppWithCode/CreateEntity/GetApp/GetEntity/UpdateEntity/Field）、fmt、os、path/filepath、strings、gopkg.in/yaml.v3、github.com/spf13/cobra
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client/CreateAppWithCode/CreateEntity/GetApp/GetEntity/UpdateEntity/GetRelation/CreateRelation/UpdateRelation/Field/RelationProperties/RelationEnd）、fmt、os、path/filepath、strings、gopkg.in/yaml.v3、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newApplyCmd 函数
  * [POS]: cmd 模块的顶层 apply 命令，从 YAML 文件/目录批量应用资源（create-or-update 语义）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -28,7 +28,7 @@ func newApplyCmd() *cobra.Command {
 		Use:   "apply -f <path>",
 		Short: "Apply resources from YAML file or directory",
 		Long: `Apply resources defined in YAML files or directories.
-Supports creating App and Entity resources.`,
+Supports creating App, Entity, and Relation resources.`,
 		Example: `  makecli apply -f app.yaml
   makecli apply -f ./configs/
   makecli apply --dry-run -f app.yaml`,
@@ -169,19 +169,22 @@ func isRecognizedManifestExtension(ext string) bool {
 
 // ---------------------------------- 资源应用 ----------------------------------
 
-// applyResources 按依赖顺序应用资源：Make.App 先于 Make.Entity
+// applyResources 按依赖顺序应用资源：Make.App → Make.Entity → Make.Relation
 func applyResources(resources []ResourceManifest, client *api.Client) error {
 	// 按类型分组
 	apps := []ResourceManifest{}
 	entities := []ResourceManifest{}
+	relations := []ResourceManifest{}
 	for _, r := range resources {
 		switch r.Type {
 		case "Make.App":
 			apps = append(apps, r)
 		case "Make.Entity":
 			entities = append(entities, r)
+		case "Make.Relation":
+			relations = append(relations, r)
 		default:
-			return fmt.Errorf("未知资源类型 '%s'（资源 '%s'），支持的类型: Make.App, Make.Entity", r.Type, r.Name)
+			return fmt.Errorf("未知资源类型 '%s'（资源 '%s'），支持的类型: Make.App, Make.Entity, Make.Relation", r.Type, r.Name)
 		}
 	}
 
@@ -203,6 +206,15 @@ func applyResources(resources []ResourceManifest, client *api.Client) error {
 			return fmt.Errorf("应用 Entity '%s' 失败: %w", entity.Name, err)
 		}
 		fmt.Printf("Entity '%s' %s\n", entity.Name, action)
+	}
+
+	// 最后应用 Relation
+	for _, relation := range relations {
+		action, err := applyRelation(relation, client)
+		if err != nil {
+			return fmt.Errorf("应用 Relation '%s' 失败: %w", relation.Name, err)
+		}
+		fmt.Printf("Relation '%s' %s\n", relation.Name, action)
 	}
 
 	return nil
@@ -260,6 +272,47 @@ func applyEntity(manifest ResourceManifest, client *api.Client) (string, error) 
 	}
 
 	return "created", client.CreateEntity(manifest.Name, manifest.App, fields)
+}
+
+// applyRelation 从清单应用 Relation：不存在则创建，已存在则更新
+func applyRelation(manifest ResourceManifest, client *api.Client) (string, error) {
+	if manifest.App == "" {
+		return "", fmt.Errorf("relation 缺少 app 字段")
+	}
+
+	props, err := parseRelationProperties(manifest.Properties)
+	if err != nil {
+		return "", err
+	}
+
+	existing, err := client.GetRelation(manifest.App, manifest.Name)
+	if err == nil && existing.Name != "" {
+		return "updated", client.UpdateRelation(manifest.Name, manifest.App, props)
+	}
+
+	return "created", client.CreateRelation(manifest.Name, manifest.App, props)
+}
+
+// parseRelationProperties 从 YAML properties map 解析 Relation 的 from/to 端点
+func parseRelationProperties(properties map[string]any) (api.RelationProperties, error) {
+	fromRaw := getFieldMap(properties, "from")
+	if fromRaw == nil {
+		return api.RelationProperties{}, fmt.Errorf("relation 缺少 from 字段")
+	}
+	toRaw := getFieldMap(properties, "to")
+	if toRaw == nil {
+		return api.RelationProperties{}, fmt.Errorf("relation 缺少 to 字段")
+	}
+
+	fromEntity, _ := fromRaw["entity"].(string)
+	fromCardinality, _ := fromRaw["cardinality"].(string)
+	toEntity, _ := toRaw["entity"].(string)
+	toCardinality, _ := toRaw["cardinality"].(string)
+
+	return api.RelationProperties{
+		From: api.RelationEnd{Entity: fromEntity, Cardinality: fromCardinality},
+		To:   api.RelationEnd{Entity: toEntity, Cardinality: toCardinality},
+	}, nil
 }
 
 // getField 安全获取字段值
