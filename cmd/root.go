@@ -71,6 +71,8 @@ func Execute(version, buildDate string) error {
 		})
 		return fs.FlagUsages()
 	})
+	rootCmd.Version = formatVersion(version, buildDate)
+	rootCmd.SetVersionTemplate(`{{.Version}}`)
 	rootCmd.SetUsageTemplate(usageTemplate)
 	rootCmd.SetErrPrefix("error:")
 	rootCmd.PersistentFlags().BoolVar(&DebugMode, "debug", false, "enable debug mode to show curl output")
