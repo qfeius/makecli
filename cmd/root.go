@@ -9,6 +9,7 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // DebugMode 全局调试模式标志，从命令行读取
@@ -35,9 +36,12 @@ AVAILABLE COMMANDS
 {{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 FLAGS
 {{.LocalFlags.FlagUsages | trimRightSpace}}
-{{end}}{{if .HasAvailableInheritedFlags}}
+{{end}}{{if parentFlags .}}
+INHERITED FLAGS
+{{parentFlags . | trimRightSpace}}
+{{end}}{{if globalFlags .}}
 GLOBAL FLAGS
-{{.InheritedFlags.FlagUsages | trimRightSpace}}
+{{globalFlags . | trimRightSpace}}
 {{end}}{{if .HasExample}}
 EXAMPLES
 {{.Example}}
@@ -45,8 +49,28 @@ EXAMPLES
 Use "{{.CommandPath}} [command] --help" for more information about a command.
 {{end}}`
 
+
 // Execute 是程序入口，由 main.go 调用
 func Execute(version, buildDate string) error {
+	// 注册模板函数：拆分 InheritedFlags 为 global（root 级）和 parent（中间命令级）
+	cobra.AddTemplateFunc("globalFlags", func(cmd *cobra.Command) string {
+		fs := pflag.NewFlagSet("global", pflag.ContinueOnError)
+		cmd.InheritedFlags().VisitAll(func(f *pflag.Flag) {
+			if rootCmd.PersistentFlags().Lookup(f.Name) != nil {
+				fs.AddFlag(f)
+			}
+		})
+		return fs.FlagUsages()
+	})
+	cobra.AddTemplateFunc("parentFlags", func(cmd *cobra.Command) string {
+		fs := pflag.NewFlagSet("parent", pflag.ContinueOnError)
+		cmd.InheritedFlags().VisitAll(func(f *pflag.Flag) {
+			if rootCmd.PersistentFlags().Lookup(f.Name) == nil {
+				fs.AddFlag(f)
+			}
+		})
+		return fs.FlagUsages()
+	})
 	rootCmd.SetUsageTemplate(usageTemplate)
 	rootCmd.SetErrPrefix("error:")
 	rootCmd.PersistentFlags().BoolVar(&DebugMode, "debug", false, "enable debug mode to show curl output")

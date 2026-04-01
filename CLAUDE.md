@@ -29,6 +29,14 @@ git tag v1.0.0 && git push --tags
 → 推送 formula 到 qfeius/homebrew-makecli
 ```
 
+## 常用命令
+```bash
+make build          # 构建到 bin/makecli（自动注入版本和日期）
+make test           # 运行全部测试
+make vet            # 静态检查
+make local          # 构建并安装到 ~/.local/bin
+```
+
 ## 安装方式
 ```bash
 brew tap qfeius/makecli
