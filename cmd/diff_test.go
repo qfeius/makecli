@@ -419,23 +419,6 @@ properties:
 `
 }
 
-// relationYAML 生成单 Relation 的 YAML 字符串
-func relationYAML(name, app, fromEntity, fromCard, toEntity, toCard string) string {
-	return `name: ` + name + `
-type: Make.Relation
-app: ` + app + `
-meta:
-  version: 1.0.0
-properties:
-  from:
-    entity: ` + fromEntity + `
-    cardinality: ` + fromCard + `
-  to:
-    entity: ` + toEntity + `
-    cardinality: ` + toCard + `
-`
-}
-
 // writeDiffYAML 写入 YAML 到临时目录，返回目录路径
 func writeDiffYAML(t *testing.T, content string) string {
 	t.Helper()

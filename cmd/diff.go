@@ -165,7 +165,7 @@ func runDiff(path, profile, output string) error {
 	if output == outputJSON {
 		return writeJSON(result)
 	}
-	renderDiffTable(result)
+	renderDiffTable(&result)
 
 	// 有差异时退出码 1
 	if result.Summary.Added > 0 || result.Summary.Removed > 0 || result.Summary.Changed > 0 {
@@ -333,7 +333,7 @@ func computeRelationDiff(local []ResourceManifest, remote []api.Relation) ([]Rel
 			diffs = append(diffs, RelationDiff{Name: m.Name, Status: diffAdded})
 			continue
 		}
-		detail := compareRelationEndpoints(m, rr)
+		detail := compareRelationEndpoints(m, &rr)
 		status := diffUnchanged
 		if detail != "" {
 			status = diffChanged
@@ -370,7 +370,7 @@ func computeRelationDiff(local []ResourceManifest, remote []api.Relation) ([]Rel
 }
 
 // compareRelationEndpoints 对比 Relation 的 from/to 端点，返回变化描述
-func compareRelationEndpoints(local ResourceManifest, remote api.Relation) string {
+func compareRelationEndpoints(local ResourceManifest, remote *api.Relation) string {
 	localFrom := getFieldMap(local.Properties, "from")
 	localTo := getFieldMap(local.Properties, "to")
 
@@ -541,7 +541,7 @@ func normalize(v any) any {
 // ---------------------------------- 表格渲染 ----------------------------------
 
 // renderDiffTable 以人类可读的格式输出差异
-func renderDiffTable(result DiffResult) {
+func renderDiffTable(result *DiffResult) {
 	fmt.Printf("App: %s\n\n", result.AppName)
 
 	hasDiff := false
