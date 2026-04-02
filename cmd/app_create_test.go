@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 cmd 包内的 runAppCreate（包内白盒），internal/config、encoding/json、net/http、net/http/httptest
- * [OUTPUT]: 覆盖 app create 子命令核心逻辑的单元测试
+ * [INPUT]: 依赖 cmd 包内的 runAppCreate/runAppCreateFromFile（包内白盒），internal/config、encoding/json、net/http、net/http/httptest、os、path/filepath
+ * [OUTPUT]: 覆盖 app create 子命令核心逻辑的单元测试（含 -f 文件模式）
  * [POS]: cmd 模块 app_create.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/qfeius/makecli/internal/config"
@@ -71,6 +73,73 @@ func TestRunAppCreate(t *testing.T) {
 			t.Fatal("expected error for unknown profile")
 		}
 	})
+}
+
+func TestRunAppCreateFromFile(t *testing.T) {
+	t.Run("creates app from YAML file", func(t *testing.T) {
+		srv := newMockMeta(t, 200, "create app success")
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		ServerURL = srv.URL
+
+		f := filepath.Join(t.TempDir(), "app.yaml")
+		writeTestFile(t, f, []byte("name: fileapp\ntype: Make.App\nproperties:\n  description: from file\n"))
+
+		if err := runAppCreateFromFile(f, "default"); err != nil {
+			t.Fatalf("runAppCreateFromFile: %v", err)
+		}
+	})
+
+	t.Run("creates app from YAML file without properties", func(t *testing.T) {
+		srv := newMockMeta(t, 200, "create app success")
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		ServerURL = srv.URL
+
+		f := filepath.Join(t.TempDir(), "app.yml")
+		writeTestFile(t, f, []byte("name: bareapp\ntype: Make.App\n"))
+
+		if err := runAppCreateFromFile(f, "default"); err != nil {
+			t.Fatalf("runAppCreateFromFile without props: %v", err)
+		}
+	})
+
+	t.Run("fails on non-yaml file", func(t *testing.T) {
+		f := filepath.Join(t.TempDir(), "app.json")
+		writeTestFile(t, f, []byte(`{}`))
+
+		if err := runAppCreateFromFile(f, "default"); err == nil {
+			t.Fatal("expected error for non-yaml file")
+		}
+	})
+
+	t.Run("fails when no Make.App in file", func(t *testing.T) {
+		f := filepath.Join(t.TempDir(), "entity.yaml")
+		writeTestFile(t, f, []byte("name: foo\ntype: Make.Entity\napp: bar\n"))
+
+		if err := runAppCreateFromFile(f, "default"); err == nil {
+			t.Fatal("expected error for missing Make.App")
+		}
+	})
+
+	t.Run("fails when multiple Make.App in file", func(t *testing.T) {
+		f := filepath.Join(t.TempDir(), "multi.yaml")
+		writeTestFile(t, f, []byte("name: a\ntype: Make.App\n---\nname: b\ntype: Make.App\n"))
+
+		if err := runAppCreateFromFile(f, "default"); err == nil {
+			t.Fatal("expected error for multiple Make.App")
+		}
+	})
+}
+
+// writeTestFile 在指定路径写入测试文件，失败则终止测试
+func writeTestFile(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // newMockMeta 启动一个返回固定 code/message 的测试 Meta Server

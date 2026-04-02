@@ -8,15 +8,15 @@ version_test.go:     覆盖 formatVersion / changelogURL 的纯函数测试
 configure.go:        configure 命令组（PersistentFlag: --profile），默认行为等同 token 子命令；子命令: token（交互写 ~/.make/credentials）/ config（交互写 ~/.make/config）/ set（直接写单个 key）/ get（读取单个 key）；validateConfigKey 校验合法 key 集合
 configure_test.go:   覆盖 mask / validateJWT / validateConfigKey 的纯函数测试
 client.go:           公共 helper，newClientFromProfile 统一「凭证 + 配置 → API 客户端」构建逻辑，注入 debug/headers 选项
-app.go:              app 命令组，挂载 app 相关子命令
-app_create.go:       app create 子命令，通过 newClientFromProfile 构建客户端，调用 CreateApp 创建 App；支持 --profile / --server / --description flags
-app_create_test.go:  覆盖 runAppCreate 的单元测试（成功/无凭证/API错误/未知profile），用 httptest 隔离网络
+app.go:              app 命令组，挂载 app 相关子命令；提供 loadAppManifestFromFile 共享 helper（从 YAML 加载唯一 Make.App 资源）
+app_create.go:       app create 子命令，通过 newClientFromProfile 构建客户端，调用 CreateApp 创建 App；支持 --profile / --server / --description flags 和 -f YAML 文件模式
+app_create_test.go:  覆盖 runAppCreate / runAppCreateFromFile 的单元测试（成功/无凭证/API错误/未知profile/文件模式），用 httptest 隔离网络
 app_list.go:         app list 子命令，调用 MakeService.ListResources 分页列出 org 下全部 App，tabwriter 对齐输出；支持 --profile / --server / --page / --size flags
 app_list_test.go:    覆盖 runAppList 的单元测试（成功/空列表/分页JSON/无凭证/API错误/非法页码），用 httptest 隔离网络
 app_init.go:         app init 子命令，在已有 Folder 内创建 provider 对应配置文件（anthropic→CLAUDE.md / openai→AGENTS.md / google→GEMINI.md / cursor→.cursorrules）
 app_init_test.go:    覆盖 runAppInit 的文件系统测试（含全 provider 覆盖）
-app_delete.go:          app delete 子命令，调用 Meta Server API（MakeService.DeleteResource）删除指定 App；支持 --profile 和 --server flags
-app_delete_test.go:     覆盖 runAppDelete 的单元测试（成功/无凭证/API错误/未知profile），用 httptest 隔离网络
+app_delete.go:          app delete 子命令，调用 Meta Server API（MakeService.DeleteResource）删除指定 App；支持 --profile / --server flags 和 -f YAML 文件模式
+app_delete_test.go:     覆盖 runAppDelete / runAppDeleteFromFile 的单元测试（成功/无凭证/API错误/未知profile/文件模式），用 httptest 隔离网络
 entity.go:              entity 命令组，挂载 create / delete / list 子命令
 entity_create.go:       entity create 子命令，校验 field name 不以 _ 开头，支持 --app（必选）/ --json / --profile / --server；loadFields 从 JSON 文件加载字段定义
 entity_create_test.go:  覆盖 runEntityCreate 的单元测试（成功/带fields/underscore校验/无凭证/API错误/未知profile/非法JSON），用 httptest 隔离网络
