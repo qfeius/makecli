@@ -33,3 +33,30 @@ jobs:
       - run: go vet ./...
 
       - run: go test ./...
+
+  security:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Scan this repository for security issues. Focus on:
+            1. Hardcoded secrets, tokens, API keys, or credentials in source code
+            2. Sensitive data in config files, test fixtures, or comments
+            3. Command injection, path traversal, or unsafe exec usage
+            4. Insecure HTTP clients (missing TLS verification, timeout, etc.)
+            5. Unsafe deserialization or input handling
+
+            Report findings as a structured list with severity (Critical/High/Medium/Low),
+            file path, line number, and remediation suggestion.
+            If no issues found, confirm the scan completed clean.
