@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 bytes、encoding/json、fmt、net/http、time
- * [OUTPUT]: 对外提供 Client 类型、Option / WithDebug / WithHeaders 功能选项、New 构造函数、App / Field / Entity / EntityProperties / RelationEnd / RelationProperties / Relation 类型、CreateApp / ListApps / DeleteApp / GetApp / CreateEntity / ListEntities / GetEntity / UpdateEntity / DeleteEntity / CreateRelation / UpdateRelation / ListRelations / GetRelation / DeleteRelation 方法
+ * [OUTPUT]: 对外提供 Client 类型、Option / WithDebug / WithHeaders 功能选项、New 构造函数、App / Field / Entity / EntityProperties / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp / ListApps / DeleteApp / GetApp / CreateEntity / ListEntities / GetEntity / UpdateEntity / DeleteEntity / CreateRelation / UpdateRelation / ListRelations / GetRelation / DeleteRelation / GetSchema 方法
  * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -337,6 +337,32 @@ func (c *Client) DeleteRelation(name, app string) error {
 		"app":  app,
 	}
 	return c.post("MakeService.DeleteResource", "/meta/v1/relation", body)
+}
+
+// ---------------------------------- Schema 操作 ----------------------------------
+
+// Schema 代表 App 的聚合视图（App + Entities + Relations）
+type Schema struct {
+	App       App        `json:"app"`
+	Entities  []Entity   `json:"entities"`
+	Relations []Relation `json:"relations"`
+}
+
+// GetSchema 调用 MakeService.GetResource 获取指定 App 的聚合 Schema
+func (c *Client) GetSchema(app string) (*Schema, error) {
+	reqBody := map[string]any{"app": app}
+	var result struct {
+		Code    int    `json:"code"`
+		Message string `json:"msg"`
+		Data    Schema `json:"data"`
+	}
+	if err := c.do("MakeService.GetResource", "/meta/v1/schema", reqBody, &result); err != nil {
+		return nil, err
+	}
+	if result.Code != 200 {
+		return nil, fmt.Errorf("API 错误 [%d]: %s", result.Code, result.Message)
+	}
+	return &result.Data, nil
 }
 
 // ---------------------------------- 核心请求 ----------------------------------
