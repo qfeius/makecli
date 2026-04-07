@@ -77,13 +77,14 @@ func runAppList(profile string, page, size int, output string) error {
 
 	rows := make([][]string, len(apps))
 	for i, app := range apps {
-		code, _ := app.Properties["code"].(string)
+		renderName, _ := app.Properties["renderName"].(string)
 		version, _ := app.Meta["version"].(string)
-		rows[i] = []string{app.Name, code, version}
+		createdAt, _ := app.Meta["createdAt"].(string)
+		rows[i] = []string{app.Name, renderName, version, createdAt}
 	}
 
 	table := tablewriter.NewTable(os.Stdout)
-	table.Header("NAME", "CODE", "VERSION")
+	table.Header("NAME", "RENDER NAME", "VERSION", "CREATED AT")
 	_ = table.Bulk(rows)
 	_ = table.Render()
 

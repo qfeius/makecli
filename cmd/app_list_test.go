@@ -40,8 +40,8 @@ func TestRunAppList(t *testing.T) {
 				"code": 200, "message": "success",
 				"data": []map[string]any{
 					{"name": "项目A", "type": "Make.App",
-						"meta":       map[string]any{"version": "1.0.0"},
-						"properties": map[string]any{"code": "ProjectA"}},
+						"meta":       map[string]any{"version": "1.0.0", "createdAt": "2026-04-03T04:44:23Z"},
+						"properties": map[string]any{"renderName": "ProjectA"}},
 				},
 				"pagination": map[string]any{"page": 1, "size": 20, "total": 1},
 			})
@@ -80,8 +80,8 @@ func TestRunAppList(t *testing.T) {
 				"code": 200, "message": "success",
 				"data": []map[string]any{
 					{"name": "项目A", "type": "Make.App",
-						"meta":       map[string]any{"version": "1.0.0"},
-						"properties": map[string]any{"code": "ProjectA"}},
+						"meta":       map[string]any{"version": "1.0.0", "createdAt": "2026-04-03T04:44:23Z"},
+						"properties": map[string]any{"renderName": "ProjectA"}},
 				},
 				"pagination": map[string]any{"page": 1, "size": 20, "total": 1},
 			})
