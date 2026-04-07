@@ -51,7 +51,7 @@ func TestRunAppList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runAppList("default", 1, 20, outputTable); err != nil {
+		if err := runAppList("default", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runAppList: %v", err)
 		}
 	})
@@ -69,7 +69,7 @@ func TestRunAppList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runAppList("default", 1, 20, outputTable); err != nil {
+		if err := runAppList("default", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runAppList: %v", err)
 		}
 	})
@@ -92,7 +92,7 @@ func TestRunAppList(t *testing.T) {
 		ServerURL = srv.URL
 
 		output := captureStdout(t, func() {
-			if err := runAppList("default", 2, 20, outputJSON); err != nil {
+			if err := runAppList("default", 2, 20, outputJSON, ""); err != nil {
 				t.Fatalf("runAppList json: %v", err)
 			}
 		})
@@ -114,7 +114,7 @@ func TestRunAppList(t *testing.T) {
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		ServerURL = "http://unused"
-		if err := runAppList("default", 1, 20, outputTable); err == nil {
+		if err := runAppList("default", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
 	})
@@ -128,26 +128,115 @@ func TestRunAppList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runAppList("default", 1, 20, outputTable); err == nil {
+		if err := runAppList("default", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 	})
 
 	t.Run("fails when page is less than 1", func(t *testing.T) {
-		if err := runAppList("default", 0, 20, outputTable); err == nil {
+		if err := runAppList("default", 0, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error for invalid page")
 		}
 	})
 
 	t.Run("fails when size is less than 1", func(t *testing.T) {
-		if err := runAppList("default", 1, 0, outputTable); err == nil {
+		if err := runAppList("default", 1, 0, outputTable, ""); err == nil {
 			t.Fatal("expected error for invalid size")
 		}
 	})
 
 	t.Run("fails on unsupported output format", func(t *testing.T) {
-		if err := runAppList("default", 1, 20, "xml"); err == nil {
+		if err := runAppList("default", 1, 20, "xml", ""); err == nil {
 			t.Fatal("expected error for unsupported output format")
+		}
+	})
+
+	t.Run("sends filter to API", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			f, ok := req["filter"].(map[string]any)
+			if !ok {
+				t.Fatal("expected filter in request body")
+			}
+			nameFilter, ok := f["name"].(map[string]any)
+			if !ok {
+				t.Fatal("expected name filter to be object with contains")
+			}
+			if nameFilter["contains"] != "项目" {
+				t.Errorf("expected contains=项目, got %v", nameFilter["contains"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200, "message": "success",
+				"data":       []any{},
+				"pagination": map[string]any{"page": 1, "size": 20, "total": 0},
+			})
+		}))
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		ServerURL = srv.URL
+
+		if err := runAppList("default", 1, 20, outputTable, "name=项目"); err != nil {
+			t.Fatalf("runAppList with filter: %v", err)
+		}
+	})
+
+	t.Run("fails on invalid filter expression", func(t *testing.T) {
+		if err := runAppList("default", 1, 20, outputTable, "badfilter"); err == nil {
+			t.Fatal("expected error for invalid filter")
+		}
+	})
+
+	t.Run("fails on unsupported filter field", func(t *testing.T) {
+		if err := runAppList("default", 1, 20, outputTable, "status=active"); err == nil {
+			t.Fatal("expected error for unsupported filter field")
+		}
+	})
+}
+
+func TestParseFilter(t *testing.T) {
+	t.Run("empty returns nil", func(t *testing.T) {
+		f, err := parseFilter("")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if f != nil {
+			t.Fatalf("expected nil, got %v", f)
+		}
+	})
+
+	t.Run("name becomes contains", func(t *testing.T) {
+		f, err := parseFilter("name=项目")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		nameObj, ok := f["name"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected name to be map, got %T", f["name"])
+		}
+		if nameObj["contains"] != "项目" {
+			t.Errorf("expected contains=项目, got %v", nameObj["contains"])
+		}
+	})
+
+	t.Run("rejects missing value", func(t *testing.T) {
+		if _, err := parseFilter("name="); err == nil {
+			t.Fatal("expected error for missing value")
+		}
+	})
+
+	t.Run("rejects missing key", func(t *testing.T) {
+		if _, err := parseFilter("=value"); err == nil {
+			t.Fatal("expected error for missing key")
+		}
+	})
+
+	t.Run("rejects unknown field", func(t *testing.T) {
+		if _, err := parseFilter("foo=bar"); err == nil {
+			t.Fatal("expected error for unknown field")
 		}
 	})
 }

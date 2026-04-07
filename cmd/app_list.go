@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、fmt、os、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助
- * [OUTPUT]: 对外提供 newAppListCmd 函数
- * [POS]: cmd/app 的 list 子命令，分页列出 org 下全部 App，支持 table/json 输出
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、fmt、os、strings、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助
+ * [OUTPUT]: 对外提供 newAppListCmd 函数、parseFilter 解析 --filter 语法
+ * [POS]: cmd/app 的 list 子命令，分页列出 org 下全部 App，支持 --filter / table|json 输出
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -10,6 +10,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
@@ -20,13 +21,14 @@ func newAppListCmd() *cobra.Command {
 	var page int
 	var size int
 	var output string
+	var filter string
 
 	cmd := &cobra.Command{
 		Use:          "list",
 		Short:        "List all apps",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAppList(profile, page, size, output)
+			return runAppList(profile, page, size, output, filter)
 		},
 	}
 
@@ -34,10 +36,34 @@ func newAppListCmd() *cobra.Command {
 	cmd.Flags().IntVar(&page, "page", 1, "page number to fetch (starts from 1)")
 	cmd.Flags().IntVar(&size, "size", 20, "number of apps per page")
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
+	cmd.Flags().StringVar(&filter, "filter", "", `filter expression, e.g. "name=项目"`)
 	return cmd
 }
 
-func runAppList(profile string, page, size int, output string) error {
+// parseFilter 解析 "key=value,key2=value2" 格式的过滤表达式
+// name 字段自动转为 contains 模糊匹配
+func parseFilter(expr string) (map[string]any, error) {
+	if expr == "" {
+		return nil, nil
+	}
+	result := map[string]any{}
+	for _, part := range strings.Split(expr, ",") {
+		kv := strings.SplitN(part, "=", 2)
+		if len(kv) != 2 || kv[0] == "" || kv[1] == "" {
+			return nil, fmt.Errorf("invalid filter expression %q, expected key=value", part)
+		}
+		key, val := strings.TrimSpace(kv[0]), strings.TrimSpace(kv[1])
+		switch key {
+		case "name":
+			result[key] = map[string]any{"contains": val}
+		default:
+			return nil, fmt.Errorf("unsupported filter field %q", key)
+		}
+	}
+	return result, nil
+}
+
+func runAppList(profile string, page, size int, output, filterExpr string) error {
 	if err := validateOutputFormat(output); err != nil {
 		return err
 	}
@@ -48,12 +74,17 @@ func runAppList(profile string, page, size int, output string) error {
 		return fmt.Errorf("size must be greater than or equal to 1")
 	}
 
+	filter, err := parseFilter(filterExpr)
+	if err != nil {
+		return err
+	}
+
 	client, err := newClientFromProfile(profile)
 	if err != nil {
 		return err
 	}
 
-	apps, total, err := client.ListApps(page, size)
+	apps, total, err := client.ListApps(page, size, filter)
 	if err != nil {
 		return err
 	}
