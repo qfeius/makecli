@@ -79,9 +79,9 @@ func (c *Client) CreateApp(name string, properties map[string]any) error {
 }
 
 // ListApps 调用 MakeService.ListResources 获取 org 下全部 App
-// filter 为可选的服务端过滤条件，nil 时不发送 filter 字段
+// filter 为可选的服务端过滤条件（对象数组，数组元素间为 OR），nil 时不发送 filter 字段
 // 返回 App 列表和服务端 total 数量
-func (c *Client) ListApps(page, size int, filter map[string]any) ([]App, int, error) {
+func (c *Client) ListApps(page, size int, filter []map[string]any) ([]App, int, error) {
 	reqBody := map[string]any{
 		"sort":       []map[string]any{{"field": "id", "order": "asc"}},
 		"pagination": map[string]any{"page": page, "size": size},

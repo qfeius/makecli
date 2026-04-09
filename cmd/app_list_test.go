@@ -157,16 +157,22 @@ func TestRunAppList(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode request: %v", err)
 			}
-			f, ok := req["filter"].(map[string]any)
+			arr, ok := req["filter"].([]any)
 			if !ok {
-				t.Fatal("expected filter in request body")
+				t.Fatalf("expected filter to be array, got %T", req["filter"])
 			}
-			nameFilter, ok := f["name"].(map[string]any)
-			if !ok {
-				t.Fatal("expected name filter to be object with contains")
+			if len(arr) != 2 {
+				t.Fatalf("expected 2 filter elements (OR), got %d", len(arr))
 			}
-			if nameFilter["contains"] != "项目" {
-				t.Errorf("expected contains=项目, got %v", nameFilter["contains"])
+			first, _ := arr[0].(map[string]any)
+			nameFilter, _ := first["name"].(map[string]any)
+			if nameFilter["contains"] != "todo" {
+				t.Errorf("expected name contains=todo, got %v", nameFilter["contains"])
+			}
+			second, _ := arr[1].(map[string]any)
+			rnFilter, _ := second["renderName"].(map[string]any)
+			if rnFilter["contains"] != "todo" {
+				t.Errorf("expected renderName contains=todo, got %v", rnFilter["contains"])
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "message": "success",
@@ -179,7 +185,7 @@ func TestRunAppList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runAppList("default", 1, 20, outputTable, "name=项目"); err != nil {
+		if err := runAppList("default", 1, 20, outputTable, "name=todo,renderName=todo"); err != nil {
 			t.Fatalf("runAppList with filter: %v", err)
 		}
 	})
@@ -208,17 +214,36 @@ func TestParseFilter(t *testing.T) {
 		}
 	})
 
-	t.Run("name becomes contains", func(t *testing.T) {
+	t.Run("single field becomes array with one element", func(t *testing.T) {
 		f, err := parseFilter("name=项目")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		nameObj, ok := f["name"].(map[string]any)
+		if len(f) != 1 {
+			t.Fatalf("expected 1 element, got %d", len(f))
+		}
+		nameObj, ok := f[0]["name"].(map[string]any)
 		if !ok {
-			t.Fatalf("expected name to be map, got %T", f["name"])
+			t.Fatalf("expected name to be map, got %T", f[0]["name"])
 		}
 		if nameObj["contains"] != "项目" {
 			t.Errorf("expected contains=项目, got %v", nameObj["contains"])
+		}
+	})
+
+	t.Run("comma separated fields become OR array", func(t *testing.T) {
+		f, err := parseFilter("name=todo,renderName=todo")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(f) != 2 {
+			t.Fatalf("expected 2 elements, got %d", len(f))
+		}
+		if _, ok := f[0]["name"]; !ok {
+			t.Fatal("expected first element to have name key")
+		}
+		if _, ok := f[1]["renderName"]; !ok {
+			t.Fatal("expected second element to have renderName key")
 		}
 	})
 

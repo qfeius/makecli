@@ -36,17 +36,18 @@ func newAppListCmd() *cobra.Command {
 	cmd.Flags().IntVar(&page, "page", 1, "page number to fetch (starts from 1)")
 	cmd.Flags().IntVar(&size, "size", 20, "number of apps per page")
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
-	cmd.Flags().StringVar(&filter, "filter", "", `filter expression, e.g. "name=项目"`)
+	cmd.Flags().StringVar(&filter, "filter", "", `filter expression, e.g. "name=todo,renderName=todo" (comma = OR)`)
 	return cmd
 }
 
 // parseFilter 解析 "key=value,key2=value2" 格式的过滤表达式
-// name 字段自动转为 contains 模糊匹配
-func parseFilter(expr string) (map[string]any, error) {
+// 逗号分隔的每组 key=value 构成 OR 关系（数组中独立对象）
+// 文本字段自动转为 contains 模糊匹配
+func parseFilter(expr string) ([]map[string]any, error) {
 	if expr == "" {
 		return nil, nil
 	}
-	result := map[string]any{}
+	var filters []map[string]any
 	for _, part := range strings.Split(expr, ",") {
 		kv := strings.SplitN(part, "=", 2)
 		if len(kv) != 2 || kv[0] == "" || kv[1] == "" {
@@ -54,13 +55,13 @@ func parseFilter(expr string) (map[string]any, error) {
 		}
 		key, val := strings.TrimSpace(kv[0]), strings.TrimSpace(kv[1])
 		switch key {
-		case "name":
-			result[key] = map[string]any{"contains": val}
+		case "name", "renderName", "description":
+			filters = append(filters, map[string]any{key: map[string]any{"contains": val}})
 		default:
 			return nil, fmt.Errorf("unsupported filter field %q", key)
 		}
 	}
-	return result, nil
+	return filters, nil
 }
 
 func runAppList(profile string, page, size int, output, filterExpr string) error {
