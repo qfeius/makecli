@@ -22,8 +22,8 @@ entity_create.go:       entity create 子命令，校验 field name 不以 _ 开
 entity_create_test.go:  覆盖 runEntityCreate 的单元测试（成功/带fields/underscore校验/无凭证/API错误/未知profile/非法JSON），用 httptest 隔离网络
 entity_delete.go:        entity delete 子命令，调用 Meta Server API（MakeService.DeleteResource）删除指定 Entity；支持 --app（必选）/ --profile / --server
 entity_delete_test.go:   覆盖 runEntityDelete 的单元测试（成功/无凭证/API错误/未知profile），用 httptest 隔离网络
-entity_list.go:         entity list 子命令，无 arg 时分页列出 app 下全部 entity（NAME/VERSION），有 arg 时显示指定 entity 详情（name/app/version + fields 表格）；支持 --app（必选）/ --profile / --server / --page / --size
-entity_list_test.go:    覆盖 runEntityList 的单元测试（列表/空列表/具体entity/无字段/无凭证/API错误/未知profile），用 httptest 隔离网络
+entity_list.go:         entity list 子命令，无 arg 时分页列出 app 下全部 entity（NAME/VERSION），有 arg 时显示指定 entity 详情（name/app/version + fields 表格）；支持 --app（必选）/ --profile / --server / --page / --size / --filter；复用 parseFilter 解析过滤表达式
+entity_list_test.go:    覆盖 runEntityList 的单元测试（列表/空列表/过滤请求/具体entity/无字段/无凭证/API错误/未知profile），用 httptest 隔离网络
 relation.go:                relation 命令组，挂载 create / update / delete / list 子命令
 relation_create.go:         relation create 子命令，从 JSON 文件加载 from/to，调用 Meta Server API 创建 Relation；loadRelationProperties 从 JSON 文件加载关系属性；支持 --app（必选）/ --json（必选）/ --profile
 relation_create_test.go:    覆盖 runRelationCreate 的单元测试（成功/无凭证/API错误/未知profile/非法JSON/文件不存在），用 httptest 隔离网络

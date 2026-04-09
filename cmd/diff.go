@@ -181,7 +181,7 @@ func fetchAllEntities(client *api.Client, app string) ([]api.Entity, error) {
 	var all []api.Entity
 	page := 1
 	for {
-		batch, total, err := client.ListEntities(app, page, 100)
+		batch, total, err := client.ListEntities(app, page, 100, nil)
 		if err != nil {
 			return nil, err
 		}

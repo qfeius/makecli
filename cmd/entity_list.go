@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client）、fmt、os、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client）、fmt、os、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助、cmd/app_list（parseFilter）
  * [OUTPUT]: 对外提供 newEntityListCmd 函数
- * [POS]: cmd/entity 的 list 子命令，无 arg 时分页列出 app 下全部 entity，有 arg 时显示指定 entity 详情，支持 table/json 输出
+ * [POS]: cmd/entity 的 list 子命令，无 arg 时分页列出 app 下全部 entity，有 arg 时显示指定 entity 详情，支持 --filter / table|json 输出
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -21,6 +21,7 @@ func newEntityListCmd() *cobra.Command {
 	var page int
 	var size int
 	var output string
+	var filter string
 
 	cmd := &cobra.Command{
 		Use:          "list [entity-name]",
@@ -33,7 +34,7 @@ func newEntityListCmd() *cobra.Command {
 			if len(args) == 1 {
 				entityName = args[0]
 			}
-			return runEntityList(app, entityName, profile, page, size, output)
+			return runEntityList(app, entityName, profile, page, size, output, filter)
 		},
 	}
 
@@ -41,10 +42,11 @@ func newEntityListCmd() *cobra.Command {
 	cmd.Flags().IntVar(&page, "page", 1, "page number to fetch (starts from 1)")
 	cmd.Flags().IntVar(&size, "size", 20, "number of entities per page")
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
+	cmd.Flags().StringVar(&filter, "filter", "", `filter expression, e.g. "name=任务" (comma = OR)`)
 	return cmd
 }
 
-func runEntityList(app, entityName, profile string, page, size int, output string) error {
+func runEntityList(app, entityName, profile string, page, size int, output, filterExpr string) error {
 	if err := validateOutputFormat(output); err != nil {
 		return err
 	}
@@ -55,6 +57,11 @@ func runEntityList(app, entityName, profile string, page, size int, output strin
 		return fmt.Errorf("size must be greater than or equal to 1")
 	}
 
+	filter, err := parseFilter(filterExpr)
+	if err != nil {
+		return err
+	}
+
 	client, err := newClientFromProfile(profile)
 	if err != nil {
 		return err
@@ -63,11 +70,11 @@ func runEntityList(app, entityName, profile string, page, size int, output strin
 	if entityName != "" {
 		return showEntity(client, app, entityName, output)
 	}
-	return listEntities(client, app, page, size, output)
+	return listEntities(client, app, page, size, output, filter)
 }
 
-func listEntities(client *api.Client, app string, page, size int, output string) error {
-	entities, total, err := client.ListEntities(app, page, size)
+func listEntities(client *api.Client, app string, page, size int, output string, filter []map[string]any) error {
+	entities, total, err := client.ListEntities(app, page, size, filter)
 	if err != nil {
 		return err
 	}

@@ -179,12 +179,16 @@ func (c *Client) CreateEntity(name, app string, fields []Field) error {
 }
 
 // ListEntities 调用 MakeService.ListResources 获取指定 App 下全部 Entity
+// filter 为可选的服务端过滤条件（对象数组，数组元素间为 OR），nil 时不发送 filter 字段
 // 返回 Entity 列表和服务端 total 数量
-func (c *Client) ListEntities(app string, page, size int) ([]Entity, int, error) {
+func (c *Client) ListEntities(app string, page, size int, filter []map[string]any) ([]Entity, int, error) {
 	reqBody := map[string]any{
 		"app":        app,
 		"sort":       []map[string]any{{"field": "id", "order": "asc"}},
 		"pagination": map[string]any{"page": page, "size": size},
+	}
+	if filter != nil {
+		reqBody["filter"] = filter
 	}
 	var result struct {
 		Code    int      `json:"code"`
