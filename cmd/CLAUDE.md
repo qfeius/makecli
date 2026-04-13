@@ -5,8 +5,10 @@
 root.go:             根命令入口，挂载所有子命令（含 schema），对外暴露 Execute(version, date)；定义全局 --debug 标志（隐藏，用于调试，输出 curl 命令）
 version.go:          version 子命令，格式化版本输出（参考 GitHub CLI 模式）
 version_test.go:     覆盖 formatVersion / changelogURL 的纯函数测试
-configure.go:        configure 命令组（PersistentFlag: --profile），默认行为等同 token 子命令；子命令: token（交互写 ~/.make/credentials）/ config（交互写 ~/.make/config）/ set（直接写单个 key）/ get（读取单个 key）；validateConfigKey 校验合法 key 集合
+configure.go:        configure 命令组（PersistentFlag: --profile），默认行为等同 token 子命令；子命令: token（交互写 ~/.make/credentials）/ config（交互写 ~/.make/config）/ set（直接写单个 key）/ get（读取单个 key）/ verify（在线验证 token）；validateConfigKey 校验合法 key 集合
 configure_test.go:   覆盖 mask / validateJWT / validateConfigKey 的纯函数测试
+configure_verify.go:     configure verify 子命令，加载 credentials + config，JWT 格式校验后调 ListApps 在线验证 token；输出 verifyResult（profile/valid/token/server_url/tenant_id/operator_id/message）；支持 --output table|json；valid=false 时 exit 1
+configure_verify_test.go: 覆盖 runConfigureVerify 的单元测试（valid token table/json、token not configured、malformed JWT、server 401、config 字段传递、unknown profile），用 httptest 隔离网络
 client.go:           公共 helper，newClientFromProfile 统一「凭证 + 配置 → API 客户端」构建逻辑，注入 debug/headers 选项
 app.go:              app 命令组，挂载 app 相关子命令；提供 loadAppManifestFromFile 共享 helper（从 YAML 加载唯一 Make.App 资源）
 app_create.go:       app create 子命令，通过 newClientFromProfile 构建客户端，调用 CreateApp 创建 App；支持 --profile / --server / --description flags 和 -f YAML 文件模式
