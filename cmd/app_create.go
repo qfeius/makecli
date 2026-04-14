@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（loadAppManifestFromFile）、fmt、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newAppCreateCmd 函数
- * [POS]: cmd/app 的 create 子命令，调用 Meta Server API 创建 App，支持 --description 选项和 -f 文件模式
+ * [POS]: cmd/app 的 create 子命令，调用 Meta Server API 创建 App，支持 --description / --render-name 选项和 -f 文件模式
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -16,6 +16,7 @@ import (
 func newAppCreateCmd() *cobra.Command {
 	var profile string
 	var description string
+	var renderName string
 	var file string
 
 	cmd := &cobra.Command{
@@ -23,6 +24,7 @@ func newAppCreateCmd() *cobra.Command {
 		Short: "Create a new app on Make",
 		Example: `  makecli app create myapp
   makecli app create myapp --description "my awesome app"
+  makecli app create myapp --render-name "My App"
   makecli app create -f app.yaml`,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
@@ -33,12 +35,13 @@ func newAppCreateCmd() *cobra.Command {
 			if len(args) == 0 {
 				return fmt.Errorf("requires app name or -f flag")
 			}
-			return runAppCreate(args[0], description, profile)
+			return runAppCreate(args[0], description, renderName, profile)
 		},
 	}
 
 	cmd.Flags().StringVar(&profile, "profile", "default", "credentials profile to use")
 	cmd.Flags().StringVar(&description, "description", "", "app description")
+	cmd.Flags().StringVar(&renderName, "render-name", "", "app display name (defaults to name)")
 	cmd.Flags().StringVarP(&file, "file", "f", "", "path to YAML file containing Make.App resource")
 	return cmd
 }
@@ -59,6 +62,11 @@ func runAppCreateFromFile(path, profile string) error {
 		props = map[string]any{}
 	}
 
+	// renderName 默认与 name 一致
+	if _, ok := props["renderName"]; !ok {
+		props["renderName"] = manifest.Name
+	}
+
 	if apiErr := client.CreateApp(manifest.Name, props); apiErr != nil {
 		return apiErr
 	}
@@ -67,13 +75,20 @@ func runAppCreateFromFile(path, profile string) error {
 	return nil
 }
 
-func runAppCreate(name, description, profile string) error {
+func runAppCreate(name, description, renderName, profile string) error {
 	client, err := newClientFromProfile(profile)
 	if err != nil {
 		return err
 	}
 
-	props := map[string]any{}
+	// renderName 默认与 name 一致
+	if renderName == "" {
+		renderName = name
+	}
+
+	props := map[string]any{
+		"renderName": renderName,
+	}
 	if description != "" {
 		props["description"] = description
 	}

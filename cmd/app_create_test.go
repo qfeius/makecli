@@ -26,7 +26,7 @@ func TestRunAppCreate(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runAppCreate("myapp", "", "default"); err != nil {
+		if err := runAppCreate("myapp", "", "", "default"); err != nil {
 			t.Fatalf("runAppCreate: %v", err)
 		}
 	})
@@ -38,7 +38,7 @@ func TestRunAppCreate(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runAppCreate("myapp", "test app", "default"); err != nil {
+		if err := runAppCreate("myapp", "test app", "", "default"); err != nil {
 			t.Fatalf("runAppCreate with description: %v", err)
 		}
 	})
@@ -47,7 +47,7 @@ func TestRunAppCreate(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		ServerURL = "http://unused"
 		// 未写入任何凭证，预期报错
-		if err := runAppCreate("myapp", "", "default"); err == nil {
+		if err := runAppCreate("myapp", "", "", "default"); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
 	})
@@ -59,7 +59,7 @@ func TestRunAppCreate(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runAppCreate("myapp", "", "default"); err == nil {
+		if err := runAppCreate("myapp", "", "", "default"); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 	})
@@ -69,7 +69,7 @@ func TestRunAppCreate(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = "http://unused"
 
-		if err := runAppCreate("myapp", "", "nonexistent"); err == nil {
+		if err := runAppCreate("myapp", "", "", "nonexistent"); err == nil {
 			t.Fatal("expected error for unknown profile")
 		}
 	})

@@ -11,7 +11,7 @@ configure_verify.go:     configure verify 子命令，加载 credentials + confi
 configure_verify_test.go: 覆盖 runConfigureVerify 的单元测试（valid token table/json、token not configured、malformed JWT、server 401、config 字段传递、unknown profile），用 httptest 隔离网络
 client.go:           公共 helper，newClientFromProfile 统一「凭证 + 配置 → API 客户端」构建逻辑，注入 debug/headers 选项
 app.go:              app 命令组，挂载 app 相关子命令；提供 loadAppManifestFromFile 共享 helper（从 YAML 加载唯一 Make.App 资源）
-app_create.go:       app create 子命令，通过 newClientFromProfile 构建客户端，调用 CreateApp 创建 App；支持 --profile / --server / --description flags 和 -f YAML 文件模式
+app_create.go:       app create 子命令，通过 newClientFromProfile 构建客户端，调用 CreateApp 创建 App；支持 --profile / --server / --description / --render-name flags 和 -f YAML 文件模式；render-name 默认与 name 一致
 app_create_test.go:  覆盖 runAppCreate / runAppCreateFromFile 的单元测试（成功/无凭证/API错误/未知profile/文件模式），用 httptest 隔离网络
 app_list.go:         app list 子命令，调用 MakeService.ListResources 分页列出 org 下全部 App，tabwriter 对齐输出；支持 --profile / --server / --page / --size / --filter flags；parseFilter 解析 "key=value" 过滤表达式，name 字段自动转 contains 模糊匹配
 app_list_test.go:    覆盖 runAppList / parseFilter 的单元测试（成功/空列表/分页JSON/过滤请求/非法过滤/无凭证/API错误/非法页码），用 httptest 隔离网络
