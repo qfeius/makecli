@@ -2,6 +2,7 @@
 Go + github.com/spf13/cobra
 
 <directory>
+agents/          - app init 模板文件（CLAUDE.md / AGENTS.md），通过 embed.FS 编译进二进制
 cmd/            - Cobra 子命令层（root、version、configure[token/config/set/get/verify]、app、entity、relation、record、apply、diff、update、schema）
 internal/api/    - Make Meta/Data Service HTTP 客户端（Client + functional options，X-Make-Target 路由 + 自定义 headers 注入；Meta 操作走 /meta/v1/，Record 操作走 /data/v1/）
 internal/build/ - 构建元数据（Version/Date，由 ldflags 注入）

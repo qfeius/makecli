@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 fmt、os、path/filepath、github.com/spf13/cobra
+ * [INPUT]: 依赖 fmt、os、path/filepath、github.com/spf13/cobra、github.com/qfeius/makecli/agents
  * [OUTPUT]: 对外提供 newAppInitCmd 函数
- * [POS]: cmd/app 的 init 子命令，在已有 Folder 内创建 provider 对应的配置文件
+ * [POS]: cmd/app 的 init 子命令，在目标目录创建 CLAUDE.md 和 AGENTS.md（内容来自 embed）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -12,53 +12,54 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/qfeius/makecli/agents"
 	"github.com/spf13/cobra"
 )
 
-// providerFile 每个 provider 对应的配置文件名
-var providerFile = map[string]string{
-	"anthropic": "CLAUDE.md",
-	"openai":    "AGENTS.md",
-	"google":    "GEMINI.md",
-	"cursor":    ".cursorrules",
-}
+// initFiles app init 需要创建的文件列表
+var initFiles = []string{"CLAUDE.md", "AGENTS.md"}
 
 func newAppInitCmd() *cobra.Command {
-	var provider string
-
-	cmd := &cobra.Command{
-		Use:          "init <folder>",
-		Short:        "Initialize an app with provider config file",
-		Args:         cobra.ExactArgs(1),
+	return &cobra.Command{
+		Use:          "init [folder]",
+		Short:        "Initialize an app with CLAUDE.md and AGENTS.md",
+		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAppInit(args[0], provider)
+			folder := "."
+			if len(args) > 0 {
+				folder = args[0]
+			}
+			return runAppInit(folder)
 		},
 	}
-
-	cmd.Flags().StringVar(&provider, "provider", "anthropic", "AI provider (anthropic|openai|google|cursor)")
-	return cmd
 }
 
-func runAppInit(folder, provider string) error {
-	filename, ok := providerFile[provider]
-	if !ok {
-		return fmt.Errorf("unknown provider '%s', valid options: anthropic, openai, google, cursor", provider)
+func runAppInit(folder string) error {
+	// 目录不存在则创建
+	if err := os.MkdirAll(folder, 0755); err != nil {
+		return fmt.Errorf("failed to create '%s': %w", folder, err)
 	}
 
-	if _, err := os.Stat(folder); os.IsNotExist(err) {
-		return fmt.Errorf("'%s' does not exist, run 'app create %s' first", folder, folder)
+	// 任一配置文件已存在则拒绝
+	for _, name := range initFiles {
+		target := filepath.Join(folder, name)
+		if _, err := os.Stat(target); err == nil {
+			return fmt.Errorf("'%s' already exists", target)
+		}
 	}
 
-	target := filepath.Join(folder, filename)
-	if _, err := os.Stat(target); err == nil {
-		return fmt.Errorf("'%s' already exists", target)
+	// 从 embed.FS 读取模板并写出
+	for _, name := range initFiles {
+		data, err := agents.Templates.ReadFile(name)
+		if err != nil {
+			return fmt.Errorf("read embedded %s: %w", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(folder, name), data, 0644); err != nil {
+			return err
+		}
 	}
 
-	if err := os.WriteFile(target, []byte(""), 0644); err != nil {
-		return err
-	}
-
-	fmt.Printf("Initialized '%s' with %s\n", folder, filename)
+	fmt.Printf("Initialized '%s' with CLAUDE.md and AGENTS.md\n", folder)
 	return nil
 }
