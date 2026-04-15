@@ -222,6 +222,10 @@ func applyResources(resources []ResourceManifest, client *api.Client) error {
 
 // applyApp 从清单应用 App：不存在则创建，已存在则跳过（App 无 update API）
 func applyApp(manifest ResourceManifest, client *api.Client) (string, error) {
+	if err := validateAppName(manifest.Name); err != nil {
+		return "", err
+	}
+
 	existing, err := client.GetApp(manifest.Name)
 	if err == nil && existing.Name != "" {
 		return "", nil // App 无 update API，静默跳过

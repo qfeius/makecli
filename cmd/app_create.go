@@ -52,6 +52,10 @@ func runAppCreateFromFile(path, profile string) error {
 		return err
 	}
 
+	if err := validateAppName(manifest.Name); err != nil {
+		return err
+	}
+
 	client, err := newClientFromProfile(profile)
 	if err != nil {
 		return err
@@ -76,6 +80,10 @@ func runAppCreateFromFile(path, profile string) error {
 }
 
 func runAppCreate(name, description, renderName, profile string) error {
+	if err := validateAppName(name); err != nil {
+		return err
+	}
+
 	client, err := newClientFromProfile(profile)
 	if err != nil {
 		return err
