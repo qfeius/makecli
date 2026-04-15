@@ -15,13 +15,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// validAppName 仅允许英文字母、数字、下划线，最长 20 字符
-var validAppName = regexp.MustCompile(`^[A-Za-z0-9_]{1,20}$`)
+// validAppName 仅允许英文字母、数字、下划线，长度 3-20
+var validAppName = regexp.MustCompile(`^[A-Za-z0-9_]{3,20}$`)
 
 // validateAppName 校验 App name 格式
 func validateAppName(name string) error {
 	if !validAppName.MatchString(name) {
-		return fmt.Errorf("invalid app name %q: 仅支持英文字母、数字、下划线，最长 20 个字符", name)
+		return fmt.Errorf("invalid app name %q: 仅支持英文字母、数字、下划线，长度 3-20", name)
 	}
 	return nil
 }

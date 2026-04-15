@@ -154,14 +154,14 @@ func TestRunAppCreateFromFile(t *testing.T) {
 }
 
 func TestValidateAppName(t *testing.T) {
-	valid := []string{"a", "MyApp", "app_01", "A1_b2_C3", "12345678901234567890"}
+	valid := []string{"abc", "MyApp", "app_01", "A1_b2_C3", "12345678901234567890"}
 	for _, name := range valid {
 		if err := validateAppName(name); err != nil {
 			t.Errorf("validateAppName(%q) unexpected error: %v", name, err)
 		}
 	}
 
-	invalid := []string{"", "my-app", "my app", "my.app", "我的app", "a_very_long_name_that_is", "app@home"}
+	invalid := []string{"", "a", "ab", "my-app", "my app", "my.app", "我的app", "a_very_long_name_that_is", "app@home"}
 	for _, name := range invalid {
 		if err := validateAppName(name); err == nil {
 			t.Errorf("validateAppName(%q) expected error, got nil", name)
