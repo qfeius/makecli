@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 os、bufio、fmt、strings、path/filepath
+ * [INPUT]: 依赖 os、bufio、fmt、strings、path/filepath；依赖 paths.go 的 Dir
  * [OUTPUT]: 对外提供 Load、Save、CredentialsPath 函数，Credentials/Profile 类型
- * [POS]: internal/config 的核心，管理 ~/.make/credentials 的 INI 格式读写
+ * [POS]: internal/config 的核心，管理 credentials 文件（默认 ~/.make/credentials）的 INI 格式读写
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -27,13 +27,14 @@ type Credentials map[string]Profile
 
 // ---------------------------------- 路径 ----------------------------------
 
-// CredentialsPath 返回 ~/.make/credentials 的绝对路径
+// CredentialsPath 返回 credentials 文件的绝对路径
+// 默认 ~/.make/credentials，被 $MAKE_CLI_CONFIG_DIR 覆盖
 func CredentialsPath() (string, error) {
-	home, err := os.UserHomeDir()
+	dir, err := Dir()
 	if err != nil {
-		return "", fmt.Errorf("无法获取 home 目录: %w", err)
+		return "", err
 	}
-	return filepath.Join(home, ".make", "credentials"), nil
+	return filepath.Join(dir, "credentials"), nil
 }
 
 // ---------------------------------- 读取 ----------------------------------
@@ -112,8 +113,9 @@ func Save(creds Credentials) error {
 		return err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return fmt.Errorf("创建 ~/.make 目录失败: %w", err)
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("创建配置目录 %s 失败: %w", dir, err)
 	}
 
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
