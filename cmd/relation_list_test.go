@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runRelationList（包内白盒），internal/config、encoding/json、net/http、net/http/httptest
- * [OUTPUT]: 覆盖 relation list 子命令核心逻辑的单元测试（列表/空列表/具体relation/JSON输出/无凭证/API错误/未知profile）
+ * [OUTPUT]: 覆盖 relation list 子命令核心逻辑的单元测试（列表/空列表/具体relation/JSON输出/过滤请求/无凭证/API错误/未知profile）
  * [POS]: cmd 模块 relation_list.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -41,7 +41,7 @@ func TestRunRelationList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runRelationList("TODO", "", "default", 1, 20, outputTable); err != nil {
+		if err := runRelationList("TODO", "", "default", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runRelationList: %v", err)
 		}
 	})
@@ -59,8 +59,58 @@ func TestRunRelationList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runRelationList("TODO", "", "default", 1, 20, outputTable); err != nil {
+		if err := runRelationList("TODO", "", "default", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runRelationList empty: %v", err)
+		}
+	})
+
+	t.Run("sends filter in request body", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			filterRaw, ok := req["filter"]
+			if !ok {
+				t.Fatal("expected filter in request body")
+			}
+			filters, ok := filterRaw.([]any)
+			if !ok || len(filters) != 1 {
+				t.Fatalf("expected filter array with 1 element, got %v", filterRaw)
+			}
+			first, ok := filters[0].(map[string]any)
+			if !ok {
+				t.Fatalf("expected filter[0] to be object, got %T", filters[0])
+			}
+			nameCond, ok := first["name"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected filter[0].name to be object, got %T", first["name"])
+			}
+			if nameCond["contains"] != "project" {
+				t.Fatalf("expected filter[0].name.contains == \"project\", got %v", nameCond["contains"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200, "msg": "success",
+				"data": []map[string]any{
+					{
+						"name": "project-has-tasks", "type": "Make.Relation", "app": "TODO",
+						"meta": map[string]any{"version": "1.0.0"},
+						"properties": map[string]any{
+							"from": map[string]any{"entity": "项目", "cardinality": "many"},
+							"to":   map[string]any{"entity": "任务", "cardinality": "one"},
+						},
+					},
+				},
+				"pagination": map[string]any{"page": 1, "size": 20, "total": 1},
+			})
+		}))
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		ServerURL = srv.URL
+
+		if err := runRelationList("TODO", "", "default", 1, 20, outputTable, "name=project"); err != nil {
+			t.Fatalf("runRelationList with filter: %v", err)
 		}
 	})
 
@@ -87,7 +137,7 @@ func TestRunRelationList(t *testing.T) {
 		ServerURL = srv.URL
 
 		output := captureStdout(t, func() {
-			if err := runRelationList("TODO", "", "default", 1, 20, outputJSON); err != nil {
+			if err := runRelationList("TODO", "", "default", 1, 20, outputJSON, ""); err != nil {
 				t.Fatalf("runRelationList json: %v", err)
 			}
 		})
@@ -123,7 +173,7 @@ func TestRunRelationList(t *testing.T) {
 		ServerURL = srv.URL
 
 		out := captureStdout(t, func() {
-			if err := runRelationList("TODO", "project-has-tasks", "default", 1, 20, outputTable); err != nil {
+			if err := runRelationList("TODO", "project-has-tasks", "default", 1, 20, outputTable, ""); err != nil {
 				t.Fatalf("runRelationList detail: %v", err)
 			}
 		})
@@ -159,7 +209,7 @@ func TestRunRelationList(t *testing.T) {
 		ServerURL = srv.URL
 
 		output := captureStdout(t, func() {
-			if err := runRelationList("TODO", "project-has-tasks", "default", 1, 20, outputJSON); err != nil {
+			if err := runRelationList("TODO", "project-has-tasks", "default", 1, 20, outputJSON, ""); err != nil {
 				t.Fatalf("runRelationList json detail: %v", err)
 			}
 		})
@@ -172,7 +222,7 @@ func TestRunRelationList(t *testing.T) {
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		ServerURL = "http://unused"
-		if err := runRelationList("TODO", "", "default", 1, 20, outputTable); err == nil {
+		if err := runRelationList("TODO", "", "default", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
 	})
@@ -181,7 +231,7 @@ func TestRunRelationList(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		ServerURL = "http://unused"
-		if err := runRelationList("TODO", "", "nonexistent", 1, 20, outputTable); err == nil {
+		if err := runRelationList("TODO", "", "nonexistent", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error for unknown profile")
 		}
 	})
@@ -195,7 +245,7 @@ func TestRunRelationList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runRelationList("TODO", "", "default", 1, 20, outputTable); err == nil {
+		if err := runRelationList("TODO", "", "default", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 	})
@@ -209,25 +259,25 @@ func TestRunRelationList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runRelationList("TODO", "不存在", "default", 1, 20, outputTable); err == nil {
+		if err := runRelationList("TODO", "不存在", "default", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error on get API failure")
 		}
 	})
 
 	t.Run("fails when page is less than 1", func(t *testing.T) {
-		if err := runRelationList("TODO", "", "default", 0, 20, outputTable); err == nil {
+		if err := runRelationList("TODO", "", "default", 0, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error for invalid page")
 		}
 	})
 
 	t.Run("fails when size is less than 1", func(t *testing.T) {
-		if err := runRelationList("TODO", "", "default", 1, 0, outputTable); err == nil {
+		if err := runRelationList("TODO", "", "default", 1, 0, outputTable, ""); err == nil {
 			t.Fatal("expected error for invalid size")
 		}
 	})
 
 	t.Run("fails on unsupported output format", func(t *testing.T) {
-		if err := runRelationList("TODO", "", "default", 1, 20, "xml"); err == nil {
+		if err := runRelationList("TODO", "", "default", 1, 20, "xml", ""); err == nil {
 			t.Fatal("expected error for unsupported output format")
 		}
 	})

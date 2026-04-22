@@ -33,8 +33,8 @@ relation_update.go:         relation update 子命令，从 JSON 文件加载 fr
 relation_update_test.go:    覆盖 runRelationUpdate 的单元测试（成功/无凭证/API错误/未知profile/非法JSON），用 httptest 隔离网络
 relation_delete.go:         relation delete 子命令，调用 Meta Server API 删除指定 Relation；支持 --app（必选）/ --profile
 relation_delete_test.go:    覆盖 runRelationDelete 的单元测试（成功/无凭证/API错误/未知profile），用 httptest 隔离网络
-relation_list.go:           relation list 子命令，无 arg 时分页列出 app 下全部 relation（NAME/FROM/TO/VERSION），有 arg 时显示指定 relation 详情；支持 --app（必选）/ --profile / --page / --size / --output
-relation_list_test.go:      覆盖 runRelationList 的单元测试（列表/空列表/JSON列表/详情/JSON详情/无凭证/API错误/未知profile/非法页码/非法格式），用 httptest 隔离网络
+relation_list.go:           relation list 子命令，无 arg 时分页列出 app 下全部 relation（NAME/FROM/TO/VERSION），有 arg 时显示指定 relation 详情；支持 --app（必选）/ --profile / --page / --size / --output / --filter；复用 parseFilter 解析过滤表达式
+relation_list_test.go:      覆盖 runRelationList 的单元测试（列表/空列表/JSON列表/详情/JSON详情/过滤请求/无凭证/API错误/未知profile/非法页码/非法格式），用 httptest 隔离网络
 record.go:                  record 命令组，挂载 create / get / update / delete / list 子命令，--app 和 --entity 参数为子命令继承
 record_create.go:           record create 子命令，从 JSON 文件加载动态 KV 数据，调用 Data Service API 创建 Record，输出 recordID；loadRecordData 从 JSON 文件加载记录数据；支持 --app（继承）/ --entity（继承）/ --json（必选）/ --profile
 record_create_test.go:      覆盖 runRecordCreate 的单元测试（成功/无凭证/API错误/未知profile/非法JSON/文件不存在），用 httptest 隔离网络

@@ -223,7 +223,7 @@ func fetchAllRelations(client *api.Client, app string) ([]api.Relation, error) {
 	var all []api.Relation
 	page := 1
 	for {
-		batch, total, err := client.ListRelations(app, page, 100)
+		batch, total, err := client.ListRelations(app, page, 100, nil)
 		if err != nil {
 			return nil, err
 		}

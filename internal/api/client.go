@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 bytes、encoding/json、fmt、net/http、time
- * [OUTPUT]: 对外提供 Client 类型、Option / WithDebug / WithHeaders 功能选项、New 构造函数、App / Field / Entity / EntityProperties / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp / ListApps / DeleteApp / GetApp / CreateEntity / ListEntities / GetEntity / UpdateEntity / DeleteEntity / CreateRelation / UpdateRelation / ListRelations / GetRelation / DeleteRelation / GetSchema 方法
+ * [OUTPUT]: 对外提供 Client 类型、Option / WithDebug / WithHeaders 功能选项、New 构造函数、App / Field / Entity / EntityProperties / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp / ListApps(page, size, filter) / DeleteApp / GetApp / CreateEntity / ListEntities(app, page, size, filter) / GetEntity / UpdateEntity / DeleteEntity / CreateRelation / UpdateRelation / ListRelations(app, page, size, filter) / GetRelation / DeleteRelation / GetSchema 方法
  * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -296,12 +296,16 @@ func (c *Client) UpdateRelation(name, app string, props RelationProperties) erro
 }
 
 // ListRelations 调用 MakeService.ListResources 获取指定 App 下全部 Relation
+// filter 为可选的服务端过滤条件（对象数组，数组元素间为 OR），nil 时不发送 filter 字段
 // 返回 Relation 列表和服务端 total 数量
-func (c *Client) ListRelations(app string, page, size int) ([]Relation, int, error) {
+func (c *Client) ListRelations(app string, page, size int, filter []map[string]any) ([]Relation, int, error) {
 	reqBody := map[string]any{
 		"app":        app,
 		"sort":       []map[string]any{{"field": "id", "order": "asc"}},
 		"pagination": map[string]any{"page": page, "size": size},
+	}
+	if filter != nil {
+		reqBody["filter"] = filter
 	}
 	var result struct {
 		Code    int        `json:"code"`

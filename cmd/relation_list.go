@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client）、fmt、os、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client）、fmt、os、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助、cmd/app_list（parseFilter）
  * [OUTPUT]: 对外提供 newRelationListCmd 函数
- * [POS]: cmd/relation 的 list 子命令，无 arg 时分页列出 app 下全部 relation，有 arg 时显示指定 relation 详情，支持 table/json 输出
+ * [POS]: cmd/relation 的 list 子命令，无 arg 时分页列出 app 下全部 relation，有 arg 时显示指定 relation 详情，支持 --filter / table|json 输出
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -21,6 +21,7 @@ func newRelationListCmd() *cobra.Command {
 	var page int
 	var size int
 	var output string
+	var filter string
 
 	cmd := &cobra.Command{
 		Use:          "list [relation-name]",
@@ -33,7 +34,7 @@ func newRelationListCmd() *cobra.Command {
 			if len(args) == 1 {
 				relationName = args[0]
 			}
-			return runRelationList(app, relationName, profile, page, size, output)
+			return runRelationList(app, relationName, profile, page, size, output, filter)
 		},
 	}
 
@@ -41,10 +42,11 @@ func newRelationListCmd() *cobra.Command {
 	cmd.Flags().IntVar(&page, "page", 1, "page number to fetch (starts from 1)")
 	cmd.Flags().IntVar(&size, "size", 20, "number of relations per page")
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
+	cmd.Flags().StringVar(&filter, "filter", "", `filter expression, e.g. "name=project" (comma = OR)`)
 	return cmd
 }
 
-func runRelationList(app, relationName, profile string, page, size int, output string) error {
+func runRelationList(app, relationName, profile string, page, size int, output, filterExpr string) error {
 	if err := validateOutputFormat(output); err != nil {
 		return err
 	}
@@ -55,6 +57,11 @@ func runRelationList(app, relationName, profile string, page, size int, output s
 		return fmt.Errorf("size must be greater than or equal to 1")
 	}
 
+	filter, err := parseFilter(filterExpr)
+	if err != nil {
+		return err
+	}
+
 	client, err := newClientFromProfile(profile)
 	if err != nil {
 		return err
@@ -63,11 +70,11 @@ func runRelationList(app, relationName, profile string, page, size int, output s
 	if relationName != "" {
 		return showRelation(client, app, relationName, output)
 	}
-	return listRelations(client, app, page, size, output)
+	return listRelations(client, app, page, size, output, filter)
 }
 
-func listRelations(client *api.Client, app string, page, size int, output string) error {
-	relations, total, err := client.ListRelations(app, page, size)
+func listRelations(client *api.Client, app string, page, size int, output string, filter []map[string]any) error {
+	relations, total, err := client.ListRelations(app, page, size, filter)
 	if err != nil {
 		return err
 	}
