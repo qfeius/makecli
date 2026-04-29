@@ -3,8 +3,8 @@ Go + github.com/spf13/cobra
 
 <directory>
 agents/          - app init 模板文件（CLAUDE.md / AGENTS.md），通过 embed.FS 编译进二进制
-cmd/            - Cobra 子命令层（root、version、configure[token/config/set/get/verify]、app、entity、relation、record、apply、diff、update、schema）
-internal/api/    - Make Meta/Data Service HTTP 客户端（Client + functional options，X-Make-Target 路由 + 自定义 headers 注入；Meta 操作走 /meta/v1/，Record 操作走 /data/v1/）
+cmd/            - Cobra 子命令层（root、version、configure[token/config/set/get/verify]、app、entity、relation、record、apply、diff、update、schema、integration[ocr]）
+internal/api/    - Make Meta/Data/Integration Service HTTP 客户端（Client + functional options，X-Make-Target 路由 + 自定义 headers 注入；Meta 操作走 /meta/v1/，Record 操作走 /data/v1/，Integration 操作走 /integration/v1/）
 internal/build/ - 构建元数据（Version/Date，由 ldflags 注入）
 internal/config/ - 凭证与配置管理（读写 credentials 和 config，INI 格式；默认 ~/.make，可用 $MAKE_CLI_CONFIG_DIR 覆盖）
 internal/update/ - 自更新引擎（GitHub Releases 查询、下载、原子替换二进制）
