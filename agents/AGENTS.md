@@ -8,7 +8,7 @@
 2. 根据用户的完整的需求场景进行业务建模, 生成对应的业务模型(app, entity, field, relation) 等 DSL, 保存到 @apps/dsl/ 目录下面.
 3. 将前面的 DSL 通过 makecli apply 到 make 开发平台上.
 4. 根据前面需求抽象定义后端接口沉淀到 @apps/doc/api.md 文件里面, 然后实现对应的业务逻辑实现对 make 平台的数据的 CRUD-LS 操作, make 的 API 文档可以参考 makedsl skill.
-5. 根据前面需求和刚才定义的 @apps/docs/api.md 文件, 实现前端UI, 交互, 动画等功能.
+5. 根据前面需求和刚才定义的 @apps/docs/api.md 文件, 实现前端UI, 交互, 动画等功能. UI 必须优先遵循 makeui skill；默认使用 React + Vite + React Router，除非用户明确要求且项目已支持其他前端栈。Make record list/table 必须通过 canvas-table-integration skill 接入 @qfei-design/canvas-table.
 6. 完成 @apps/README.md 包括: 简单项目说明, 如何启动ui 和 service.
 </implement_workflow>
 
@@ -17,10 +17,16 @@
 </update_workflow>
 
 <require_skills>
-install makedsl and makecli skill
+install make platform skills
 ```
 npx skills add qfeius/make-platform-skills --all -y
 ```
+
+必须安装并使用:
+- makedsl: 业务建模和 DSL 生成
+- makecli: apply / diff / schema / record 等 Make CLI 操作
+- makeui: apps/ui 前端 UI 设计和代码生成
+- canvas-table-integration: Make record list/table 和 cell editing
 </require_skills>
 
 <structure>
@@ -33,7 +39,7 @@ npx skills add qfeius/make-platform-skills --all -y
 ├── docs/
 ├── apps
     ├── README.md
-    ├── ui        (Next.js frontend)
+    ├── ui        (React + Vite + React Router frontend, follow makeui skill)
     │   ├── .env       (包含 SERVICE_BASE_URL 环境变量)
     ├── service       (express.js backend)
     │   ├── .env       (包含 MAKE_API_TOKEN 环境变量)
@@ -54,7 +60,7 @@ MAKE_API_TOKEN 访问 Make 平台需要的 token 统一抽取出来
 <dataflow>
 请求数据流
 ```
-ui (Next.js)
+ui (React + Vite + React Router)
          │
          │ 
          service (Express.js)
