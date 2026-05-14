@@ -58,6 +58,12 @@ MAKE_API_TOKEN 访问 Make 平台需要的 token 统一抽取出来
 这样后续部署的时候比较容易统一修改
 </structure>
 
+<dev_ports>
+- apps/ui 默认从 6000 端口启动.
+- Vite dev server 不要启用 strictPort; 如果 6000 被占用, 允许自动递增到 6001、6002 等可用端口.
+- apps/service 暂不强制指定端口, 沿用项目默认后端端口; UI 通过 SERVICE_BASE_URL 连接后端.
+</dev_ports>
+
 <dataflow>
 请求数据流
 ```
@@ -102,7 +108,7 @@ apps/package.json：
     "scripts": {
       "dev": "concurrently -n service,ui -c blue,green \"pnpm run app:service\" \"pnpm run app:ui\"",
       "app:service": "pnpm --filter service dev",
-      "app:ui": "pnpm --filter ui dev"
+      "app:ui": "pnpm --filter ui dev -- --host 0.0.0.0 --port 6000"
     },
     "devDependencies": {
       "concurrently": "^8.2.0"
