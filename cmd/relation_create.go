@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（RelationProperties/RelationEnd）、encoding/json、fmt、os、github.com/spf13/cobra
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（validResourceKey）、internal/api（RelationProperties/RelationEnd）、encoding/json、fmt、os、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newRelationCreateCmd 函数
- * [POS]: cmd/relation 的 create 子命令，从 JSON 文件加载 from/to 配置，调用 Meta Server API 创建 Relation
+ * [POS]: cmd/relation 的 create 子命令，位置参数为 Relation key，--name 为展示名，--json 加载 from/to 配置（entityKey 引用），调用 Meta Server API 创建 Relation
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -18,24 +18,30 @@ import (
 
 func newRelationCreateCmd() *cobra.Command {
 	var jsonFile string
+	var displayName string
 
 	cmd := &cobra.Command{
-		Use:          "create <name>",
+		Use:          "create <key>",
 		Short:        "Create a new relation on Make",
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app, _ := cmd.Parent().Flags().GetString("app")
-			return runRelationCreate(args[0], app, jsonFile)
+			appKey, _ := cmd.Parent().Flags().GetString("app")
+			return runRelationCreate(args[0], displayName, appKey, jsonFile)
 		},
 	}
 
+	cmd.Flags().StringVar(&displayName, "name", "", "relation display name (defaults to key)")
 	cmd.Flags().StringVar(&jsonFile, "json", "", "path to JSON file containing relation properties (required)")
 	_ = cmd.MarkFlagRequired("json")
 	return cmd
 }
 
-func runRelationCreate(name, app, jsonFile string) error {
+func runRelationCreate(key, displayName, appKey, jsonFile string) error {
+	if err := validResourceKey(key); err != nil {
+		return err
+	}
+
 	client, err := newClientFromProfile()
 	if err != nil {
 		return err
@@ -46,11 +52,15 @@ func runRelationCreate(name, app, jsonFile string) error {
 		return err
 	}
 
-	if err := client.CreateRelation(name, app, props); err != nil {
+	if displayName == "" {
+		displayName = key
+	}
+
+	if err := client.CreateRelation(key, displayName, appKey, props); err != nil {
 		return err
 	}
 
-	fmt.Printf("Relation '%s' created successfully in app '%s'\n", name, app)
+	fmt.Printf("Relation '%s' created successfully in app '%s'\n", key, appKey)
 	return nil
 }
 

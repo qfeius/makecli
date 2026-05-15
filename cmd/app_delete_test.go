@@ -66,7 +66,7 @@ func TestRunAppDeleteFromFile(t *testing.T) {
 		ServerURL = srv.URL
 
 		f := filepath.Join(t.TempDir(), "app.yaml")
-		writeTestFile(t, f, []byte("name: fileapp\ntype: Make.App\n"))
+		writeTestFile(t, f, []byte("key: fileapp\nname: 文件应用\ntype: Make.App\n"))
 
 		if err := runAppDeleteFromFile(f); err != nil {
 			t.Fatalf("runAppDeleteFromFile: %v", err)
@@ -84,7 +84,7 @@ func TestRunAppDeleteFromFile(t *testing.T) {
 
 	t.Run("fails when no Make.App in file", func(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "entity.yaml")
-		writeTestFile(t, f, []byte("name: foo\ntype: Make.Entity\napp: bar\n"))
+		writeTestFile(t, f, []byte("key: foo\nname: 实体\ntype: Make.Entity\nappKey: bar\n"))
 
 		if err := runAppDeleteFromFile(f); err == nil {
 			t.Fatal("expected error for missing Make.App")

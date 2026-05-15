@@ -104,7 +104,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 		ServerURL = srv.URL
 
 		f := filepath.Join(t.TempDir(), "app.yaml")
-		writeTestFile(t, f, []byte("name: fileapp\ntype: Make.App\nproperties:\n  description: from file\n"))
+		writeTestFile(t, f, []byte("key: fileapp\nname: 文件应用\ntype: Make.App\nproperties:\n  description: from file\n"))
 
 		if err := runAppCreateFromFile(f); err != nil {
 			t.Fatalf("runAppCreateFromFile: %v", err)
@@ -119,7 +119,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 		ServerURL = srv.URL
 
 		f := filepath.Join(t.TempDir(), "app.yml")
-		writeTestFile(t, f, []byte("name: bareapp\ntype: Make.App\n"))
+		writeTestFile(t, f, []byte("key: bareapp\nname: 简易应用\ntype: Make.App\n"))
 
 		if err := runAppCreateFromFile(f); err != nil {
 			t.Fatalf("runAppCreateFromFile without props: %v", err)
@@ -137,7 +137,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 
 	t.Run("fails when no Make.App in file", func(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "entity.yaml")
-		writeTestFile(t, f, []byte("name: foo\ntype: Make.Entity\napp: bar\n"))
+		writeTestFile(t, f, []byte("key: foo\nname: 测试\ntype: Make.Entity\nappKey: bar\n"))
 
 		if err := runAppCreateFromFile(f); err == nil {
 			t.Fatal("expected error for missing Make.App")
@@ -146,7 +146,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 
 	t.Run("fails when multiple Make.App in file", func(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "multi.yaml")
-		writeTestFile(t, f, []byte("name: a\ntype: Make.App\n---\nname: b\ntype: Make.App\n"))
+		writeTestFile(t, f, []byte("key: appone\nname: 一号\ntype: Make.App\n---\nkey: apptwo\nname: 二号\ntype: Make.App\n"))
 
 		if err := runAppCreateFromFile(f); err == nil {
 			t.Fatal("expected error for multiple Make.App")
@@ -154,18 +154,18 @@ func TestRunAppCreateFromFile(t *testing.T) {
 	})
 }
 
-func TestValidateAppName(t *testing.T) {
-	valid := []string{"abc", "MyApp", "app_01", "A1_b2_C3", "12345678901234567890"}
-	for _, name := range valid {
-		if err := validateAppName(name); err != nil {
-			t.Errorf("validateAppName(%q) unexpected error: %v", name, err)
+func TestValidResourceKey(t *testing.T) {
+	valid := []string{"ab", "abc", "MyApp", "app_01", "A1_b2_C3", "12345678901234567890"}
+	for _, key := range valid {
+		if err := validResourceKey(key); err != nil {
+			t.Errorf("validResourceKey(%q) unexpected error: %v", key, err)
 		}
 	}
 
-	invalid := []string{"", "a", "ab", "my-app", "my app", "my.app", "我的app", "a_very_long_name_that_is", "app@home"}
-	for _, name := range invalid {
-		if err := validateAppName(name); err == nil {
-			t.Errorf("validateAppName(%q) expected error, got nil", name)
+	invalid := []string{"", "a", "_underscore", "my-app", "my app", "my.app", "我的app", "a_very_long_name_that_is", "app@home"}
+	for _, key := range invalid {
+		if err := validResourceKey(key); err == nil {
+			t.Errorf("validResourceKey(%q) expected error, got nil", key)
 		}
 	}
 }

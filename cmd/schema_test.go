@@ -26,28 +26,28 @@ func TestRunSchema(t *testing.T) {
 			}
 			var req map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&req)
-			if req["app"] != "报销管理" {
-				t.Errorf("unexpected app: %s", req["app"])
+			if req["appKey"] != "expense_management" {
+				t.Errorf("unexpected appKey: %s", req["appKey"])
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "get app schema success",
 				"data": map[string]any{
 					"app": map[string]any{
-						"name": "报销管理", "type": "Make.App",
+						"key": "expense_management", "name": "报销管理", "type": "Make.App",
 						"meta":       map[string]any{"version": "1.0.0"},
-						"properties": map[string]any{"renderName": "expense_management"},
+						"properties": map[string]any{"description": "demo"},
 					},
 					"entities": []map[string]any{
-						{"name": "expense_report", "type": "Make.Entity", "app": "报销管理",
+						{"key": "expense_report", "name": "报销单", "type": "Make.Entity", "appKey": "expense_management",
 							"meta":       map[string]any{"version": "1.0.0"},
-							"properties": map[string]any{"fields": []map[string]any{{"name": "申请人", "type": "Make.Field.Text"}}}},
+							"properties": map[string]any{"fields": []map[string]any{{"key": "applicant", "name": "申请人", "type": "Make.Field.Text"}}}},
 					},
 					"relations": []map[string]any{
-						{"name": "report_has_invoices", "type": "Make.Relation", "app": "报销管理",
+						{"key": "report_has_invoices", "name": "报销单发票关联", "type": "Make.Relation", "appKey": "expense_management",
 							"meta": map[string]any{"version": "1.0.0"},
 							"properties": map[string]any{
-								"from": map[string]any{"entity": "expense_report", "cardinality": "one"},
-								"to":   map[string]any{"entity": "expense_invoice", "cardinality": "many"},
+								"from": map[string]any{"entityKey": "expense_report", "cardinality": "one"},
+								"to":   map[string]any{"entityKey": "expense_invoice", "cardinality": "many"},
 							}},
 					},
 				},
@@ -59,7 +59,7 @@ func TestRunSchema(t *testing.T) {
 		ServerURL = srv.URL
 
 		output := captureStdout(t, func() {
-			if err := runSchema("报销管理"); err != nil {
+			if err := runSchema("expense_management"); err != nil {
 				t.Fatalf("runSchema: %v", err)
 			}
 		})

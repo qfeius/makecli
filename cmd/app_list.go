@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、fmt、os、strings、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助
  * [OUTPUT]: 对外提供 newAppListCmd 函数、parseFilter 解析 --filter 语法
- * [POS]: cmd/app 的 list 子命令，分页列出 org 下全部 App，支持 --filter / table|json 输出
+ * [POS]: cmd/app 的 list 子命令，分页列出 org 下全部 App，输出列 KEY/NAME/VERSION/CREATED AT；支持 --filter / table|json 输出；filter 支持 name(contains 模糊) / key(等值) / description
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -34,13 +34,15 @@ func newAppListCmd() *cobra.Command {
 	cmd.Flags().IntVar(&page, "page", 1, "page number to fetch (starts from 1)")
 	cmd.Flags().IntVar(&size, "size", 20, "number of apps per page")
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
-	cmd.Flags().StringVar(&filter, "filter", "", `filter expression, e.g. "name=todo,renderName=todo" (comma = OR)`)
+	cmd.Flags().StringVar(&filter, "filter", "", `filter expression, e.g. "name=待办,key=todo" (comma = OR; key 等值匹配, name/description 模糊匹配)`)
 	return cmd
 }
 
 // parseFilter 解析 "key=value,key2=value2" 格式的过滤表达式
 // 逗号分隔的每组 key=value 构成 OR 关系（数组中独立对象）
-// 文本字段自动转为 contains 模糊匹配
+// 不同字段使用不同的匹配语义：
+//   - key: 等值匹配 (=)
+//   - name, description: 模糊匹配 (contains)
 func parseFilter(expr string) ([]map[string]any, error) {
 	if expr == "" {
 		return nil, nil
@@ -51,12 +53,14 @@ func parseFilter(expr string) ([]map[string]any, error) {
 		if len(kv) != 2 || kv[0] == "" || kv[1] == "" {
 			return nil, fmt.Errorf("invalid filter expression %q, expected key=value", part)
 		}
-		key, val := strings.TrimSpace(kv[0]), strings.TrimSpace(kv[1])
-		switch key {
-		case "name", "renderName", "description":
-			filters = append(filters, map[string]any{key: map[string]any{"contains": val}})
+		field, val := strings.TrimSpace(kv[0]), strings.TrimSpace(kv[1])
+		switch field {
+		case "key":
+			filters = append(filters, map[string]any{field: map[string]any{"=": val}})
+		case "name", "description":
+			filters = append(filters, map[string]any{field: map[string]any{"contains": val}})
 		default:
-			return nil, fmt.Errorf("unsupported filter field %q", key)
+			return nil, fmt.Errorf("unsupported filter field %q", field)
 		}
 	}
 	return filters, nil
@@ -107,14 +111,13 @@ func runAppList(page, size int, output, filterExpr string) error {
 
 	rows := make([][]string, len(apps))
 	for i, app := range apps {
-		renderName, _ := app.Properties["renderName"].(string)
 		version, _ := app.Meta["version"].(string)
 		createdAt, _ := app.Meta["createdAt"].(string)
-		rows[i] = []string{app.Name, renderName, version, createdAt}
+		rows[i] = []string{app.Key, app.Name, version, createdAt}
 	}
 
 	table := tablewriter.NewTable(os.Stdout)
-	table.Header("NAME", "RENDER NAME", "VERSION", "CREATED AT")
+	table.Header("KEY", "NAME", "VERSION", "CREATED AT")
 	_ = table.Bulk(rows)
 	_ = table.Render()
 

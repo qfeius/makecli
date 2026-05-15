@@ -27,7 +27,7 @@ func TestCreateApp(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		if err := New(srv.URL, "test-token").CreateApp("myapp", nil); err != nil {
+		if err := New(srv.URL, "test-token").CreateApp("myapp", "我的应用", nil); err != nil {
 			t.Fatalf("CreateApp: %v", err)
 		}
 	})
@@ -38,7 +38,7 @@ func TestCreateApp(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		if err := New(srv.URL, "test-token").CreateApp("myapp", nil); err == nil {
+		if err := New(srv.URL, "test-token").CreateApp("myapp", "我的应用", nil); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 	})
@@ -49,7 +49,7 @@ func TestCreateApp(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		if err := New(srv.URL, "test-token").CreateApp("myapp", nil); err == nil {
+		if err := New(srv.URL, "test-token").CreateApp("myapp", "我的应用", nil); err == nil {
 			t.Fatal("expected error for invalid JSON response")
 		}
 	})
@@ -63,7 +63,7 @@ func TestDeleteApp(t *testing.T) {
 			}
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["name"] != "myapp" || body["type"] != "Make.App" {
+			if body["key"] != "myapp" || body["type"] != "Make.App" {
 				t.Errorf("unexpected body: %v", body)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "delete app success"})
@@ -97,8 +97,8 @@ func TestListApps(t *testing.T) {
 				"code":    200,
 				"message": "success",
 				"data": []map[string]any{
-					{"name": "项目A", "type": "Make.App", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"code": "ProjectA"}},
-					{"name": "项目B", "type": "Make.App", "meta": map[string]any{"version": "2.0.0"}, "properties": map[string]any{"code": "ProjectB"}},
+					{"key": "ProjectA", "name": "项目A", "type": "Make.App", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"description": "demo"}},
+					{"key": "ProjectB", "name": "项目B", "type": "Make.App", "meta": map[string]any{"version": "2.0.0"}, "properties": map[string]any{"description": "demo"}},
 				},
 				"pagination": map[string]any{"page": 1, "size": 10, "total": 2},
 			})
@@ -168,7 +168,7 @@ func TestWithHeaders(t *testing.T) {
 		"X-Operator-ID": "op-123",
 	}
 	client := New(srv.URL, "test-token", WithHeaders(headers))
-	if err := client.CreateApp("test", nil); err != nil {
+	if err := client.CreateApp("test", "测试", nil); err != nil {
 		t.Fatalf("CreateApp with headers: %v", err)
 	}
 }
@@ -180,7 +180,7 @@ func TestWithDebugOption(t *testing.T) {
 	defer srv.Close()
 
 	client := New(srv.URL, "test-token", WithDebug(true))
-	if err := client.CreateApp("test", nil); err != nil {
+	if err := client.CreateApp("test", "测试", nil); err != nil {
 		t.Fatalf("CreateApp with debug: %v", err)
 	}
 }

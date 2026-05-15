@@ -23,11 +23,11 @@ func TestRunRelationCreate(t *testing.T) {
 		ServerURL = srv.URL
 
 		jsonFile := writeRelationJSON(t, map[string]any{
-			"from": map[string]any{"entity": "项目", "cardinality": "many"},
-			"to":   map[string]any{"entity": "任务", "cardinality": "one"},
+			"from": map[string]any{"entityKey": "project", "cardinality": "many"},
+			"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 		})
 
-		if err := runRelationCreate("project-has-tasks", "TODO", jsonFile); err != nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile); err != nil {
 			t.Fatalf("runRelationCreate: %v", err)
 		}
 	})
@@ -37,11 +37,11 @@ func TestRunRelationCreate(t *testing.T) {
 		ServerURL = "http://unused"
 
 		jsonFile := writeRelationJSON(t, map[string]any{
-			"from": map[string]any{"entity": "项目", "cardinality": "many"},
-			"to":   map[string]any{"entity": "任务", "cardinality": "one"},
+			"from": map[string]any{"entityKey": "project", "cardinality": "many"},
+			"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 		})
 
-		if err := runRelationCreate("project-has-tasks", "TODO", jsonFile); err == nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
 	})
@@ -54,11 +54,11 @@ func TestRunRelationCreate(t *testing.T) {
 		ServerURL = srv.URL
 
 		jsonFile := writeRelationJSON(t, map[string]any{
-			"from": map[string]any{"entity": "项目", "cardinality": "many"},
-			"to":   map[string]any{"entity": "任务", "cardinality": "one"},
+			"from": map[string]any{"entityKey": "project", "cardinality": "many"},
+			"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 		})
 
-		if err := runRelationCreate("project-has-tasks", "TODO", jsonFile); err == nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 	})
@@ -70,11 +70,11 @@ func TestRunRelationCreate(t *testing.T) {
 		setProfile(t, "nonexistent")
 
 		jsonFile := writeRelationJSON(t, map[string]any{
-			"from": map[string]any{"entity": "项目", "cardinality": "many"},
-			"to":   map[string]any{"entity": "任务", "cardinality": "one"},
+			"from": map[string]any{"entityKey": "project", "cardinality": "many"},
+			"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 		})
 
-		if err := runRelationCreate("project-has-tasks", "TODO", jsonFile); err == nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile); err == nil {
 			t.Fatal("expected error for unknown profile")
 		}
 	})
@@ -87,7 +87,7 @@ func TestRunRelationCreate(t *testing.T) {
 		bad := filepath.Join(t.TempDir(), "bad.json")
 		_ = os.WriteFile(bad, []byte("not json"), 0644)
 
-		if err := runRelationCreate("project-has-tasks", "TODO", bad); err == nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", bad); err == nil {
 			t.Fatal("expected error for invalid JSON")
 		}
 	})
@@ -97,7 +97,7 @@ func TestRunRelationCreate(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = "http://unused"
 
-		if err := runRelationCreate("project-has-tasks", "TODO", "/nonexistent.json"); err == nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", "/nonexistent.json"); err == nil {
 			t.Fatal("expected error for nonexistent file")
 		}
 	})

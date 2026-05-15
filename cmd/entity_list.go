@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client）、fmt、os、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助、cmd/app_list（parseFilter）
  * [OUTPUT]: 对外提供 newEntityListCmd 函数
- * [POS]: cmd/entity 的 list 子命令，无 arg 时分页列出 app 下全部 entity，有 arg 时显示指定 entity 详情，支持 --filter / table|json 输出
+ * [POS]: cmd/entity 的 list 子命令，按 appKey 分页列出 entity（KEY/NAME/VERSION），位置参数为 entity key 时显示单个 entity 详情；支持 --filter / table|json
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/qfeius/makecli/internal/api"
 	"github.com/olekukonko/tablewriter"
+	"github.com/qfeius/makecli/internal/api"
 	"github.com/spf13/cobra"
 )
 
@@ -23,28 +23,28 @@ func newEntityListCmd() *cobra.Command {
 	var filter string
 
 	cmd := &cobra.Command{
-		Use:          "list [entity-name]",
+		Use:          "list [entity-key]",
 		Short:        "List entities in an app, or show a specific entity",
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app, _ := cmd.Parent().Flags().GetString("app")
-			entityName := ""
+			appKey, _ := cmd.Parent().Flags().GetString("app")
+			entityKey := ""
 			if len(args) == 1 {
-				entityName = args[0]
+				entityKey = args[0]
 			}
-			return runEntityList(app, entityName, page, size, output, filter)
+			return runEntityList(appKey, entityKey, page, size, output, filter)
 		},
 	}
 
 	cmd.Flags().IntVar(&page, "page", 1, "page number to fetch (starts from 1)")
 	cmd.Flags().IntVar(&size, "size", 20, "number of entities per page")
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
-	cmd.Flags().StringVar(&filter, "filter", "", `filter expression, e.g. "name=任务" (comma = OR)`)
+	cmd.Flags().StringVar(&filter, "filter", "", `filter expression, e.g. "name=任务" or "key=task" (comma = OR)`)
 	return cmd
 }
 
-func runEntityList(app, entityName string, page, size int, output, filterExpr string) error {
+func runEntityList(appKey, entityKey string, page, size int, output, filterExpr string) error {
 	if err := validateOutputFormat(output); err != nil {
 		return err
 	}
@@ -65,14 +65,14 @@ func runEntityList(app, entityName string, page, size int, output, filterExpr st
 		return err
 	}
 
-	if entityName != "" {
-		return showEntity(client, app, entityName, output)
+	if entityKey != "" {
+		return showEntity(client, appKey, entityKey, output)
 	}
-	return listEntities(client, app, page, size, output, filter)
+	return listEntities(client, appKey, page, size, output, filter)
 }
 
-func listEntities(client *api.Client, app string, page, size int, output string, filter []map[string]any) error {
-	entities, total, err := client.ListEntities(app, page, size, filter)
+func listEntities(client *api.Client, appKey string, page, size int, output string, filter []map[string]any) error {
+	entities, total, err := client.ListEntities(appKey, page, size, filter)
 	if err != nil {
 		return err
 	}
@@ -90,18 +90,18 @@ func listEntities(client *api.Client, app string, page, size int, output string,
 	}
 
 	if len(entities) == 0 {
-		fmt.Printf("No entities found in app '%s'.\n", app)
+		fmt.Printf("No entities found in app '%s'.\n", appKey)
 		return nil
 	}
 
 	rows := make([][]string, len(entities))
 	for i, e := range entities {
 		version, _ := e.Meta["version"].(string)
-		rows[i] = []string{e.Name, version}
+		rows[i] = []string{e.Key, e.Name, version}
 	}
 
 	table := tablewriter.NewTable(os.Stdout)
-	table.Header("NAME", "VERSION")
+	table.Header("KEY", "NAME", "VERSION")
 	_ = table.Bulk(rows)
 	_ = table.Render()
 
@@ -109,8 +109,8 @@ func listEntities(client *api.Client, app string, page, size int, output string,
 	return nil
 }
 
-func showEntity(client *api.Client, app, name, output string) error {
-	entity, err := client.GetEntity(app, name)
+func showEntity(client *api.Client, appKey, key, output string) error {
+	entity, err := client.GetEntity(appKey, key)
 	if err != nil {
 		return err
 	}
@@ -122,8 +122,9 @@ func showEntity(client *api.Client, app, name, output string) error {
 	}
 
 	version, _ := entity.Meta["version"].(string)
+	fmt.Printf("Key:     %s\n", entity.Key)
 	fmt.Printf("Name:    %s\n", entity.Name)
-	fmt.Printf("App:     %s\n", entity.App)
+	fmt.Printf("App:     %s\n", entity.AppKey)
 	fmt.Printf("Version: %s\n", version)
 
 	if len(entity.Properties.Fields) == 0 {
@@ -134,10 +135,10 @@ func showEntity(client *api.Client, app, name, output string) error {
 	fmt.Println("\nFields:")
 	rows := make([][]string, len(entity.Properties.Fields))
 	for i, f := range entity.Properties.Fields {
-		rows[i] = []string{f.Name, f.Type}
+		rows[i] = []string{f.Key, f.Name, f.Type}
 	}
 	table := tablewriter.NewTable(os.Stdout)
-	table.Header("NAME", "TYPE")
+	table.Header("KEY", "NAME", "TYPE")
 	_ = table.Bulk(rows)
 	_ = table.Render()
 	return nil

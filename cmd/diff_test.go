@@ -81,7 +81,7 @@ func TestComputeDiff(t *testing.T) {
 			makeLocalEntity("Task", "title", "Make.Field.Text"),
 		}
 		remote := []api.Entity{
-			makeRemoteEntity("Task", api.Field{Name: "title", Type: "Make.Field.Text"}),
+			makeRemoteEntity("Task", api.Field{Key: "title", Name: "title", Type: "Make.Field.Text"}),
 		}
 
 		result := computeDiff("myapp", local, remote)
@@ -112,7 +112,7 @@ func TestComputeDiff(t *testing.T) {
 	t.Run("entity only on server", func(t *testing.T) {
 		var local []ResourceManifest
 		remote := []api.Entity{
-			makeRemoteEntity("OldEntity", api.Field{Name: "title", Type: "Make.Field.Text"}),
+			makeRemoteEntity("OldEntity", api.Field{Key: "title", Name: "title", Type: "Make.Field.Text"}),
 		}
 
 		result := computeDiff("myapp", local, remote)
@@ -129,7 +129,7 @@ func TestComputeDiff(t *testing.T) {
 			makeLocalEntity("Task", "description", "Make.Field.TextArea"),
 		}
 		remote := []api.Entity{
-			makeRemoteEntity("Task", api.Field{Name: "description", Type: "Make.Field.Text"}),
+			makeRemoteEntity("Task", api.Field{Key: "description", Name: "description", Type: "Make.Field.Text"}),
 		}
 
 		result := computeDiff("myapp", local, remote)
@@ -156,7 +156,7 @@ func TestComputeDiff(t *testing.T) {
 			}),
 		}
 		remote := []api.Entity{
-			makeRemoteEntity("Task", api.Field{Name: "title", Type: "Make.Field.Text"}),
+			makeRemoteEntity("Task", api.Field{Key: "title", Name: "title", Type: "Make.Field.Text"}),
 		}
 
 		result := computeDiff("myapp", local, remote)
@@ -165,7 +165,7 @@ func TestComputeDiff(t *testing.T) {
 		}
 		var addedField *FieldDiff
 		for _, f := range result.Entities[0].Fields {
-			if f.Name == "newField" {
+			if f.Key == "newField" {
 				addedField = &f
 				break
 			}
@@ -184,8 +184,8 @@ func TestComputeDiff(t *testing.T) {
 		}
 		remote := []api.Entity{
 			makeRemoteEntity("Task",
-				api.Field{Name: "title", Type: "Make.Field.Text"},
-				api.Field{Name: "oldField", Type: "Make.Field.Number"},
+				api.Field{Key: "title", Name: "title", Type: "Make.Field.Text"},
+				api.Field{Key: "oldField", Name: "oldField", Type: "Make.Field.Number"},
 			),
 		}
 
@@ -195,7 +195,7 @@ func TestComputeDiff(t *testing.T) {
 		}
 		var removedField *FieldDiff
 		for _, f := range result.Entities[0].Fields {
-			if f.Name == "oldField" {
+			if f.Key == "oldField" {
 				removedField = &f
 				break
 			}
@@ -215,8 +215,8 @@ func TestComputeDiff(t *testing.T) {
 			makeLocalEntity("OnlyLocal", "name", "Make.Field.Text"),
 		}
 		remote := []api.Entity{
-			makeRemoteEntity("Unchanged", api.Field{Name: "title", Type: "Make.Field.Text"}),
-			makeRemoteEntity("Changed", api.Field{Name: "desc", Type: "Make.Field.Text"}),
+			makeRemoteEntity("Unchanged", api.Field{Key: "title", Name: "title", Type: "Make.Field.Text"}),
+			makeRemoteEntity("Changed", api.Field{Key: "desc", Name: "desc", Type: "Make.Field.Text"}),
 			makeRemoteEntity("OnlyServer", api.Field{Name: "name", Type: "Make.Field.Text"}),
 		}
 
@@ -242,16 +242,16 @@ func TestComputeDiff(t *testing.T) {
 			makeLocalEntity("Changed", "desc", "Make.Field.TextArea"),
 		}
 		remote := []api.Entity{
-			makeRemoteEntity("Unchanged", api.Field{Name: "title", Type: "Make.Field.Text"}),
+			makeRemoteEntity("Unchanged", api.Field{Key: "title", Name: "title", Type: "Make.Field.Text"}),
 			makeRemoteEntity("Removed", api.Field{Name: "name", Type: "Make.Field.Text"}),
-			makeRemoteEntity("Changed", api.Field{Name: "desc", Type: "Make.Field.Text"}),
+			makeRemoteEntity("Changed", api.Field{Key: "desc", Name: "desc", Type: "Make.Field.Text"}),
 		}
 
 		result := computeDiff("myapp", local, remote)
 		expected := []string{"Changed", "Added", "Removed", "Unchanged"}
 		for i, e := range result.Entities {
-			if e.Name != expected[i] {
-				t.Errorf("position %d: expected %s, got %s", i, expected[i], e.Name)
+			if e.Key != expected[i] {
+				t.Errorf("position %d: expected %s, got %s", i, expected[i], e.Key)
 			}
 		}
 	})
@@ -267,8 +267,8 @@ func TestFetchAllEntities(t *testing.T) {
 				"code": 200,
 				"msg":  "ok",
 				"data": []map[string]any{
-					{"name": "E1", "type": "Make.Entity", "app": "a", "meta": map[string]any{}, "properties": map[string]any{"fields": []any{}}},
-					{"name": "E2", "type": "Make.Entity", "app": "a", "meta": map[string]any{}, "properties": map[string]any{"fields": []any{}}},
+					{"key": "E1", "name": "E1", "type": "Make.Entity", "appKey": "a", "meta": map[string]any{}, "properties": map[string]any{"fields": []any{}}},
+					{"key": "E2", "name": "E2", "type": "Make.Entity", "appKey": "a", "meta": map[string]any{}, "properties": map[string]any{"fields": []any{}}},
 				},
 				"pagination": map[string]any{"total": 2},
 			})
@@ -294,11 +294,11 @@ func TestFetchAllEntities(t *testing.T) {
 			var data []map[string]any
 			if callCount == 1 {
 				data = []map[string]any{
-					{"name": "E1", "type": "Make.Entity", "app": "a", "meta": map[string]any{}, "properties": map[string]any{"fields": []any{}}},
+					{"key": "E1", "name": "E1", "type": "Make.Entity", "appKey": "a", "meta": map[string]any{}, "properties": map[string]any{"fields": []any{}}},
 				}
 			} else {
 				data = []map[string]any{
-					{"name": "E2", "type": "Make.Entity", "app": "a", "meta": map[string]any{}, "properties": map[string]any{"fields": []any{}}},
+					{"key": "E2", "name": "E2", "type": "Make.Entity", "appKey": "a", "meta": map[string]any{}, "properties": map[string]any{"fields": []any{}}},
 				}
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -368,11 +368,12 @@ func makeLocalEntity(name, fieldName, fieldType string) ResourceManifest {
 	return makeLocalEntityMultiFields(name, []fieldDef{{fieldName, fieldType}})
 }
 
-// makeLocalEntityMultiFields 构造包含多个字段的本地 Entity Manifest
-func makeLocalEntityMultiFields(name string, fields []fieldDef) ResourceManifest {
+// makeLocalEntityMultiFields 构造包含多个字段的本地 Entity Manifest（key 等同 name 简化测试）
+func makeLocalEntityMultiFields(key string, fields []fieldDef) ResourceManifest {
 	fs := make([]any, len(fields))
 	for i, f := range fields {
 		fs[i] = map[string]any{
+			"key":        f.Name,
 			"name":       f.Name,
 			"type":       f.Type,
 			"meta":       map[string]any{"version": "1.0.0"},
@@ -380,39 +381,43 @@ func makeLocalEntityMultiFields(name string, fields []fieldDef) ResourceManifest
 		}
 	}
 	return ResourceManifest{
-		Name: name,
-		Type: "Make.Entity",
-		App:  "myapp",
-		Meta: map[string]any{"version": "1.0.0"},
+		Key:    key,
+		Name:   key,
+		Type:   "Make.Entity",
+		AppKey: "myapp",
+		Meta:   map[string]any{"version": "1.0.0"},
 		Properties: map[string]any{
 			"fields": fs,
 		},
 	}
 }
 
-// makeRemoteEntity 构造远端 Entity 对象
-func makeRemoteEntity(name string, fields ...api.Field) api.Entity {
+// makeRemoteEntity 构造远端 Entity 对象（key 等同 name 简化测试）
+func makeRemoteEntity(key string, fields ...api.Field) api.Entity {
 	return api.Entity{
-		Name: name,
-		Type: "Make.Entity",
-		App:  "myapp",
-		Meta: map[string]any{"version": "1.0.0"},
+		Key:    key,
+		Name:   key,
+		Type:   "Make.Entity",
+		AppKey: "myapp",
+		Meta:   map[string]any{"version": "1.0.0"},
 		Properties: api.EntityProperties{
 			Fields: fields,
 		},
 	}
 }
 
-// entityYAML 生成单 Entity 的 YAML 字符串
-func entityYAML(name, app, fieldName, fieldType string) string {
-	return `name: ` + name + `
+// entityYAML 生成单 Entity 的 YAML 字符串（key/name/appKey）
+func entityYAML(key, appKey, fieldKey, fieldType string) string {
+	return `key: ` + key + `
+name: ` + key + `
 type: Make.Entity
-app: ` + app + `
+appKey: ` + appKey + `
 meta:
   version: 1.0.0
 properties:
   fields:
-    - name: ` + fieldName + `
+    - key: ` + fieldKey + `
+      name: ` + fieldKey + `
       type: ` + fieldType + `
       meta:
         version: 1.0.0
@@ -531,7 +536,7 @@ func TestFetchAllRelations(t *testing.T) {
 				"code": 200,
 				"msg":  "ok",
 				"data": []map[string]any{
-					{"name": "R1", "type": "Make.Relation", "app": "a", "meta": map[string]any{}, "properties": map[string]any{"from": map[string]any{"entity": "A", "cardinality": "one"}, "to": map[string]any{"entity": "B", "cardinality": "many"}}},
+					{"key": "R1", "name": "R1", "type": "Make.Relation", "appKey": "a", "meta": map[string]any{}, "properties": map[string]any{"from": map[string]any{"entityKey": "A", "cardinality": "one"}, "to": map[string]any{"entityKey": "B", "cardinality": "many"}}},
 				},
 				"pagination": map[string]any{"total": 1},
 			})
@@ -556,11 +561,11 @@ func TestFetchAllRelations(t *testing.T) {
 			var data []map[string]any
 			if callCount == 1 {
 				data = []map[string]any{
-					{"name": "R1", "type": "Make.Relation", "app": "a", "meta": map[string]any{}, "properties": map[string]any{"from": map[string]any{"entity": "A", "cardinality": "one"}, "to": map[string]any{"entity": "B", "cardinality": "many"}}},
+					{"key": "R1", "name": "R1", "type": "Make.Relation", "appKey": "a", "meta": map[string]any{}, "properties": map[string]any{"from": map[string]any{"entityKey": "A", "cardinality": "one"}, "to": map[string]any{"entityKey": "B", "cardinality": "many"}}},
 				}
 			} else {
 				data = []map[string]any{
-					{"name": "R2", "type": "Make.Relation", "app": "a", "meta": map[string]any{}, "properties": map[string]any{"from": map[string]any{"entity": "C", "cardinality": "many"}, "to": map[string]any{"entity": "D", "cardinality": "many"}}},
+					{"key": "R2", "name": "R2", "type": "Make.Relation", "appKey": "a", "meta": map[string]any{}, "properties": map[string]any{"from": map[string]any{"entityKey": "C", "cardinality": "many"}, "to": map[string]any{"entityKey": "D", "cardinality": "many"}}},
 				}
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -588,30 +593,32 @@ func TestFetchAllRelations(t *testing.T) {
 
 // ---------------------------------- Relation 辅助函数 ----------------------------------
 
-// makeLocalRelation 构造本地 Relation Manifest
-func makeLocalRelation(name, fromEntity, fromCard, toEntity, toCard string) ResourceManifest {
+// makeLocalRelation 构造本地 Relation Manifest（key 等同展示名，entityKey 直接传入）
+func makeLocalRelation(key, fromEntityKey, fromCard, toEntityKey, toCard string) ResourceManifest {
 	return ResourceManifest{
-		Name: name,
-		Type: "Make.Relation",
-		App:  "myapp",
-		Meta: map[string]any{"version": "1.0.0"},
+		Key:    key,
+		Name:   key,
+		Type:   "Make.Relation",
+		AppKey: "myapp",
+		Meta:   map[string]any{"version": "1.0.0"},
 		Properties: map[string]any{
-			"from": map[string]any{"entity": fromEntity, "cardinality": fromCard},
-			"to":   map[string]any{"entity": toEntity, "cardinality": toCard},
+			"from": map[string]any{"entityKey": fromEntityKey, "cardinality": fromCard},
+			"to":   map[string]any{"entityKey": toEntityKey, "cardinality": toCard},
 		},
 	}
 }
 
 // makeRemoteRelation 构造远端 Relation 对象
-func makeRemoteRelation(name, fromEntity, fromCard, toEntity, toCard string) api.Relation {
+func makeRemoteRelation(key, fromEntityKey, fromCard, toEntityKey, toCard string) api.Relation {
 	return api.Relation{
-		Name: name,
-		Type: "Make.Relation",
-		App:  "myapp",
-		Meta: map[string]any{"version": "1.0.0"},
+		Key:    key,
+		Name:   key,
+		Type:   "Make.Relation",
+		AppKey: "myapp",
+		Meta:   map[string]any{"version": "1.0.0"},
 		Properties: api.RelationProperties{
-			From: api.RelationEnd{Entity: fromEntity, Cardinality: fromCard},
-			To:   api.RelationEnd{Entity: toEntity, Cardinality: toCard},
+			From: api.RelationEnd{EntityKey: fromEntityKey, Cardinality: fromCard},
+			To:   api.RelationEnd{EntityKey: toEntityKey, Cardinality: toCard},
 		},
 	}
 }
@@ -637,6 +644,7 @@ func newDiffServer(t *testing.T, remoteEntities []api.Entity, remoteRelations []
 				"code": 200,
 				"msg":  "ok",
 				"data": map[string]any{
+					"key":        "myapp",
 					"name":       "myapp",
 					"type":       "Make.App",
 					"meta":       map[string]any{"version": "1.0.0"},

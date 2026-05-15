@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 github.com/spf13/cobra、fmt、path/filepath
- * [OUTPUT]: 对外提供 newAppCmd 函数、loadAppManifestFromFile helper
- * [POS]: cmd 模块的 app 命令组，挂载 create / list / delete / init 等子命令；提供从 YAML 加载 App 清单的共享逻辑
+ * [INPUT]: 依赖 github.com/spf13/cobra、fmt、path/filepath、regexp
+ * [OUTPUT]: 对外提供 newAppCmd 函数、loadAppManifestFromFile helper、validResourceKey 通用 key 校验函数
+ * [POS]: cmd 模块的 app 命令组，挂载 create / list / delete / init 等子命令；提供从 YAML 加载 App 清单的共享逻辑；validResourceKey 通用于 App / Entity / Field / Relation 的 key 格式校验
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -15,13 +15,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// validAppName 仅允许英文字母、数字、下划线，长度 3-20
-var validAppName = regexp.MustCompile(`^[A-Za-z0-9_]{3,20}$`)
+// validKey 仅允许英文字母、数字、下划线，长度 2-20（不可以下划线开头）
+var validKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_]{1,19}$`)
 
-// validateAppName 校验 App name 格式
-func validateAppName(name string) error {
-	if !validAppName.MatchString(name) {
-		return fmt.Errorf("invalid app name %q: 仅支持英文字母、数字、下划线，长度 3-20", name)
+// validResourceKey 校验资源 key 格式（适用于 App / Entity / Field / Relation）
+// 规则: 英文字母、数字、下划线，长度 2-20，不能以下划线开头
+func validResourceKey(key string) error {
+	if !validKey.MatchString(key) {
+		return fmt.Errorf("invalid key %q: 仅支持英文字母、数字、下划线，长度 2-20，不能以下划线开头", key)
 	}
 	return nil
 }

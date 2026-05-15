@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client/CreateApp/CreateEntity/GetApp/GetEntity/UpdateEntity/GetRelation/CreateRelation/UpdateRelation/Field/RelationProperties/RelationEnd）、fmt、os、path/filepath、strings、gopkg.in/yaml.v3、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newApplyCmd 函数
- * [POS]: cmd 模块的顶层 apply 命令，从 YAML 文件/目录批量应用资源（create-or-update 语义）
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（validResourceKey）、internal/api（Client/CreateApp/CreateEntity/GetApp/GetEntity/UpdateEntity/GetRelation/CreateRelation/UpdateRelation/Field/RelationProperties/RelationEnd）、fmt、os、path/filepath、strings、gopkg.in/yaml.v3、github.com/spf13/cobra
+ * [OUTPUT]: 对外提供 newApplyCmd 函数、ResourceManifest 类型（Key/Name/Type/AppKey/Meta/Properties）
+ * [POS]: cmd 模块的顶层 apply 命令，从 YAML 文件/目录批量应用资源（create-or-update 语义），按 Key 标识资源，Name 仅为展示名
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -81,10 +81,13 @@ func runAppApply(path string) error {
 // ---------------------------------- 资源清单 ----------------------------------
 
 // ResourceManifest YAML 资源清单的通用结构
+// Key 是英文标识符（创建后不可改），Name 是用户可见展示名（必填，支持中文）
+// AppKey 用于 Entity/Relation 引用所属 App 的 key
 type ResourceManifest struct {
+	Key        string         `yaml:"key"`
 	Name       string         `yaml:"name"`
 	Type       string         `yaml:"type"`
-	App        string         `yaml:"app,omitempty"`
+	AppKey     string         `yaml:"appKey,omitempty"`
 	Meta       map[string]any `yaml:"meta"`
 	Properties map[string]any `yaml:"properties"`
 }
@@ -111,7 +114,7 @@ func loadManifestsFromFile(path string) ([]ResourceManifest, error) {
 			return nil, fmt.Errorf("解析 YAML 失败: %w", err)
 		}
 		// 跳过空文档
-		if m.Name == "" || m.Type == "" {
+		if m.Key == "" || m.Type == "" {
 			continue
 		}
 		manifests = append(manifests, m)
@@ -182,7 +185,7 @@ func applyResources(resources []ResourceManifest, client *api.Client) error {
 		case "Make.Relation":
 			relations = append(relations, r)
 		default:
-			return fmt.Errorf("未知资源类型 '%s'（资源 '%s'），支持的类型: Make.App, Make.Entity, Make.Relation", r.Type, r.Name)
+			return fmt.Errorf("未知资源类型 '%s'（资源 '%s'），支持的类型: Make.App, Make.Entity, Make.Relation", r.Type, r.Key)
 		}
 	}
 
@@ -190,10 +193,10 @@ func applyResources(resources []ResourceManifest, client *api.Client) error {
 	for _, app := range apps {
 		action, err := applyApp(app, client)
 		if err != nil {
-			return fmt.Errorf("应用 App '%s' 失败: %w", app.Name, err)
+			return fmt.Errorf("应用 App '%s' 失败: %w", app.Key, err)
 		}
 		if action != "" {
-			fmt.Printf("App '%s' %s\n", app.Name, action)
+			fmt.Printf("App '%s' %s\n", app.Key, action)
 		}
 	}
 
@@ -201,41 +204,46 @@ func applyResources(resources []ResourceManifest, client *api.Client) error {
 	for _, entity := range entities {
 		action, err := applyEntity(entity, client)
 		if err != nil {
-			return fmt.Errorf("应用 Entity '%s' 失败: %w", entity.Name, err)
+			return fmt.Errorf("应用 Entity '%s' 失败: %w", entity.Key, err)
 		}
-		fmt.Printf("Entity '%s' %s\n", entity.Name, action)
+		fmt.Printf("Entity '%s' %s\n", entity.Key, action)
 	}
 
 	// 最后应用 Relation
 	for _, relation := range relations {
 		action, err := applyRelation(relation, client)
 		if err != nil {
-			return fmt.Errorf("应用 Relation '%s' 失败: %w", relation.Name, err)
+			return fmt.Errorf("应用 Relation '%s' 失败: %w", relation.Key, err)
 		}
-		fmt.Printf("Relation '%s' %s\n", relation.Name, action)
+		fmt.Printf("Relation '%s' %s\n", relation.Key, action)
 	}
 
 	return nil
 }
 
 // applyApp 从清单应用 App：不存在则创建，已存在则跳过（App 无 update API）
+// manifest.Key 是英文标识符，manifest.Name 是展示名；name 缺省时回退用 key
 func applyApp(manifest ResourceManifest, client *api.Client) (string, error) {
-	if err := validateAppName(manifest.Name); err != nil {
+	if err := validResourceKey(manifest.Key); err != nil {
 		return "", err
 	}
 
-	existing, err := client.GetApp(manifest.Name)
-	if err == nil && existing.Name != "" {
+	existing, err := client.GetApp(manifest.Key)
+	if err == nil && existing.Key != "" {
 		return "", nil // App 无 update API，静默跳过
 	}
 
-	return "created", client.CreateApp(manifest.Name, manifest.Properties)
+	displayName := manifest.Name
+	if displayName == "" {
+		displayName = manifest.Key
+	}
+	return "created", client.CreateApp(manifest.Key, displayName, manifest.Properties)
 }
 
 // applyEntity 从清单应用 Entity：不存在则创建，已存在则更新
 func applyEntity(manifest ResourceManifest, client *api.Client) (string, error) {
-	if manifest.App == "" {
-		return "", fmt.Errorf("entity 缺少 app 字段")
+	if manifest.AppKey == "" {
+		return "", fmt.Errorf("entity 缺少 appKey 字段")
 	}
 
 	fieldsRaw, ok := manifest.Properties["fields"]
@@ -254,27 +262,36 @@ func applyEntity(manifest ResourceManifest, client *api.Client) (string, error) 
 		if !ok {
 			return "", fmt.Errorf("field[%d] 必须为对象", i)
 		}
+		fieldKey, _ := fieldMap["key"].(string)
+		fieldName, _ := fieldMap["name"].(string)
+		fieldType, _ := fieldMap["type"].(string)
 		fields[i] = api.Field{
-			Name:        getField(fieldMap, "name").(string),
-			Type:        getField(fieldMap, "type").(string),
+			Key:         fieldKey,
+			Name:        fieldName,
+			Type:        fieldType,
 			Meta:        getFieldMap(fieldMap, "meta"),
 			Properties:  getFieldMap(fieldMap, "properties"),
 			Validations: getFieldMap(fieldMap, "validations"),
 		}
 	}
 
-	existing, err := client.GetEntity(manifest.App, manifest.Name)
-	if err == nil && existing.Name != "" {
-		return "updated", client.UpdateEntity(manifest.Name, manifest.App, fields)
+	displayName := manifest.Name
+	if displayName == "" {
+		displayName = manifest.Key
 	}
 
-	return "created", client.CreateEntity(manifest.Name, manifest.App, fields)
+	existing, err := client.GetEntity(manifest.AppKey, manifest.Key)
+	if err == nil && existing.Key != "" {
+		return "updated", client.UpdateEntity(manifest.Key, displayName, manifest.AppKey, fields)
+	}
+
+	return "created", client.CreateEntity(manifest.Key, displayName, manifest.AppKey, fields)
 }
 
 // applyRelation 从清单应用 Relation：不存在则创建，已存在则更新
 func applyRelation(manifest ResourceManifest, client *api.Client) (string, error) {
-	if manifest.App == "" {
-		return "", fmt.Errorf("relation 缺少 app 字段")
+	if manifest.AppKey == "" {
+		return "", fmt.Errorf("relation 缺少 appKey 字段")
 	}
 
 	props, err := parseRelationProperties(manifest.Properties)
@@ -282,15 +299,21 @@ func applyRelation(manifest ResourceManifest, client *api.Client) (string, error
 		return "", err
 	}
 
-	existing, err := client.GetRelation(manifest.App, manifest.Name)
-	if err == nil && existing.Name != "" {
-		return "updated", client.UpdateRelation(manifest.Name, manifest.App, props)
+	displayName := manifest.Name
+	if displayName == "" {
+		displayName = manifest.Key
 	}
 
-	return "created", client.CreateRelation(manifest.Name, manifest.App, props)
+	existing, err := client.GetRelation(manifest.AppKey, manifest.Key)
+	if err == nil && existing.Key != "" {
+		return "updated", client.UpdateRelation(manifest.Key, displayName, manifest.AppKey, props)
+	}
+
+	return "created", client.CreateRelation(manifest.Key, displayName, manifest.AppKey, props)
 }
 
 // parseRelationProperties 从 YAML properties map 解析 Relation 的 from/to 端点
+// 端点引用通过 entityKey 指向所属 Entity 的 key
 func parseRelationProperties(properties map[string]any) (api.RelationProperties, error) {
 	fromRaw := getFieldMap(properties, "from")
 	if fromRaw == nil {
@@ -301,14 +324,14 @@ func parseRelationProperties(properties map[string]any) (api.RelationProperties,
 		return api.RelationProperties{}, fmt.Errorf("relation 缺少 to 字段")
 	}
 
-	fromEntity, _ := fromRaw["entity"].(string)
+	fromEntityKey, _ := fromRaw["entityKey"].(string)
 	fromCardinality, _ := fromRaw["cardinality"].(string)
-	toEntity, _ := toRaw["entity"].(string)
+	toEntityKey, _ := toRaw["entityKey"].(string)
 	toCardinality, _ := toRaw["cardinality"].(string)
 
 	return api.RelationProperties{
-		From: api.RelationEnd{Entity: fromEntity, Cardinality: fromCardinality},
-		To:   api.RelationEnd{Entity: toEntity, Cardinality: toCardinality},
+		From: api.RelationEnd{EntityKey: fromEntityKey, Cardinality: fromCardinality},
+		To:   api.RelationEnd{EntityKey: toEntityKey, Cardinality: toCardinality},
 	}, nil
 }
 
