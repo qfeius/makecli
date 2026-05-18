@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra、fmt、regexp、strings
  * [OUTPUT]: 对外提供 newVersionCmd 函数
- * [POS]: cmd 模块的 version 子命令，参考 GitHub CLI 的 pkg/cmd/version/version.go 实现
+ * [POS]: cmd 模块的 version 子命令，挂载 list 子命令；默认 Run 打印当前版本（参考 GitHub CLI 模式）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -16,13 +16,15 @@ import (
 )
 
 func newVersionCmd(version, buildDate string) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Show version information",
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Print(formatVersion(version, buildDate))
 		},
 	}
+	cmd.AddCommand(newVersionListCmd())
+	return cmd
 }
 
 // formatVersion 生成版本输出字符串，格式参考 GitHub CLI

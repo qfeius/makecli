@@ -306,6 +306,13 @@ func copyFile(src, dst string) error {
 	return err
 }
 
+// SetAPIBaseURLForTest 替换 GitHub API 基础 URL，返回原值用于恢复。仅供测试使用。
+func SetAPIBaseURLForTest(url string) string {
+	old := apiBaseURL
+	apiBaseURL = url
+	return old
+}
+
 // isNewer 使用 semver 比较版本，DEV 版本视为始终可更新
 func isNewer(current, remote string) bool {
 	remote = strings.TrimPrefix(remote, "v")
