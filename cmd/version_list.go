@@ -22,8 +22,9 @@ func newVersionListCmd() *cobra.Command {
 	var limit int
 	var output string
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List historical releases from GitHub",
+		Use:          "list",
+		Short:        "List historical releases from GitHub",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runVersionList(limit, output)
 		},
