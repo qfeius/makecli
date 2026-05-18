@@ -30,7 +30,7 @@ func newVersionListCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", 20, "number of releases to fetch (1-100)")
-	cmd.Flags().StringVar(&output, "output", outputTable, "output format: table|json")
+	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
 	return cmd
 }
 
