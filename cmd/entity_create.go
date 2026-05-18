@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Field）、encoding/json、fmt、os、strings、github.com/spf13/cobra
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（validResourceKey）、internal/api（Field）、encoding/json、fmt、os、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newEntityCreateCmd 函数
- * [POS]: cmd/entity 的 create 子命令，从 JSON 文件加载 fields、校验后调用 Meta Server API 创建 Entity
+ * [POS]: cmd/entity 的 create 子命令，位置参数为 Entity key，--name 为展示名，--json 加载 fields；校验 field key 格式后调用 Meta Server API 创建 Entity
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/qfeius/makecli/internal/api"
 	"github.com/spf13/cobra"
@@ -19,23 +18,29 @@ import (
 
 func newEntityCreateCmd() *cobra.Command {
 	var jsonFile string
+	var displayName string
 
 	cmd := &cobra.Command{
-		Use:          "create <name>",
+		Use:          "create <key>",
 		Short:        "Create a new entity on Make",
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app, _ := cmd.Parent().Flags().GetString("app")
-			return runEntityCreate(args[0], app, jsonFile)
+			appKey, _ := cmd.Parent().Flags().GetString("app")
+			return runEntityCreate(args[0], displayName, appKey, jsonFile)
 		},
 	}
 
+	cmd.Flags().StringVar(&displayName, "name", "", "entity display name (defaults to key)")
 	cmd.Flags().StringVar(&jsonFile, "json", "", "path to JSON file containing fields array")
 	return cmd
 }
 
-func runEntityCreate(name, app, jsonFile string) error {
+func runEntityCreate(key, displayName, appKey, jsonFile string) error {
+	if err := validResourceKey(key); err != nil {
+		return err
+	}
+
 	client, err := newClientFromProfile()
 	if err != nil {
 		return err
@@ -47,16 +52,20 @@ func runEntityCreate(name, app, jsonFile string) error {
 	}
 
 	for _, f := range fields {
-		if strings.HasPrefix(f.Name, "_") {
-			return fmt.Errorf("field 名称不能以 '_' 开头: %q", f.Name)
+		if err := validResourceKey(f.Key); err != nil {
+			return fmt.Errorf("field key 校验失败 (%q): %w", f.Key, err)
 		}
 	}
 
-	if err := client.CreateEntity(name, app, fields); err != nil {
+	if displayName == "" {
+		displayName = key
+	}
+
+	if err := client.CreateEntity(key, displayName, appKey, fields); err != nil {
 		return err
 	}
 
-	fmt.Printf("Entity '%s' created successfully in app '%s'\n", name, app)
+	fmt.Printf("Entity '%s' created successfully in app '%s'\n", key, appKey)
 	return nil
 }
 

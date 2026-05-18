@@ -39,9 +39,9 @@ func TestRunAppList(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "message": "success",
 				"data": []map[string]any{
-					{"name": "项目A", "type": "Make.App",
+					{"key": "ProjectA", "name": "项目A", "type": "Make.App",
 						"meta":       map[string]any{"version": "1.0.0", "createdAt": "2026-04-03T04:44:23Z"},
-						"properties": map[string]any{"renderName": "ProjectA"}},
+						"properties": map[string]any{"description": "demo"}},
 				},
 				"pagination": map[string]any{"page": 1, "size": 20, "total": 1},
 			})
@@ -79,9 +79,9 @@ func TestRunAppList(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "message": "success",
 				"data": []map[string]any{
-					{"name": "项目A", "type": "Make.App",
+					{"key": "ProjectA", "name": "项目A", "type": "Make.App",
 						"meta":       map[string]any{"version": "1.0.0", "createdAt": "2026-04-03T04:44:23Z"},
-						"properties": map[string]any{"renderName": "ProjectA"}},
+						"properties": map[string]any{"description": "demo"}},
 				},
 				"pagination": map[string]any{"page": 1, "size": 20, "total": 1},
 			})
@@ -170,9 +170,9 @@ func TestRunAppList(t *testing.T) {
 				t.Errorf("expected name contains=todo, got %v", nameFilter["contains"])
 			}
 			second, _ := arr[1].(map[string]any)
-			rnFilter, _ := second["renderName"].(map[string]any)
-			if rnFilter["contains"] != "todo" {
-				t.Errorf("expected renderName contains=todo, got %v", rnFilter["contains"])
+			keyFilter, _ := second["key"].(map[string]any)
+			if keyFilter["="] != "todo" {
+				t.Errorf("expected key ==todo, got %v", keyFilter["="])
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "message": "success",
@@ -185,7 +185,7 @@ func TestRunAppList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runAppList(1, 20, outputTable, "name=todo,renderName=todo"); err != nil {
+		if err := runAppList(1, 20, outputTable, "name=todo,key=todo"); err != nil {
 			t.Fatalf("runAppList with filter: %v", err)
 		}
 	})
@@ -232,7 +232,7 @@ func TestParseFilter(t *testing.T) {
 	})
 
 	t.Run("comma separated fields become OR array", func(t *testing.T) {
-		f, err := parseFilter("name=todo,renderName=todo")
+		f, err := parseFilter("name=todo,key=todo")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -240,10 +240,10 @@ func TestParseFilter(t *testing.T) {
 			t.Fatalf("expected 2 elements, got %d", len(f))
 		}
 		if _, ok := f[0]["name"]; !ok {
-			t.Fatal("expected first element to have name key")
+			t.Fatal("expected first element to have name field")
 		}
-		if _, ok := f[1]["renderName"]; !ok {
-			t.Fatal("expected second element to have renderName key")
+		if _, ok := f[1]["key"]; !ok {
+			t.Fatal("expected second element to have key field")
 		}
 	})
 

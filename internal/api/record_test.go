@@ -27,7 +27,7 @@ func TestRecordCreate(t *testing.T) {
 			}
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["app"] != "myapp" || body["entity"] != "user" {
+			if body["appKey"] != "myapp" || body["entityKey"] != "user" {
 				t.Errorf("unexpected body: %v", body)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -244,7 +244,7 @@ func TestRecordList(t *testing.T) {
 			}
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
-			if body["app"] != "myapp" || body["entity"] != "user" {
+			if body["appKey"] != "myapp" || body["entityKey"] != "user" {
 				t.Errorf("unexpected body: %v", body)
 			}
 			// 验证可选字段被发送
@@ -267,7 +267,7 @@ func TestRecordList(t *testing.T) {
 
 		records, total, err := New(srv.URL, "test-token").ListRecords("myapp", "user", ListRecordOpts{
 			Fields: []string{"name", "age"},
-			Sort:   []SortField{{Field: "age", Order: "desc"}},
+			Sort:   []SortField{{FieldKey: "age", Order: "desc"}},
 			Page:   1,
 			Size:   10,
 		})

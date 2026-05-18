@@ -20,22 +20,22 @@ func newRecordDeleteCmd() *cobra.Command {
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app, _ := cmd.Parent().Flags().GetString("app")
-			entity, _ := cmd.Parent().Flags().GetString("entity")
-			return runRecordDelete(app, entity, args)
+			appKey, _ := cmd.Parent().Flags().GetString("app")
+			entityKey, _ := cmd.Parent().Flags().GetString("entity")
+			return runRecordDelete(appKey, entityKey, args)
 		},
 	}
 
 	return cmd
 }
 
-func runRecordDelete(app, entity string, recordIDs []string) error {
+func runRecordDelete(appKey, entityKey string, recordIDs []string) error {
 	client, err := newClientFromProfile()
 	if err != nil {
 		return err
 	}
 
-	results, err := client.DeleteRecords(app, entity, recordIDs)
+	results, err := client.DeleteRecords(appKey, entityKey, recordIDs)
 	if err != nil {
 		return err
 	}

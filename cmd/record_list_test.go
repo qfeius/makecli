@@ -167,10 +167,10 @@ func TestParseSortSpec(t *testing.T) {
 		if len(result) != 2 {
 			t.Fatalf("expected 2 sort fields, got %d", len(result))
 		}
-		if result[0].Field != "createdAt" || result[0].Order != "desc" {
+		if result[0].FieldKey != "createdAt" || result[0].Order != "desc" {
 			t.Errorf("unexpected first sort field: %+v", result[0])
 		}
-		if result[1].Field != "id" || result[1].Order != "asc" {
+		if result[1].FieldKey != "id" || result[1].Order != "asc" {
 			t.Errorf("unexpected second sort field: %+v", result[1])
 		}
 	})

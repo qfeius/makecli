@@ -23,9 +23,9 @@ func newRecordGetCmd() *cobra.Command {
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app, _ := cmd.Parent().Flags().GetString("app")
-			entity, _ := cmd.Parent().Flags().GetString("entity")
-			return runRecordGet(app, entity, args[0], output)
+			appKey, _ := cmd.Parent().Flags().GetString("app")
+			entityKey, _ := cmd.Parent().Flags().GetString("entity")
+			return runRecordGet(appKey, entityKey, args[0], output)
 		},
 	}
 
@@ -33,7 +33,7 @@ func newRecordGetCmd() *cobra.Command {
 	return cmd
 }
 
-func runRecordGet(app, entity, recordID, output string) error {
+func runRecordGet(appKey, entityKey, recordID, output string) error {
 	if err := validateOutputFormat(output); err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func runRecordGet(app, entity, recordID, output string) error {
 		return err
 	}
 
-	data, err := client.GetRecord(app, entity, recordID)
+	data, err := client.GetRecord(appKey, entityKey, recordID)
 	if err != nil {
 		return err
 	}

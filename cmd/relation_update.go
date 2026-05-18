@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/relation_create（loadRelationProperties）、fmt、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newRelationUpdateCmd 函数
- * [POS]: cmd/relation 的 update 子命令，从 JSON 文件加载 from/to 配置，调用 Meta Server API 更新 Relation
+ * [POS]: cmd/relation 的 update 子命令，按 key 定位，--name 更新展示名，--json 加载 from/to（entityKey 引用）调用 Meta Server API 更新 Relation
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -15,24 +15,26 @@ import (
 
 func newRelationUpdateCmd() *cobra.Command {
 	var jsonFile string
+	var displayName string
 
 	cmd := &cobra.Command{
-		Use:          "update <name>",
+		Use:          "update <key>",
 		Short:        "Update an existing relation on Make",
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app, _ := cmd.Parent().Flags().GetString("app")
-			return runRelationUpdate(args[0], app, jsonFile)
+			appKey, _ := cmd.Parent().Flags().GetString("app")
+			return runRelationUpdate(args[0], displayName, appKey, jsonFile)
 		},
 	}
 
+	cmd.Flags().StringVar(&displayName, "name", "", "relation display name (defaults to key)")
 	cmd.Flags().StringVar(&jsonFile, "json", "", "path to JSON file containing relation properties (required)")
 	_ = cmd.MarkFlagRequired("json")
 	return cmd
 }
 
-func runRelationUpdate(name, app, jsonFile string) error {
+func runRelationUpdate(key, displayName, appKey, jsonFile string) error {
 	client, err := newClientFromProfile()
 	if err != nil {
 		return err
@@ -43,10 +45,14 @@ func runRelationUpdate(name, app, jsonFile string) error {
 		return err
 	}
 
-	if err := client.UpdateRelation(name, app, props); err != nil {
+	if displayName == "" {
+		displayName = key
+	}
+
+	if err := client.UpdateRelation(key, displayName, appKey, props); err != nil {
 		return err
 	}
 
-	fmt.Printf("Relation '%s' updated successfully in app '%s'\n", name, app)
+	fmt.Printf("Relation '%s' updated successfully in app '%s'\n", key, appKey)
 	return nil
 }

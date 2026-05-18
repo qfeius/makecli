@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 bytes、encoding/json、fmt、net/http、time
- * [OUTPUT]: 对外提供 Client 类型、Option / WithDebug / WithHeaders 功能选项、New 构造函数、App / Field / Entity / EntityProperties / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp / ListApps(page, size, filter) / DeleteApp / GetApp / CreateEntity / ListEntities(app, page, size, filter) / GetEntity / UpdateEntity / DeleteEntity / CreateRelation / UpdateRelation / ListRelations(app, page, size, filter) / GetRelation / DeleteRelation / GetSchema 方法
+ * [OUTPUT]: 对外提供 Client 类型、Option / WithDebug / WithHeaders 功能选项、New 构造函数、App / Field / Entity / EntityProperties / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp(key, name, properties) / ListApps(page, size, filter) / DeleteApp(key) / GetApp(key) / CreateEntity(key, name, appKey, fields) / ListEntities(appKey, page, size, filter) / GetEntity(appKey, key) / UpdateEntity / DeleteEntity / CreateRelation(key, name, appKey, props) / UpdateRelation / ListRelations(appKey, ...) / GetRelation(appKey, key) / DeleteRelation / GetSchema(appKey) 方法。资源以 Key 为唯一标识符（英数下划线），Name 为用户可见展示名（支持中文）
  * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -58,7 +58,10 @@ func New(baseURL, token string, opts ...Option) *Client {
 // ---------------------------------- 数据类型 ----------------------------------
 
 // App 代表 Meta Server 返回的单个 App 资源
+// Key 是唯一标识符（英数下划线，2-20，创建后不可改）
+// Name 是用户可见的展示名（允许中文，必填）
 type App struct {
+	Key        string         `json:"key"`
 	Name       string         `json:"name"`
 	Type       string         `json:"type"`
 	Meta       map[string]any `json:"meta"`
@@ -68,8 +71,10 @@ type App struct {
 // ---------------------------------- App 操作 ----------------------------------
 
 // CreateApp 调用 MakeService.CreateResource 在 Meta Server 创建 App
-func (c *Client) CreateApp(name string, properties map[string]any) error {
+// key 是英文标识符（不可改），name 是用户可见展示名（必填，支持中文）
+func (c *Client) CreateApp(key, name string, properties map[string]any) error {
 	body := map[string]any{
+		"key":        key,
 		"name":       name,
 		"type":       "Make.App",
 		"meta":       map[string]any{"version": "1.0.0"},
@@ -83,7 +88,7 @@ func (c *Client) CreateApp(name string, properties map[string]any) error {
 // 返回 App 列表和服务端 total 数量
 func (c *Client) ListApps(page, size int, filter []map[string]any) ([]App, int, error) {
 	reqBody := map[string]any{
-		"sort":       []map[string]any{{"field": "id", "order": "asc"}},
+		"sort":       []map[string]any{{"fieldKey": "id", "order": "asc"}},
 		"pagination": map[string]any{"page": page, "size": size},
 	}
 	if filter != nil {
@@ -107,10 +112,10 @@ func (c *Client) ListApps(page, size int, filter []map[string]any) ([]App, int, 
 	return result.Data, result.Pagination.Total, nil
 }
 
-// DeleteApp 调用 MakeService.DeleteResource 删除指定 App
-func (c *Client) DeleteApp(name string) error {
+// DeleteApp 调用 MakeService.DeleteResource 删除指定 App（按 key 定位）
+func (c *Client) DeleteApp(key string) error {
 	body := map[string]any{
-		"name": name,
+		"key":  key,
 		"type": "Make.App",
 	}
 	return c.post("MakeService.DeleteResource", "/meta/v1/app", body)
@@ -119,7 +124,10 @@ func (c *Client) DeleteApp(name string) error {
 // ---------------------------------- Entity 操作 ----------------------------------
 
 // Field 代表 Entity 下的单个字段定义
+// Key 是 Entity 范围内唯一的标识符（英数下划线，2-20）
+// Name 是用户可见的展示名（允许中文，必填）
 type Field struct {
+	Key         string         `json:"key"`
 	Name        string         `json:"name"`
 	Type        string         `json:"type"`
 	Meta        map[string]any `json:"meta"`
@@ -128,10 +136,12 @@ type Field struct {
 }
 
 // Entity 代表 Meta Server 返回的单个 Entity 资源
+// Key 是 App 范围内唯一的标识符；AppKey 引用所属 App 的 key
 type Entity struct {
+	Key        string           `json:"key"`
 	Name       string           `json:"name"`
 	Type       string           `json:"type"`
-	App        string           `json:"app"`
+	AppKey     string           `json:"appKey"`
 	Meta       map[string]any   `json:"meta"`
 	Properties EntityProperties `json:"properties"`
 }
@@ -143,9 +153,9 @@ type EntityProperties struct {
 
 // ---------------------------------- Relation 操作 ----------------------------------
 
-// RelationEnd 描述关系的一端（实体 + 基数）
+// RelationEnd 描述关系的一端（实体 key + 基数）
 type RelationEnd struct {
-	Entity      string `json:"entity"`
+	EntityKey   string `json:"entityKey"`
 	Cardinality string `json:"cardinality"` // "one" | "many"
 }
 
@@ -156,21 +166,25 @@ type RelationProperties struct {
 }
 
 // Relation 代表 Meta Server 返回的单个 Relation 资源
+// Key 是 App 范围内唯一的标识符；AppKey 引用所属 App 的 key
 type Relation struct {
+	Key        string             `json:"key"`
 	Name       string             `json:"name"`
 	Type       string             `json:"type"`
-	App        string             `json:"app"`
+	AppKey     string             `json:"appKey"`
 	Meta       map[string]any     `json:"meta"`
 	Properties RelationProperties `json:"properties"`
 }
 
 // CreateEntity 调用 MakeService.CreateResource 在指定 App 下创建 Entity
-func (c *Client) CreateEntity(name, app string, fields []Field) error {
+// key 是 Entity 标识符（英数下划线），name 是展示名（必填）；appKey 引用所属 App
+func (c *Client) CreateEntity(key, name, appKey string, fields []Field) error {
 	body := map[string]any{
-		"name": name,
-		"type": "Make.Entity",
-		"app":  app,
-		"meta": map[string]any{"version": "1.0.0"},
+		"key":    key,
+		"name":   name,
+		"type":   "Make.Entity",
+		"appKey": appKey,
+		"meta":   map[string]any{"version": "1.0.0"},
 		"properties": map[string]any{
 			"fields": fields,
 		},
@@ -181,10 +195,10 @@ func (c *Client) CreateEntity(name, app string, fields []Field) error {
 // ListEntities 调用 MakeService.ListResources 获取指定 App 下全部 Entity
 // filter 为可选的服务端过滤条件（对象数组，数组元素间为 OR），nil 时不发送 filter 字段
 // 返回 Entity 列表和服务端 total 数量
-func (c *Client) ListEntities(app string, page, size int, filter []map[string]any) ([]Entity, int, error) {
+func (c *Client) ListEntities(appKey string, page, size int, filter []map[string]any) ([]Entity, int, error) {
 	reqBody := map[string]any{
-		"app":        app,
-		"sort":       []map[string]any{{"field": "id", "order": "asc"}},
+		"appKey":     appKey,
+		"sort":       []map[string]any{{"fieldKey": "id", "order": "asc"}},
 		"pagination": map[string]any{"page": page, "size": size},
 	}
 	if filter != nil {
@@ -207,9 +221,9 @@ func (c *Client) ListEntities(app string, page, size int, filter []map[string]an
 	return result.Data, result.Pagination.Total, nil
 }
 
-// GetEntity 调用 MakeService.GetResource 获取指定 Entity 的详细信息
-func (c *Client) GetEntity(app, name string) (*Entity, error) {
-	reqBody := map[string]any{"app": app, "name": name}
+// GetEntity 调用 MakeService.GetResource 获取指定 Entity 的详细信息（按 key 定位）
+func (c *Client) GetEntity(appKey, key string) (*Entity, error) {
+	reqBody := map[string]any{"appKey": appKey, "key": key}
 	var result struct {
 		Code    int    `json:"code"`
 		Message string `json:"msg"`
@@ -224,9 +238,9 @@ func (c *Client) GetEntity(app, name string) (*Entity, error) {
 	return &result.Data, nil
 }
 
-// GetApp 调用 MakeService.GetResource 获取指定 App
-func (c *Client) GetApp(name string) (*App, error) {
-	reqBody := map[string]any{"name": name}
+// GetApp 调用 MakeService.GetResource 获取指定 App（按 key 定位）
+func (c *Client) GetApp(key string) (*App, error) {
+	reqBody := map[string]any{"key": key}
 	var result struct {
 		Code    int    `json:"code"`
 		Message string `json:"msg"`
@@ -241,13 +255,14 @@ func (c *Client) GetApp(name string) (*App, error) {
 	return &result.Data, nil
 }
 
-// UpdateEntity 调用 MakeService.UpdateResource 更新指定 Entity
-func (c *Client) UpdateEntity(name, app string, fields []Field) error {
+// UpdateEntity 调用 MakeService.UpdateResource 更新指定 Entity（按 key 定位）
+func (c *Client) UpdateEntity(key, name, appKey string, fields []Field) error {
 	body := map[string]any{
-		"name": name,
-		"type": "Make.Entity",
-		"app":  app,
-		"meta": map[string]any{"version": "1.0.0"},
+		"key":    key,
+		"name":   name,
+		"type":   "Make.Entity",
+		"appKey": appKey,
+		"meta":   map[string]any{"version": "1.0.0"},
 		"properties": map[string]any{
 			"fields": fields,
 		},
@@ -255,23 +270,25 @@ func (c *Client) UpdateEntity(name, app string, fields []Field) error {
 	return c.post("MakeService.UpdateResource", "/meta/v1/entity", body)
 }
 
-// DeleteEntity 调用 MakeService.DeleteResource 删除指定 Entity
-func (c *Client) DeleteEntity(name, app string) error {
+// DeleteEntity 调用 MakeService.DeleteResource 删除指定 Entity（按 key 定位）
+func (c *Client) DeleteEntity(key, appKey string) error {
 	body := map[string]any{
-		"name": name,
-		"type": "Make.Entity",
-		"app":  app,
+		"key":    key,
+		"type":   "Make.Entity",
+		"appKey": appKey,
 	}
 	return c.post("MakeService.DeleteResource", "/meta/v1/entity", body)
 }
 
 // CreateRelation 调用 MakeService.CreateResource 在指定 App 下创建 Relation
-func (c *Client) CreateRelation(name, app string, props RelationProperties) error {
+// key 是 Relation 标识符，name 是展示名（必填）；appKey 引用所属 App
+func (c *Client) CreateRelation(key, name, appKey string, props RelationProperties) error {
 	body := map[string]any{
-		"name": name,
-		"type": "Make.Relation",
-		"app":  app,
-		"meta": map[string]any{"version": "1.0.0"},
+		"key":    key,
+		"name":   name,
+		"type":   "Make.Relation",
+		"appKey": appKey,
+		"meta":   map[string]any{"version": "1.0.0"},
 		"properties": map[string]any{
 			"from": props.From,
 			"to":   props.To,
@@ -280,13 +297,14 @@ func (c *Client) CreateRelation(name, app string, props RelationProperties) erro
 	return c.post("MakeService.CreateResource", "/meta/v1/relation", body)
 }
 
-// UpdateRelation 调用 MakeService.UpdateResource 更新指定 Relation
-func (c *Client) UpdateRelation(name, app string, props RelationProperties) error {
+// UpdateRelation 调用 MakeService.UpdateResource 更新指定 Relation（按 key 定位）
+func (c *Client) UpdateRelation(key, name, appKey string, props RelationProperties) error {
 	body := map[string]any{
-		"name": name,
-		"type": "Make.Relation",
-		"app":  app,
-		"meta": map[string]any{"version": "1.0.0"},
+		"key":    key,
+		"name":   name,
+		"type":   "Make.Relation",
+		"appKey": appKey,
+		"meta":   map[string]any{"version": "1.0.0"},
 		"properties": map[string]any{
 			"from": props.From,
 			"to":   props.To,
@@ -298,10 +316,10 @@ func (c *Client) UpdateRelation(name, app string, props RelationProperties) erro
 // ListRelations 调用 MakeService.ListResources 获取指定 App 下全部 Relation
 // filter 为可选的服务端过滤条件（对象数组，数组元素间为 OR），nil 时不发送 filter 字段
 // 返回 Relation 列表和服务端 total 数量
-func (c *Client) ListRelations(app string, page, size int, filter []map[string]any) ([]Relation, int, error) {
+func (c *Client) ListRelations(appKey string, page, size int, filter []map[string]any) ([]Relation, int, error) {
 	reqBody := map[string]any{
-		"app":        app,
-		"sort":       []map[string]any{{"field": "id", "order": "asc"}},
+		"appKey":     appKey,
+		"sort":       []map[string]any{{"fieldKey": "id", "order": "asc"}},
 		"pagination": map[string]any{"page": page, "size": size},
 	}
 	if filter != nil {
@@ -324,9 +342,9 @@ func (c *Client) ListRelations(app string, page, size int, filter []map[string]a
 	return result.Data, result.Pagination.Total, nil
 }
 
-// GetRelation 调用 MakeService.GetResource 获取指定 Relation 的详细信息
-func (c *Client) GetRelation(app, name string) (*Relation, error) {
-	reqBody := map[string]any{"app": app, "name": name}
+// GetRelation 调用 MakeService.GetResource 获取指定 Relation 的详细信息（按 key 定位）
+func (c *Client) GetRelation(appKey, key string) (*Relation, error) {
+	reqBody := map[string]any{"appKey": appKey, "key": key}
 	var result struct {
 		Code    int      `json:"code"`
 		Message string   `json:"msg"`
@@ -341,12 +359,12 @@ func (c *Client) GetRelation(app, name string) (*Relation, error) {
 	return &result.Data, nil
 }
 
-// DeleteRelation 调用 MakeService.DeleteResource 删除指定 Relation
-func (c *Client) DeleteRelation(name, app string) error {
+// DeleteRelation 调用 MakeService.DeleteResource 删除指定 Relation（按 key 定位）
+func (c *Client) DeleteRelation(key, appKey string) error {
 	body := map[string]any{
-		"name": name,
-		"type": "Make.Relation",
-		"app":  app,
+		"key":    key,
+		"type":   "Make.Relation",
+		"appKey": appKey,
 	}
 	return c.post("MakeService.DeleteResource", "/meta/v1/relation", body)
 }
@@ -360,9 +378,9 @@ type Schema struct {
 	Relations []Relation `json:"relations"`
 }
 
-// GetSchema 调用 MakeService.GetResource 获取指定 App 的聚合 Schema
-func (c *Client) GetSchema(app string) (*Schema, error) {
-	reqBody := map[string]any{"app": app}
+// GetSchema 调用 MakeService.GetResource 获取指定 App 的聚合 Schema（按 appKey 定位）
+func (c *Client) GetSchema(appKey string) (*Schema, error) {
+	reqBody := map[string]any{"appKey": appKey}
 	var result struct {
 		Code    int    `json:"code"`
 		Message string `json:"msg"`

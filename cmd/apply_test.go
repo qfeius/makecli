@@ -30,12 +30,13 @@ func TestRunAppApply(t *testing.T) {
 		ServerURL = srv.URL
 		testDir := t.TempDir()
 
-		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `name: myapp
+		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `key: myapp
+name: 我的应用
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: custom_code
+  description: demo
 `)
 
 		if err := runAppApply(yamlFile); err != nil {
@@ -57,19 +58,21 @@ properties:
 		ServerURL = srv.URL
 		testDir := t.TempDir()
 
-		yamlFile := writeYAMLFileForApply(t, testDir, "multi.yaml", `name: app1
+		yamlFile := writeYAMLFileForApply(t, testDir, "multi.yaml", `key: app1
+name: 应用一
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: app1
+  description: app1
 ---
-name: app2
+key: app2
+name: 应用二
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: app2
+  description: app2
 `)
 
 		if err := runAppApply(yamlFile); err != nil {
@@ -95,21 +98,24 @@ properties:
 		ServerURL = srv.URL
 		testDir := t.TempDir()
 
-		writeYAMLFileForApply(t, testDir, "app.yaml", `name: myapp
+		writeYAMLFileForApply(t, testDir, "app.yaml", `key: myapp
+name: 我的应用
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: myapp
+  description: myapp
 `)
-		writeYAMLFileForApply(t, testDir, "entity.yaml", `name: Task
+		writeYAMLFileForApply(t, testDir, "entity.yaml", `key: task
+name: 任务
 type: Make.Entity
-app: myapp
+appKey: myapp
 meta:
   version: 1.0.0
 properties:
   fields:
-    - name: title
+    - key: title
+      name: 标题
       type: Make.Field.Text
       meta:
         version: 1.0.0
@@ -138,17 +144,18 @@ properties:
 		ServerURL = srv.URL
 		testDir := t.TempDir()
 
-		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `name: project-has-tasks
+		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `key: project_has_tasks
+name: 项目任务关联
 type: Make.Relation
-app: myapp
+appKey: myapp
 meta:
   version: 1.0.0
 properties:
   from:
-    entity: Project
+    entityKey: project
     cardinality: one
   to:
-    entity: Task
+    entityKey: task
     cardinality: many
 `)
 
@@ -168,7 +175,7 @@ properties:
 			w.Header().Set("Content-Type", "application/json")
 			target := r.Header.Get("X-Make-Target")
 			if target == "MakeService.GetResource" {
-				_, _ = w.Write([]byte(`{"code":200,"msg":"ok","data":{"name":"project-has-tasks","type":"Make.Relation","app":"myapp"}}`))
+				_, _ = w.Write([]byte(`{"code":200,"msg":"ok","data":{"key":"project_has_tasks","name":"项目任务关联","type":"Make.Relation","appKey":"myapp"}}`))
 			} else {
 				_, _ = w.Write([]byte(`{"code":200,"msg":"success","data":{}}`))
 			}
@@ -179,17 +186,18 @@ properties:
 		ServerURL = srv.URL
 		testDir := t.TempDir()
 
-		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `name: project-has-tasks
+		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `key: project_has_tasks
+name: 项目任务关联
 type: Make.Relation
-app: myapp
+appKey: myapp
 meta:
   version: 1.0.0
 properties:
   from:
-    entity: Project
+    entityKey: project
     cardinality: one
   to:
-    entity: Task
+    entityKey: task
     cardinality: many
 `)
 
@@ -202,7 +210,7 @@ properties:
 		}
 	})
 
-	t.Run("fails with relation missing app", func(t *testing.T) {
+	t.Run("fails with relation missing appKey", func(t *testing.T) {
 		srv := newMockMetaForApply(t, 200, "success")
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
@@ -210,21 +218,22 @@ properties:
 		ServerURL = srv.URL
 		testDir := t.TempDir()
 
-		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `name: project-has-tasks
+		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `key: project_has_tasks
+name: 项目任务关联
 type: Make.Relation
 meta:
   version: 1.0.0
 properties:
   from:
-    entity: Project
+    entityKey: project
     cardinality: one
   to:
-    entity: Task
+    entityKey: task
     cardinality: many
 `)
 
 		if err := runAppApply(yamlFile); err == nil {
-			t.Fatal("expected error for missing app field")
+			t.Fatal("expected error for missing appKey field")
 		}
 	})
 
@@ -236,14 +245,15 @@ properties:
 		ServerURL = srv.URL
 		testDir := t.TempDir()
 
-		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `name: project-has-tasks
+		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `key: project_has_tasks
+name: 项目任务关联
 type: Make.Relation
-app: myapp
+appKey: myapp
 meta:
   version: 1.0.0
 properties:
   to:
-    entity: Task
+    entityKey: task
     cardinality: many
 `)
 
@@ -265,37 +275,41 @@ properties:
 		ServerURL = srv.URL
 		testDir := t.TempDir()
 
-		writeYAMLFileForApply(t, testDir, "app.yaml", `name: myapp
+		writeYAMLFileForApply(t, testDir, "app.yaml", `key: myapp
+name: 我的应用
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: myapp
+  description: myapp
 `)
-		writeYAMLFileForApply(t, testDir, "entity.yaml", `name: Task
+		writeYAMLFileForApply(t, testDir, "entity.yaml", `key: task
+name: 任务
 type: Make.Entity
-app: myapp
+appKey: myapp
 meta:
   version: 1.0.0
 properties:
   fields:
-    - name: title
+    - key: title
+      name: 标题
       type: Make.Field.Text
       meta:
         version: 1.0.0
       properties: {}
 `)
-		writeYAMLFileForApply(t, testDir, "relation.yaml", `name: project-has-tasks
+		writeYAMLFileForApply(t, testDir, "relation.yaml", `key: project_has_tasks
+name: 项目任务关联
 type: Make.Relation
-app: myapp
+appKey: myapp
 meta:
   version: 1.0.0
 properties:
   from:
-    entity: Project
+    entityKey: project
     cardinality: one
   to:
-    entity: Task
+    entityKey: task
     cardinality: many
 `)
 
@@ -314,12 +328,13 @@ properties:
 		testDir := t.TempDir()
 		// 不写入凭证，测试缺失凭证的情况
 
-		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `name: test
+		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `key: test
+name: 测试应用
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: test
+  description: test
 `)
 
 		if err := runAppApply(yamlFile); err == nil {
@@ -333,12 +348,13 @@ properties:
 		saveDefaultTokenForApply(t)
 		ServerURL = "http://unused"
 		setProfile(t, "unknown")
-		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `name: test
+		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `key: test
+name: 测试应用
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: test
+  description: test
 `)
 
 		if err := runAppApply(yamlFile); err == nil {
@@ -354,12 +370,13 @@ properties:
 		ServerURL = srv.URL
 		testDir := t.TempDir()
 
-		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `name: test
+		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `key: test
+name: 测试应用
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: test
+  description: test
 `)
 
 		if err := runAppApply(yamlFile); err == nil {
@@ -375,7 +392,8 @@ properties:
 		ServerURL = srv.URL
 		testDir := t.TempDir()
 
-		yamlFile := writeYAMLFileForApply(t, testDir, "entity.yaml", `name: Task
+		yamlFile := writeYAMLFileForApply(t, testDir, "entity.yaml", `key: task
+name: 任务
 type: Make.Entity
 meta:
   version: 1.0.0
@@ -384,7 +402,7 @@ properties:
 `)
 
 		if err := runAppApply(yamlFile); err == nil {
-			t.Fatal("expected error for missing app field")
+			t.Fatal("expected error for missing appKey field")
 		}
 	})
 
@@ -396,12 +414,13 @@ properties:
 		ServerURL = srv.URL
 		testDir := t.TempDir()
 
-		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `name: todo
+		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `key: todo
+name: 待办
 type: aaa.App
 meta:
   version: 1.0.0
 properties:
-  code: todo
+  description: todo
 `)
 
 		err := runAppApply(yamlFile)
@@ -469,12 +488,13 @@ func TestRunAppApplyFailsWithoutRecognizedYAMLFiles(t *testing.T) {
 
 func TestLoadManifestsFromFile(t *testing.T) {
 	t.Run("loads single document", func(t *testing.T) {
-		data := `name: myapp
+		data := `key: myapp
+name: 我的应用
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: myapp
+  description: myapp
 `
 		testDir := t.TempDir()
 		file := writeYAMLFileForApply(t, testDir, "test.yaml", data)
@@ -485,25 +505,27 @@ properties:
 		if len(manifests) != 1 {
 			t.Fatalf("expected 1 manifest, got %d", len(manifests))
 		}
-		if manifests[0].Name != "myapp" {
-			t.Errorf("expected name myapp, got %s", manifests[0].Name)
+		if manifests[0].Key != "myapp" {
+			t.Errorf("expected key myapp, got %s", manifests[0].Key)
 		}
 	})
 
 	t.Run("loads multi-document", func(t *testing.T) {
-		data := `name: app1
+		data := `key: app1
+name: 应用一
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: app1
+  description: app1
 ---
-name: app2
+key: app2
+name: 应用二
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: app2
+  description: app2
 `
 		testDir := t.TempDir()
 		file := writeYAMLFileForApply(t, testDir, "test.yaml", data)
@@ -520,12 +542,13 @@ properties:
 		data := `meta:
   version: 1.0.0
 ---
-name: app2
+key: app2
+name: 应用二
 type: Make.App
 meta:
   version: 1.0.0
 properties:
-  code: app2
+  description: app2
 `
 		testDir := t.TempDir()
 		file := writeYAMLFileForApply(t, testDir, "test.yaml", data)
@@ -536,8 +559,8 @@ properties:
 		if len(manifests) != 1 {
 			t.Fatalf("expected 1 manifest (one skipped), got %d", len(manifests))
 		}
-		if manifests[0].Name != "app2" {
-			t.Errorf("expected app2, got %s", manifests[0].Name)
+		if manifests[0].Key != "app2" {
+			t.Errorf("expected app2, got %s", manifests[0].Key)
 		}
 	})
 }
@@ -547,11 +570,11 @@ properties:
 func TestLoadManifestsFromDir(t *testing.T) {
 	t.Run("loads all yaml files one level", func(t *testing.T) {
 		testDir := t.TempDir()
-		writeYAMLFileForApply(t, testDir, "app1.yaml", "name: app1\ntype: Make.App\nmeta:\n  version: 1.0.0\nproperties:\n  code: app1")
-		writeYAMLFileForApply(t, testDir, "app2.yml", "name: app2\ntype: Make.App\nmeta:\n  version: 1.0.0\nproperties:\n  code: app2")
+		writeYAMLFileForApply(t, testDir, "app1.yaml", "key: app1\nname: 应用一\ntype: Make.App\nmeta:\n  version: 1.0.0\nproperties:\n  description: app1")
+		writeYAMLFileForApply(t, testDir, "app2.yml", "key: app2\nname: 应用二\ntype: Make.App\nmeta:\n  version: 1.0.0\nproperties:\n  description: app2")
 		// 创建嵌套目录 - 应被忽略
 		_ = os.Mkdir(filepath.Join(testDir, "nested"), 0755)
-		writeYAMLFileForApply(t, filepath.Join(testDir, "nested"), "ignored.yaml", "name: ignored\ntype: Make.App")
+		writeYAMLFileForApply(t, filepath.Join(testDir, "nested"), "ignored.yaml", "key: ignored\nname: 忽略\ntype: Make.App")
 
 		manifests, err := loadManifestsFromDir(testDir)
 		if err != nil {
@@ -580,8 +603,8 @@ func TestLoadManifestsFromDir(t *testing.T) {
 
 	t.Run("skips hidden yaml files", func(t *testing.T) {
 		testDir := t.TempDir()
-		writeYAMLFileForApply(t, testDir, ".goreleaser.yml", "name: hidden\ntype: Make.App")
-		writeYAMLFileForApply(t, testDir, "app.yaml", "name: visible\ntype: Make.App")
+		writeYAMLFileForApply(t, testDir, ".goreleaser.yml", "key: hidden\nname: 隐藏\ntype: Make.App")
+		writeYAMLFileForApply(t, testDir, "app.yaml", "key: visible\nname: 可见\ntype: Make.App")
 
 		manifests, err := loadManifestsFromDir(testDir)
 		if err != nil {
@@ -590,14 +613,14 @@ func TestLoadManifestsFromDir(t *testing.T) {
 		if len(manifests) != 1 {
 			t.Fatalf("expected 1 manifest, got %d", len(manifests))
 		}
-		if manifests[0].Name != "visible" {
-			t.Fatalf("expected visible manifest, got %s", manifests[0].Name)
+		if manifests[0].Key != "visible" {
+			t.Fatalf("expected visible manifest, got %s", manifests[0].Key)
 		}
 	})
 
 	t.Run("fails when only hidden yaml files exist", func(t *testing.T) {
 		testDir := t.TempDir()
-		writeYAMLFileForApply(t, testDir, ".goreleaser.yml", "name: hidden\ntype: Make.App")
+		writeYAMLFileForApply(t, testDir, ".goreleaser.yml", "key: hidden\nname: 隐藏\ntype: Make.App")
 
 		_, err := loadManifestsFromDir(testDir)
 		if err == nil {

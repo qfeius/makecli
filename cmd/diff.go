@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client/GetApp/ListEntities/ListRelations/Entity/Relation/RelationProperties/RelationEnd）、cmd/apply（loadManifestsFromFile/Dir/ResourceManifest/getFieldMap）、cmd/output（validateOutputFormat/writeJSON）、encoding/json、fmt、os、reflect、sort、strings
  * [OUTPUT]: 对外提供 newDiffCmd 函数
- * [POS]: cmd 模块的顶层 diff 命令，对比远端 Meta Server 上的 App DSL（Entity + Relation）与本地 YAML 文件的差异
+ * [POS]: cmd 模块的顶层 diff 命令，对比远端 Meta Server 上的 App DSL（Entity + Relation）与本地 YAML 文件的差异；按 Key 匹配资源，Field 也按 Key 匹配
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -49,29 +49,29 @@ The app name is inferred from the Make.App manifest or entity's app field in the
 
 // DiffResult 整体对比结果
 type DiffResult struct {
-	AppName   string         `json:"app"`
+	AppKey    string         `json:"appKey"`
 	Entities  []EntityDiff   `json:"entities"`
 	Relations []RelationDiff `json:"relations"`
 	Summary   DiffSummary    `json:"summary"`
 }
 
-// EntityDiff 单个 Entity 的对比结果
+// EntityDiff 单个 Entity 的对比结果（按 Key 标识）
 type EntityDiff struct {
-	Name   string      `json:"name"`
+	Key    string      `json:"key"`
 	Status string      `json:"status"` // added | removed | changed | unchanged
 	Fields []FieldDiff `json:"fields,omitempty"`
 }
 
-// FieldDiff 单个 Field 的对比结果
+// FieldDiff 单个 Field 的对比结果（按 Key 标识）
 type FieldDiff struct {
-	Name   string `json:"name"`
+	Key    string `json:"key"`
 	Status string `json:"status"` // added | removed | changed
 	Detail string `json:"detail,omitempty"`
 }
 
-// RelationDiff 单个 Relation 的对比结果
+// RelationDiff 单个 Relation 的对比结果（按 Key 标识）
 type RelationDiff struct {
-	Name   string `json:"name"`
+	Key    string `json:"key"`
 	Status string `json:"status"` // added | removed | changed | unchanged
 	Detail string `json:"detail,omitempty"`
 }
@@ -121,10 +121,10 @@ func runDiff(path, output string) error {
 		return err
 	}
 
-	// 从 YAML 推断 app name
-	app := resolveAppName(resources)
-	if app == "" {
-		return fmt.Errorf("无法推断 App 名称：YAML 中未找到 Make.App 定义或 entity 的 app 字段")
+	// 从 YAML 推断 app key
+	appKey := resolveAppKey(resources)
+	if appKey == "" {
+		return fmt.Errorf("无法推断 App key：YAML 中未找到 Make.App 定义或 entity 的 appKey 字段")
 	}
 
 	// 提取本地 Entity / Relation 清单
@@ -132,23 +132,23 @@ func runDiff(path, output string) error {
 	localRelations := filterRelations(resources)
 
 	// 获取远端数据
-	if _, err := client.GetApp(app); err != nil {
-		return fmt.Errorf("获取远端 App '%s' 失败: %w", app, err)
+	if _, err := client.GetApp(appKey); err != nil {
+		return fmt.Errorf("获取远端 App '%s' 失败: %w", appKey, err)
 	}
-	remoteEntities, err := fetchAllEntities(client, app)
+	remoteEntities, err := fetchAllEntities(client, appKey)
 	if err != nil {
 		return fmt.Errorf("获取远端 Entity 失败: %w", err)
 	}
-	remoteRelations, err := fetchAllRelations(client, app)
+	remoteRelations, err := fetchAllRelations(client, appKey)
 	if err != nil {
 		return fmt.Errorf("获取远端 Relation 失败: %w", err)
 	}
 
 	// 计算差异
-	entityResult := computeDiff(app, localEntities, remoteEntities)
+	entityResult := computeDiff(appKey, localEntities, remoteEntities)
 	relationDiffs, relationSummary := computeRelationDiff(localRelations, remoteRelations)
 	result := DiffResult{
-		AppName:   app,
+		AppKey:    appKey,
 		Entities:  entityResult.Entities,
 		Relations: relationDiffs,
 		Summary: DiffSummary{
@@ -234,17 +234,17 @@ func fetchAllRelations(client *api.Client, app string) ([]api.Relation, error) {
 	return all, nil
 }
 
-// resolveAppName 从资源清单推断 App 名称
-// 优先级: Make.App 的 name > 第一个 Make.Entity 的 app 字段 > 第一个 Make.Relation 的 app 字段
-func resolveAppName(resources []ResourceManifest) string {
+// resolveAppKey 从资源清单推断 App key
+// 优先级: Make.App 的 key > 第一个 Make.Entity 的 appKey 字段 > 第一个 Make.Relation 的 appKey 字段
+func resolveAppKey(resources []ResourceManifest) string {
 	for _, r := range resources {
-		if r.Type == "Make.App" && r.Name != "" {
-			return r.Name
+		if r.Type == "Make.App" && r.Key != "" {
+			return r.Key
 		}
 	}
 	for _, r := range resources {
-		if (r.Type == "Make.Entity" || r.Type == "Make.Relation") && r.App != "" {
-			return r.App
+		if (r.Type == "Make.Entity" || r.Type == "Make.Relation") && r.AppKey != "" {
+			return r.AppKey
 		}
 	}
 	return ""
@@ -252,16 +252,16 @@ func resolveAppName(resources []ResourceManifest) string {
 
 // ---------------------------------- 核心对比 ----------------------------------
 
-// computeDiff 对比本地和远端的 Entity 集合，产出 DiffResult
-func computeDiff(app string, local []ResourceManifest, remote []api.Entity) DiffResult {
-	// 建索引
-	remoteByName := make(map[string]api.Entity, len(remote))
+// computeDiff 对比本地和远端的 Entity 集合，产出 DiffResult（按 Key 匹配）
+func computeDiff(appKey string, local []ResourceManifest, remote []api.Entity) DiffResult {
+	// 建索引（按 Key）
+	remoteByKey := make(map[string]api.Entity, len(remote))
 	for _, e := range remote {
-		remoteByName[e.Name] = e
+		remoteByKey[e.Key] = e
 	}
-	localByName := make(map[string]ResourceManifest, len(local))
+	localByKey := make(map[string]ResourceManifest, len(local))
 	for _, m := range local {
-		localByName[m.Name] = m
+		localByKey[m.Key] = m
 	}
 
 	var diffs []EntityDiff
@@ -269,26 +269,26 @@ func computeDiff(app string, local []ResourceManifest, remote []api.Entity) Diff
 
 	// 遍历本地: 找 added 和 changed
 	for _, m := range local {
-		visited[m.Name] = true
-		re, exists := remoteByName[m.Name]
+		visited[m.Key] = true
+		re, exists := remoteByKey[m.Key]
 		if !exists {
-			diffs = append(diffs, EntityDiff{Name: m.Name, Status: diffAdded})
+			diffs = append(diffs, EntityDiff{Key: m.Key, Status: diffAdded})
 			continue
 		}
-		fieldDiffs := compareFields(m, &re)
+		fieldDiffs := compareFields(&m, &re)
 		status := diffUnchanged
 		if len(fieldDiffs) > 0 {
 			status = diffChanged
 		}
-		diffs = append(diffs, EntityDiff{Name: m.Name, Status: status, Fields: fieldDiffs})
+		diffs = append(diffs, EntityDiff{Key: m.Key, Status: status, Fields: fieldDiffs})
 	}
 
 	// 遍历远端: 找 removed
 	for _, e := range remote {
-		if visited[e.Name] {
+		if visited[e.Key] {
 			continue
 		}
-		diffs = append(diffs, EntityDiff{Name: e.Name, Status: diffRemoved})
+		diffs = append(diffs, EntityDiff{Key: e.Key, Status: diffRemoved})
 	}
 
 	// 排序: changed > added > removed > unchanged
@@ -311,39 +311,40 @@ func computeDiff(app string, local []ResourceManifest, remote []api.Entity) Diff
 		}
 	}
 
-	return DiffResult{AppName: app, Entities: diffs, Summary: summary}
+	return DiffResult{AppKey: appKey, Entities: diffs, Summary: summary}
 }
 
-// computeRelationDiff 对比本地和远端的 Relation 集合
+// computeRelationDiff 对比本地和远端的 Relation 集合（按 Key 匹配）
 func computeRelationDiff(local []ResourceManifest, remote []api.Relation) ([]RelationDiff, DiffSummary) {
-	remoteByName := make(map[string]api.Relation, len(remote))
-	for _, r := range remote {
-		remoteByName[r.Name] = r
+	remoteByKey := make(map[string]*api.Relation, len(remote))
+	for i := range remote {
+		remoteByKey[remote[i].Key] = &remote[i]
 	}
 
 	var diffs []RelationDiff
 	visited := make(map[string]bool)
 
 	for _, m := range local {
-		visited[m.Name] = true
-		rr, exists := remoteByName[m.Name]
+		visited[m.Key] = true
+		rr, exists := remoteByKey[m.Key]
 		if !exists {
-			diffs = append(diffs, RelationDiff{Name: m.Name, Status: diffAdded})
+			diffs = append(diffs, RelationDiff{Key: m.Key, Status: diffAdded})
 			continue
 		}
-		detail := compareRelationEndpoints(m, &rr)
+		detail := compareRelationEndpoints(&m, rr)
 		status := diffUnchanged
 		if detail != "" {
 			status = diffChanged
 		}
-		diffs = append(diffs, RelationDiff{Name: m.Name, Status: status, Detail: detail})
+		diffs = append(diffs, RelationDiff{Key: m.Key, Status: status, Detail: detail})
 	}
 
-	for _, r := range remote {
-		if visited[r.Name] {
+	for i := range remote {
+		r := &remote[i]
+		if visited[r.Key] {
 			continue
 		}
-		diffs = append(diffs, RelationDiff{Name: r.Name, Status: diffRemoved})
+		diffs = append(diffs, RelationDiff{Key: r.Key, Status: diffRemoved})
 	}
 
 	sort.Slice(diffs, func(i, j int) bool {
@@ -367,27 +368,27 @@ func computeRelationDiff(local []ResourceManifest, remote []api.Relation) ([]Rel
 	return diffs, summary
 }
 
-// compareRelationEndpoints 对比 Relation 的 from/to 端点，返回变化描述
-func compareRelationEndpoints(local ResourceManifest, remote *api.Relation) string {
+// compareRelationEndpoints 对比 Relation 的 from/to 端点（按 entityKey 比对），返回变化描述
+func compareRelationEndpoints(local *ResourceManifest, remote *api.Relation) string {
 	localFrom := getFieldMap(local.Properties, "from")
 	localTo := getFieldMap(local.Properties, "to")
 
 	var changes []string
 
-	localFromEntity, _ := localFrom["entity"].(string)
+	localFromEntityKey, _ := localFrom["entityKey"].(string)
 	localFromCard, _ := localFrom["cardinality"].(string)
-	if localFromEntity != remote.Properties.From.Entity || localFromCard != remote.Properties.From.Cardinality {
+	if localFromEntityKey != remote.Properties.From.EntityKey || localFromCard != remote.Properties.From.Cardinality {
 		changes = append(changes, fmt.Sprintf("from: %s(%s) → %s(%s)",
-			remote.Properties.From.Entity, remote.Properties.From.Cardinality,
-			localFromEntity, localFromCard))
+			remote.Properties.From.EntityKey, remote.Properties.From.Cardinality,
+			localFromEntityKey, localFromCard))
 	}
 
-	localToEntity, _ := localTo["entity"].(string)
+	localToEntityKey, _ := localTo["entityKey"].(string)
 	localToCard, _ := localTo["cardinality"].(string)
-	if localToEntity != remote.Properties.To.Entity || localToCard != remote.Properties.To.Cardinality {
+	if localToEntityKey != remote.Properties.To.EntityKey || localToCard != remote.Properties.To.Cardinality {
 		changes = append(changes, fmt.Sprintf("to: %s(%s) → %s(%s)",
-			remote.Properties.To.Entity, remote.Properties.To.Cardinality,
-			localToEntity, localToCard))
+			remote.Properties.To.EntityKey, remote.Properties.To.Cardinality,
+			localToEntityKey, localToCard))
 	}
 
 	return strings.Join(changes, "; ")
@@ -409,15 +410,15 @@ func diffOrder(status string) int {
 	}
 }
 
-// compareFields 对比本地 Manifest 和远端 Entity 的字段列表
-func compareFields(local ResourceManifest, remote *api.Entity) []FieldDiff {
+// compareFields 对比本地 Manifest 和远端 Entity 的字段列表（按 Key 匹配）
+func compareFields(local *ResourceManifest, remote *api.Entity) []FieldDiff {
 	// 解析本地 fields
 	localFields := extractLocalFields(local)
 
-	// 构建远端索引
-	remoteByName := make(map[string]api.Field, len(remote.Properties.Fields))
+	// 构建远端索引（按 Key）
+	remoteByKey := make(map[string]api.Field, len(remote.Properties.Fields))
 	for _, f := range remote.Properties.Fields {
-		remoteByName[f.Name] = f
+		remoteByKey[f.Key] = f
 	}
 
 	var diffs []FieldDiff
@@ -425,11 +426,11 @@ func compareFields(local ResourceManifest, remote *api.Entity) []FieldDiff {
 
 	// 本地 → 远端
 	for _, lf := range localFields {
-		visited[lf.Name] = true
-		rf, exists := remoteByName[lf.Name]
+		visited[lf.Key] = true
+		rf, exists := remoteByKey[lf.Key]
 		if !exists {
 			diffs = append(diffs, FieldDiff{
-				Name:   lf.Name,
+				Key:    lf.Key,
 				Status: diffAdded,
 				Detail: lf.Type,
 			})
@@ -437,7 +438,7 @@ func compareFields(local ResourceManifest, remote *api.Entity) []FieldDiff {
 		}
 		if detail := fieldChanges(lf, rf); detail != "" {
 			diffs = append(diffs, FieldDiff{
-				Name:   lf.Name,
+				Key:    lf.Key,
 				Status: diffChanged,
 				Detail: detail,
 			})
@@ -446,11 +447,11 @@ func compareFields(local ResourceManifest, remote *api.Entity) []FieldDiff {
 
 	// 远端 → 本地
 	for _, rf := range remote.Properties.Fields {
-		if visited[rf.Name] {
+		if visited[rf.Key] {
 			continue
 		}
 		diffs = append(diffs, FieldDiff{
-			Name:   rf.Name,
+			Key:    rf.Key,
 			Status: diffRemoved,
 			Detail: rf.Type,
 		})
@@ -461,6 +462,7 @@ func compareFields(local ResourceManifest, remote *api.Entity) []FieldDiff {
 
 // localField 从 YAML manifest 提取的字段定义
 type localField struct {
+	Key         string
 	Name        string
 	Type        string
 	Meta        map[string]any
@@ -469,7 +471,7 @@ type localField struct {
 }
 
 // extractLocalFields 从 ResourceManifest 的 properties.fields 解析出字段列表
-func extractLocalFields(m ResourceManifest) []localField {
+func extractLocalFields(m *ResourceManifest) []localField {
 	fieldsRaw, ok := m.Properties["fields"]
 	if !ok {
 		return nil
@@ -485,9 +487,11 @@ func extractLocalFields(m ResourceManifest) []localField {
 		if !ok {
 			continue
 		}
+		key, _ := fm["key"].(string)
 		name, _ := fm["name"].(string)
 		typ, _ := fm["type"].(string)
 		fields = append(fields, localField{
+			Key:         key,
 			Name:        name,
 			Type:        typ,
 			Meta:        getFieldMap(fm, "meta"),
@@ -538,9 +542,9 @@ func normalize(v any) any {
 
 // ---------------------------------- 表格渲染 ----------------------------------
 
-// renderDiffTable 以人类可读的格式输出差异
+// renderDiffTable 以人类可读的格式输出差异（按 Key 标识资源）
 func renderDiffTable(result *DiffResult) {
-	fmt.Printf("App: %s\n\n", result.AppName)
+	fmt.Printf("App: %s\n\n", result.AppKey)
 
 	hasDiff := false
 
@@ -551,23 +555,23 @@ func renderDiffTable(result *DiffResult) {
 			switch e.Status {
 			case diffChanged:
 				hasDiff = true
-				fmt.Printf("  ~ %s\n", e.Name)
+				fmt.Printf("  ~ %s\n", e.Key)
 				for _, f := range e.Fields {
 					switch f.Status {
 					case diffAdded:
-						fmt.Printf("    + %s: %s (only in local)\n", f.Name, f.Detail)
+						fmt.Printf("    + %s: %s (only in local)\n", f.Key, f.Detail)
 					case diffRemoved:
-						fmt.Printf("    - %s: %s (only on server)\n", f.Name, f.Detail)
+						fmt.Printf("    - %s: %s (only on server)\n", f.Key, f.Detail)
 					case diffChanged:
-						fmt.Printf("    ~ %s: %s\n", f.Name, f.Detail)
+						fmt.Printf("    ~ %s: %s\n", f.Key, f.Detail)
 					}
 				}
 			case diffAdded:
 				hasDiff = true
-				fmt.Printf("  + %s (only in local)\n", e.Name)
+				fmt.Printf("  + %s (only in local)\n", e.Key)
 			case diffRemoved:
 				hasDiff = true
-				fmt.Printf("  - %s (only on server)\n", e.Name)
+				fmt.Printf("  - %s (only on server)\n", e.Key)
 			}
 		}
 	}
@@ -579,16 +583,16 @@ func renderDiffTable(result *DiffResult) {
 			switch r.Status {
 			case diffChanged:
 				hasDiff = true
-				fmt.Printf("  ~ %s\n", r.Name)
+				fmt.Printf("  ~ %s\n", r.Key)
 				if r.Detail != "" {
 					fmt.Printf("    %s\n", r.Detail)
 				}
 			case diffAdded:
 				hasDiff = true
-				fmt.Printf("  + %s (only in local)\n", r.Name)
+				fmt.Printf("  + %s (only in local)\n", r.Key)
 			case diffRemoved:
 				hasDiff = true
-				fmt.Printf("  - %s (only on server)\n", r.Name)
+				fmt.Printf("  - %s (only on server)\n", r.Key)
 			}
 		}
 	}

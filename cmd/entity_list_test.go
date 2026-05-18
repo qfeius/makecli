@@ -39,8 +39,8 @@ func TestRunEntityList(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": []map[string]any{
-					{"name": "项目", "type": "Make.Entity", "app": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
-					{"name": "任务", "type": "Make.Entity", "app": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
+					{"key": "project", "name": "项目", "type": "Make.Entity", "appKey": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
+					{"key": "task", "name": "任务", "type": "Make.Entity", "appKey": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
 				},
 				"pagination": map[string]any{"page": 1, "size": 20, "total": 2},
 			})
@@ -72,7 +72,7 @@ func TestRunEntityList(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": []map[string]any{
-					{"name": "任务", "type": "Make.Entity", "app": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
+					{"key": "task", "name": "任务", "type": "Make.Entity", "appKey": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
 				},
 				"pagination": map[string]any{"page": 1, "size": 20, "total": 1},
 			})
@@ -110,7 +110,7 @@ func TestRunEntityList(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": []map[string]any{
-					{"name": "项目", "type": "Make.Entity", "app": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
+					{"key": "project", "name": "项目", "type": "Make.Entity", "appKey": "TODO", "meta": map[string]any{"version": "1.0.0"}, "properties": map[string]any{"fields": []any{}}},
 				},
 				"pagination": map[string]any{"page": 1, "size": 20, "total": 1},
 			})
@@ -148,12 +148,12 @@ func TestRunEntityList(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": map[string]any{
-					"name": "项目", "type": "Make.Entity", "app": "TODO",
+					"key": "project", "name": "项目", "type": "Make.Entity", "appKey": "TODO",
 					"meta": map[string]any{"version": "1.0.0"},
 					"properties": map[string]any{
 						"fields": []map[string]any{
-							{"name": "项目名称", "type": "Make.Field.Text", "meta": map[string]any{"version": "1.0.0"}, "properties": nil},
-							{"name": "项目描述", "type": "Make.Field.TextArea", "meta": map[string]any{"version": "1.0.0"}, "properties": nil},
+							{"key": "project_name", "name": "项目名称", "type": "Make.Field.Text", "meta": map[string]any{"version": "1.0.0"}, "properties": nil},
+							{"key": "project_description", "name": "项目描述", "type": "Make.Field.TextArea", "meta": map[string]any{"version": "1.0.0"}, "properties": nil},
 						},
 					},
 				},
@@ -164,7 +164,7 @@ func TestRunEntityList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runEntityList("TODO", "项目", 1, 20, outputTable, ""); err != nil {
+		if err := runEntityList("TODO", "project", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runEntityList with name: %v", err)
 		}
 	})
@@ -174,11 +174,11 @@ func TestRunEntityList(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": map[string]any{
-					"name": "项目", "type": "Make.Entity", "app": "TODO",
+					"key": "project", "name": "项目", "type": "Make.Entity", "appKey": "TODO",
 					"meta": map[string]any{"version": "1.0.0"},
 					"properties": map[string]any{
 						"fields": []map[string]any{
-							{"name": "项目名称", "type": "Make.Field.Text", "meta": map[string]any{"version": "1.0.0"}, "properties": nil},
+							{"key": "project_name", "name": "项目名称", "type": "Make.Field.Text", "meta": map[string]any{"version": "1.0.0"}, "properties": nil},
 						},
 					},
 				},
@@ -190,7 +190,7 @@ func TestRunEntityList(t *testing.T) {
 		ServerURL = srv.URL
 
 		output := captureStdout(t, func() {
-			if err := runEntityList("TODO", "项目", 1, 20, outputJSON, ""); err != nil {
+			if err := runEntityList("TODO", "project", 1, 20, outputJSON, ""); err != nil {
 				t.Fatalf("runEntityList json detail: %v", err)
 			}
 		})
@@ -208,7 +208,7 @@ func TestRunEntityList(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": map[string]any{
-					"name": "空实体", "type": "Make.Entity", "app": "TODO",
+					"key": "empty_entity", "name": "空实体", "type": "Make.Entity", "appKey": "TODO",
 					"meta":       map[string]any{"version": "1.0.0"},
 					"properties": map[string]any{"fields": []any{}},
 				},
@@ -219,7 +219,7 @@ func TestRunEntityList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runEntityList("TODO", "空实体", 1, 20, outputTable, ""); err != nil {
+		if err := runEntityList("TODO", "empty_entity", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runEntityList no fields: %v", err)
 		}
 	})

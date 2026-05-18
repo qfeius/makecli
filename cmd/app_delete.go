@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（loadAppManifestFromFile）、fmt、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newAppDeleteCmd 函数
- * [POS]: cmd/app 的 delete 子命令，调用 Meta Server API 删除指定 App，支持 -f 文件模式
+ * [POS]: cmd/app 的 delete 子命令，调用 Meta Server API 按 key 删除指定 App，支持 -f 文件模式
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -17,7 +17,7 @@ func newAppDeleteCmd() *cobra.Command {
 	var file string
 
 	cmd := &cobra.Command{
-		Use:   "delete [name]",
+		Use:   "delete [key]",
 		Short: "Delete an app on Make",
 		Example: `  makecli app delete myapp
   makecli app delete -f app.yaml`,
@@ -28,7 +28,7 @@ func newAppDeleteCmd() *cobra.Command {
 				return runAppDeleteFromFile(file)
 			}
 			if len(args) == 0 {
-				return fmt.Errorf("requires app name or -f flag")
+				return fmt.Errorf("requires app key or -f flag")
 			}
 			return runAppDelete(args[0])
 		},
@@ -43,19 +43,19 @@ func runAppDeleteFromFile(path string) error {
 	if err != nil {
 		return err
 	}
-	return runAppDelete(manifest.Name)
+	return runAppDelete(manifest.Key)
 }
 
-func runAppDelete(name string) error {
+func runAppDelete(key string) error {
 	client, err := newClientFromProfile()
 	if err != nil {
 		return err
 	}
 
-	if err := client.DeleteApp(name); err != nil {
+	if err := client.DeleteApp(key); err != nil {
 		return err
 	}
 
-	fmt.Printf("App '%s' deleted successfully\n", name)
+	fmt.Printf("App '%s' deleted successfully\n", key)
 	return nil
 }

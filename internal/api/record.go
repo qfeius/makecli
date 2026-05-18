@@ -18,10 +18,10 @@ type DeleteRecordResult struct {
 	Message  string `json:"msg"`
 }
 
-// SortField 描述排序字段与方向
+// SortField 描述排序字段与方向（field key + 方向）
 type SortField struct {
-	Field string `json:"field"`
-	Order string `json:"order"` // "asc" | "desc"
+	FieldKey string `json:"fieldKey"`
+	Order    string `json:"order"` // "asc" | "desc"
 }
 
 // ListRecordOpts 封装 ListRecords 的可选参数
@@ -36,11 +36,11 @@ type ListRecordOpts struct {
 
 // CreateRecord 调用 MakeService.CreateResource 创建一条记录
 // 返回新创建记录的 recordID
-func (c *Client) CreateRecord(app, entity string, data map[string]any) (string, error) {
+func (c *Client) CreateRecord(appKey, entityKey string, data map[string]any) (string, error) {
 	reqBody := map[string]any{
-		"app":    app,
-		"entity": entity,
-		"data":   data,
+		"appKey":    appKey,
+		"entityKey": entityKey,
+		"data":      data,
 	}
 	var result struct {
 		Code    int    `json:"code"`
@@ -60,11 +60,11 @@ func (c *Client) CreateRecord(app, entity string, data map[string]any) (string, 
 
 // GetRecord 调用 MakeService.GetResource 获取单条记录
 // 返回记录的动态字段 map
-func (c *Client) GetRecord(app, entity, recordID string) (map[string]any, error) {
+func (c *Client) GetRecord(appKey, entityKey, recordID string) (map[string]any, error) {
 	reqBody := map[string]any{
-		"app":      app,
-		"entity":   entity,
-		"recordID": recordID,
+		"appKey":    appKey,
+		"entityKey": entityKey,
+		"recordID":  recordID,
 	}
 	var result struct {
 		Code    int            `json:"code"`
@@ -81,12 +81,12 @@ func (c *Client) GetRecord(app, entity, recordID string) (map[string]any, error)
 }
 
 // UpdateRecord 调用 MakeService.UpdateResource 更新单条记录
-func (c *Client) UpdateRecord(app, entity, recordID string, data map[string]any) error {
+func (c *Client) UpdateRecord(appKey, entityKey, recordID string, data map[string]any) error {
 	body := map[string]any{
-		"app":      app,
-		"entity":   entity,
-		"recordID": recordID,
-		"data":     data,
+		"appKey":    appKey,
+		"entityKey": entityKey,
+		"recordID":  recordID,
+		"data":      data,
 	}
 	return c.post("MakeService.UpdateResource", "/data/v1/record", body)
 }
@@ -96,10 +96,11 @@ func (c *Client) UpdateRecord(app, entity, recordID string, data map[string]any)
 // 路由设计：CLI 的 `record update` 命令根据 recordID 数量透明路由——
 // 单条走 UpdateRecord（/data/v1/record），多条走本方法（/data/v1/field）。
 // 用户无需感知两个不同的 API 端点。
-func (c *Client) UpdateRecordsBatch(app, entity string, recordIDs []string, data map[string]any) error {
+// data 的 key 应该是 fieldKey（英文标识符）。
+func (c *Client) UpdateRecordsBatch(appKey, entityKey string, recordIDs []string, data map[string]any) error {
 	body := map[string]any{
-		"app":          app,
-		"entity":       entity,
+		"appKey":       appKey,
+		"entityKey":    entityKey,
 		"recordIDList": recordIDs,
 		"data":         data,
 	}
@@ -108,10 +109,10 @@ func (c *Client) UpdateRecordsBatch(app, entity string, recordIDs []string, data
 
 // DeleteRecords 调用 MakeService.DeleteResource 批量删除记录
 // 返回每条记录的删除结果
-func (c *Client) DeleteRecords(app, entity string, recordIDs []string) ([]DeleteRecordResult, error) {
+func (c *Client) DeleteRecords(appKey, entityKey string, recordIDs []string) ([]DeleteRecordResult, error) {
 	reqBody := map[string]any{
-		"app":          app,
-		"entity":       entity,
+		"appKey":       appKey,
+		"entityKey":    entityKey,
 		"recordIDList": recordIDs,
 	}
 	var result struct {
@@ -130,10 +131,11 @@ func (c *Client) DeleteRecords(app, entity string, recordIDs []string) ([]Delete
 
 // ListRecords 调用 MakeService.ListResources 分页查询记录列表
 // 返回记录列表和服务端 total 数量
-func (c *Client) ListRecords(app, entity string, opts ListRecordOpts) ([]map[string]any, int, error) {
+// fields/sort 字段名使用 fieldKey（英文标识符）
+func (c *Client) ListRecords(appKey, entityKey string, opts ListRecordOpts) ([]map[string]any, int, error) {
 	reqBody := map[string]any{
-		"app":        app,
-		"entity":     entity,
+		"appKey":     appKey,
+		"entityKey":  entityKey,
 		"pagination": map[string]any{"page": opts.Page, "size": opts.Size},
 	}
 	if len(opts.Fields) > 0 {

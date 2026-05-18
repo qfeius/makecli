@@ -28,9 +28,9 @@ func newRecordUpdateCmd() *cobra.Command {
 		Args:         cobra.MinimumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app, _ := cmd.Parent().Flags().GetString("app")
-			entity, _ := cmd.Parent().Flags().GetString("entity")
-			return runRecordUpdate(app, entity, args, jsonFile)
+			appKey, _ := cmd.Parent().Flags().GetString("app")
+			entityKey, _ := cmd.Parent().Flags().GetString("entity")
+			return runRecordUpdate(appKey, entityKey, args, jsonFile)
 		},
 	}
 
@@ -39,7 +39,7 @@ func newRecordUpdateCmd() *cobra.Command {
 	return cmd
 }
 
-func runRecordUpdate(app, entity string, recordIDs []string, jsonFile string) error {
+func runRecordUpdate(appKey, entityKey string, recordIDs []string, jsonFile string) error {
 	client, err := newClientFromProfile()
 	if err != nil {
 		return err
@@ -52,12 +52,12 @@ func runRecordUpdate(app, entity string, recordIDs []string, jsonFile string) er
 
 	// 路由逻辑: 1 个 ID 走单条 API，多个 ID 走批量 API
 	if len(recordIDs) == 1 {
-		if err := client.UpdateRecord(app, entity, recordIDs[0], data); err != nil {
+		if err := client.UpdateRecord(appKey, entityKey, recordIDs[0], data); err != nil {
 			return err
 		}
 		fmt.Printf("Record '%s' updated successfully\n", recordIDs[0])
 	} else {
-		if err := client.UpdateRecordsBatch(app, entity, recordIDs, data); err != nil {
+		if err := client.UpdateRecordsBatch(appKey, entityKey, recordIDs, data); err != nil {
 			return err
 		}
 		fmt.Printf("%d records updated successfully\n", len(recordIDs))

@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（loadAppManifestFromFile）、fmt、github.com/spf13/cobra
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（loadAppManifestFromFile、validResourceKey）、fmt、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newAppCreateCmd 函数
- * [POS]: cmd/app 的 create 子命令，调用 Meta Server API 创建 App，支持 --description / --render-name 选项和 -f 文件模式
+ * [POS]: cmd/app 的 create 子命令，调用 Meta Server API 创建 App。位置参数是 App key（英文标识符），--name 为展示名（必填，支持中文）；支持 --description 和 -f 文件模式
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -15,15 +15,15 @@ import (
 
 func newAppCreateCmd() *cobra.Command {
 	var description string
-	var renderName string
+	var displayName string
 	var file string
 
 	cmd := &cobra.Command{
-		Use:   "create [name]",
+		Use:   "create [key]",
 		Short: "Create a new app on Make",
 		Example: `  makecli app create myapp
-  makecli app create myapp --description "my awesome app"
-  makecli app create myapp --render-name "My App"
+  makecli app create myapp --name "我的应用"
+  makecli app create myapp --name "My App" --description "my awesome app"
   makecli app create -f app.yaml`,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
@@ -32,14 +32,14 @@ func newAppCreateCmd() *cobra.Command {
 				return runAppCreateFromFile(file)
 			}
 			if len(args) == 0 {
-				return fmt.Errorf("requires app name or -f flag")
+				return fmt.Errorf("requires app key or -f flag")
 			}
-			return runAppCreate(args[0], description, renderName)
+			return runAppCreate(args[0], displayName, description)
 		},
 	}
 
 	cmd.Flags().StringVar(&description, "description", "", "app description")
-	cmd.Flags().StringVar(&renderName, "render-name", "", "app display name (defaults to name)")
+	cmd.Flags().StringVar(&displayName, "name", "", "app display name (defaults to key)")
 	cmd.Flags().StringVarP(&file, "file", "f", "", "path to YAML file containing Make.App resource")
 	return cmd
 }
@@ -50,7 +50,7 @@ func runAppCreateFromFile(path string) error {
 		return err
 	}
 
-	if err := validateAppName(manifest.Name); err != nil {
+	if err := validResourceKey(manifest.Key); err != nil {
 		return err
 	}
 
@@ -64,21 +64,22 @@ func runAppCreateFromFile(path string) error {
 		props = map[string]any{}
 	}
 
-	// renderName 默认与 name 一致
-	if _, ok := props["renderName"]; !ok {
-		props["renderName"] = manifest.Name
+	// 展示名缺省时回退用 key
+	displayName := manifest.Name
+	if displayName == "" {
+		displayName = manifest.Key
 	}
 
-	if apiErr := client.CreateApp(manifest.Name, props); apiErr != nil {
+	if apiErr := client.CreateApp(manifest.Key, displayName, props); apiErr != nil {
 		return apiErr
 	}
 
-	fmt.Printf("App '%s' created successfully\n", manifest.Name)
+	fmt.Printf("App '%s' created successfully\n", manifest.Key)
 	return nil
 }
 
-func runAppCreate(name, description, renderName string) error {
-	if err := validateAppName(name); err != nil {
+func runAppCreate(key, displayName, description string) error {
+	if err := validResourceKey(key); err != nil {
 		return err
 	}
 
@@ -87,22 +88,20 @@ func runAppCreate(name, description, renderName string) error {
 		return err
 	}
 
-	// renderName 默认与 name 一致
-	if renderName == "" {
-		renderName = name
+	// 展示名缺省时回退用 key
+	if displayName == "" {
+		displayName = key
 	}
 
-	props := map[string]any{
-		"renderName": renderName,
-	}
+	props := map[string]any{}
 	if description != "" {
 		props["description"] = description
 	}
 
-	if apiErr := client.CreateApp(name, props); apiErr != nil {
+	if apiErr := client.CreateApp(key, displayName, props); apiErr != nil {
 		return apiErr
 	}
 
-	fmt.Printf("App '%s' created successfully\n", name)
+	fmt.Printf("App '%s' created successfully\n", key)
 	return nil
 }

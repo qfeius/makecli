@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（ListRecordOpts/SortField）、fmt、os、sort、strings、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助
  * [OUTPUT]: 对外提供 newRecordListCmd 函数
- * [POS]: cmd/record 的 list 子命令，分页查询 Record，支持 fields 选择、sort 排序、table/json 输出
+ * [POS]: cmd/record 的 list 子命令，按 appKey + entityKey 分页查询 Record，支持 fields（fieldKey 列表）/sort（fieldKey:order）/table|json 输出
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -31,21 +31,21 @@ func newRecordListCmd() *cobra.Command {
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app, _ := cmd.Parent().Flags().GetString("app")
-			entity, _ := cmd.Parent().Flags().GetString("entity")
-			return runRecordList(app, entity, page, size, output, fields, sortSpec)
+			appKey, _ := cmd.Parent().Flags().GetString("app")
+			entityKey, _ := cmd.Parent().Flags().GetString("entity")
+			return runRecordList(appKey, entityKey, page, size, output, fields, sortSpec)
 		},
 	}
 
 	cmd.Flags().IntVar(&page, "page", 1, "page number (starts from 1)")
 	cmd.Flags().IntVar(&size, "size", 20, "records per page")
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
-	cmd.Flags().StringVar(&fields, "fields", "", "comma-separated field names to display")
-	cmd.Flags().StringVar(&sortSpec, "sort", "", "sort specification, e.g. createdAt:desc,id:asc")
+	cmd.Flags().StringVar(&fields, "fields", "", "comma-separated field keys to display")
+	cmd.Flags().StringVar(&sortSpec, "sort", "", "sort specification, e.g. createdAt:desc,id:asc (fieldKey:order)")
 	return cmd
 }
 
-func runRecordList(app, entity string, page, size int, output, fields, sortSpec string) error {
+func runRecordList(appKey, entityKey string, page, size int, output, fields, sortSpec string) error {
 	if err := validateOutputFormat(output); err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func runRecordList(app, entity string, page, size int, output, fields, sortSpec 
 		opts.Sort = parsed
 	}
 
-	records, total, err := client.ListRecords(app, entity, opts)
+	records, total, err := client.ListRecords(appKey, entityKey, opts)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func runRecordList(app, entity string, page, size int, output, fields, sortSpec 
 	}
 
 	if len(records) == 0 {
-		fmt.Printf("No records found in entity '%s'.\n", entity)
+		fmt.Printf("No records found in entity '%s'.\n", entityKey)
 		return nil
 	}
 
@@ -126,20 +126,20 @@ func runRecordList(app, entity string, page, size int, output, fields, sortSpec 
 	return nil
 }
 
-// parseSortSpec 解析 "field:order,field:order" 格式的排序说明
+// parseSortSpec 解析 "fieldKey:order,fieldKey:order" 格式的排序说明
 func parseSortSpec(spec string) ([]api.SortField, error) {
 	parts := strings.Split(spec, ",")
 	result := make([]api.SortField, 0, len(parts))
 	for _, p := range parts {
 		kv := strings.SplitN(strings.TrimSpace(p), ":", 2)
 		if len(kv) != 2 {
-			return nil, fmt.Errorf("invalid sort spec %q, expected field:order", p)
+			return nil, fmt.Errorf("invalid sort spec %q, expected fieldKey:order", p)
 		}
 		order := strings.ToLower(kv[1])
 		if order != "asc" && order != "desc" {
 			return nil, fmt.Errorf("invalid sort order %q, expected asc or desc", kv[1])
 		}
-		result = append(result, api.SortField{Field: kv[0], Order: order})
+		result = append(result, api.SortField{FieldKey: kv[0], Order: order})
 	}
 	return result, nil
 }

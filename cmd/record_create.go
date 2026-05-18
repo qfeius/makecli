@@ -24,9 +24,9 @@ func newRecordCreateCmd() *cobra.Command {
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			app, _ := cmd.Parent().Flags().GetString("app")
-			entity, _ := cmd.Parent().Flags().GetString("entity")
-			return runRecordCreate(app, entity, jsonFile)
+			appKey, _ := cmd.Parent().Flags().GetString("app")
+			entityKey, _ := cmd.Parent().Flags().GetString("entity")
+			return runRecordCreate(appKey, entityKey, jsonFile)
 		},
 	}
 
@@ -35,7 +35,7 @@ func newRecordCreateCmd() *cobra.Command {
 	return cmd
 }
 
-func runRecordCreate(app, entity, jsonFile string) error {
+func runRecordCreate(appKey, entityKey, jsonFile string) error {
 	client, err := newClientFromProfile()
 	if err != nil {
 		return err
@@ -46,7 +46,7 @@ func runRecordCreate(app, entity, jsonFile string) error {
 		return err
 	}
 
-	recordID, err := client.CreateRecord(app, entity, data)
+	recordID, err := client.CreateRecord(appKey, entityKey, data)
 	if err != nil {
 		return err
 	}

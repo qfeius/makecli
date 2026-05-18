@@ -25,11 +25,11 @@ func TestRunRelationList(t *testing.T) {
 				"code": 200, "msg": "success",
 				"data": []map[string]any{
 					{
-						"name": "project-has-tasks", "type": "Make.Relation", "app": "TODO",
+						"key": "project_has_tasks", "name": "项目任务关联", "type": "Make.Relation", "appKey": "TODO",
 						"meta": map[string]any{"version": "1.0.0"},
 						"properties": map[string]any{
-							"from": map[string]any{"entity": "项目", "cardinality": "many"},
-							"to":   map[string]any{"entity": "任务", "cardinality": "one"},
+							"from": map[string]any{"entityKey": "project", "cardinality": "many"},
+							"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 						},
 					},
 				},
@@ -93,11 +93,11 @@ func TestRunRelationList(t *testing.T) {
 				"code": 200, "msg": "success",
 				"data": []map[string]any{
 					{
-						"name": "project-has-tasks", "type": "Make.Relation", "app": "TODO",
+						"key": "project_has_tasks", "name": "项目任务关联", "type": "Make.Relation", "appKey": "TODO",
 						"meta": map[string]any{"version": "1.0.0"},
 						"properties": map[string]any{
-							"from": map[string]any{"entity": "项目", "cardinality": "many"},
-							"to":   map[string]any{"entity": "任务", "cardinality": "one"},
+							"from": map[string]any{"entityKey": "project", "cardinality": "many"},
+							"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 						},
 					},
 				},
@@ -120,11 +120,11 @@ func TestRunRelationList(t *testing.T) {
 				"code": 200, "msg": "success",
 				"data": []map[string]any{
 					{
-						"name": "project-has-tasks", "type": "Make.Relation", "app": "TODO",
+						"key": "project_has_tasks", "name": "项目任务关联", "type": "Make.Relation", "appKey": "TODO",
 						"meta": map[string]any{"version": "1.0.0"},
 						"properties": map[string]any{
-							"from": map[string]any{"entity": "项目", "cardinality": "many"},
-							"to":   map[string]any{"entity": "任务", "cardinality": "one"},
+							"from": map[string]any{"entityKey": "project", "cardinality": "many"},
+							"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 						},
 					},
 				},
@@ -158,11 +158,11 @@ func TestRunRelationList(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": map[string]any{
-					"name": "project-has-tasks", "type": "Make.Relation", "app": "TODO",
+					"key": "project_has_tasks", "name": "项目任务关联", "type": "Make.Relation", "appKey": "TODO",
 					"meta": map[string]any{"version": "1.0.0"},
 					"properties": map[string]any{
-						"from": map[string]any{"entity": "项目", "cardinality": "many"},
-						"to":   map[string]any{"entity": "任务", "cardinality": "one"},
+						"from": map[string]any{"entityKey": "project", "cardinality": "many"},
+						"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 					},
 				},
 			})
@@ -173,19 +173,19 @@ func TestRunRelationList(t *testing.T) {
 		ServerURL = srv.URL
 
 		out := captureStdout(t, func() {
-			if err := runRelationList("TODO", "project-has-tasks", 1, 20, outputTable, ""); err != nil {
+			if err := runRelationList("TODO", "project_has_tasks", 1, 20, outputTable, ""); err != nil {
 				t.Fatalf("runRelationList detail: %v", err)
 			}
 		})
 
-		if !strings.Contains(out, "project-has-tasks") {
-			t.Fatalf("expected relation name in output, got %q", out)
+		if !strings.Contains(out, "project_has_tasks") {
+			t.Fatalf("expected relation key in output, got %q", out)
 		}
-		if !strings.Contains(out, "项目") {
-			t.Fatalf("expected from entity in output, got %q", out)
+		if !strings.Contains(out, "project") {
+			t.Fatalf("expected from entityKey in output, got %q", out)
 		}
-		if !strings.Contains(out, "任务") {
-			t.Fatalf("expected to entity in output, got %q", out)
+		if !strings.Contains(out, "task") {
+			t.Fatalf("expected to entityKey in output, got %q", out)
 		}
 	})
 
@@ -194,11 +194,11 @@ func TestRunRelationList(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
 				"data": map[string]any{
-					"name": "project-has-tasks", "type": "Make.Relation", "app": "TODO",
+					"key": "project_has_tasks", "name": "项目任务关联", "type": "Make.Relation", "appKey": "TODO",
 					"meta": map[string]any{"version": "1.0.0"},
 					"properties": map[string]any{
-						"from": map[string]any{"entity": "项目", "cardinality": "many"},
-						"to":   map[string]any{"entity": "任务", "cardinality": "one"},
+						"from": map[string]any{"entityKey": "project", "cardinality": "many"},
+						"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 					},
 				},
 			})
@@ -209,13 +209,13 @@ func TestRunRelationList(t *testing.T) {
 		ServerURL = srv.URL
 
 		output := captureStdout(t, func() {
-			if err := runRelationList("TODO", "project-has-tasks", 1, 20, outputJSON, ""); err != nil {
+			if err := runRelationList("TODO", "project_has_tasks", 1, 20, outputJSON, ""); err != nil {
 				t.Fatalf("runRelationList json detail: %v", err)
 			}
 		})
 
-		if !strings.Contains(output, "\"name\": \"project-has-tasks\"") {
-			t.Fatalf("expected relation name in JSON output, got %q", output)
+		if !strings.Contains(output, "\"key\": \"project_has_tasks\"") {
+			t.Fatalf("expected relation key in JSON output, got %q", output)
 		}
 	})
 
