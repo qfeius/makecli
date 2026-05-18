@@ -329,3 +329,40 @@ func TestGetRelease_HTTPError(t *testing.T) {
 		t.Fatal("expected error for HTTP 500")
 	}
 }
+
+// -----------------------------------------------------------------------
+// CompareVersions 测试
+// -----------------------------------------------------------------------
+
+func TestCompareVersions(t *testing.T) {
+	tests := []struct {
+		target, current string
+		want            int
+	}{
+		// 标准比较
+		{"v1.0.0", "v0.9.0", 1},
+		{"v1.0.0", "v1.0.0", 0},
+		{"v0.9.0", "v1.0.0", -1},
+		// 不带 v 前缀的 current 也支持
+		{"v1.0.0", "1.0.0", 0},
+		// DEV current → 返回 1（永远旧）
+		{"v1.0.0", "DEV", 1},
+		{"v0.0.1", "DEV", 1},
+		// 非法 current → 返回 1
+		{"v1.0.0", "abc", 1},
+		{"v1.0.0", "", 1},
+		{"v1.0.0", "v0.2.16-7-gd65ec7e", 1}, // git-describe dirty 形式
+		// pre-release
+		{"v1.0.0-beta.2", "v1.0.0-beta.1", 1},
+		{"v1.0.0", "v1.0.0-beta.1", 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.target+"_vs_"+tt.current, func(t *testing.T) {
+			got := CompareVersions(tt.target, tt.current)
+			if got != tt.want {
+				t.Errorf("CompareVersions(%q, %q) = %d, want %d", tt.target, tt.current, got, tt.want)
+			}
+		})
+	}
+}

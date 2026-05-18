@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 net/http、archive/tar、compress/gzip、encoding/json、github.com/Masterminds/semver/v3
- * [OUTPUT]: 对外提供 CheckLatest / ListReleases / NormalizeTag / GetRelease / Apply 函数、Release / Asset 结构体
+ * [OUTPUT]: 对外提供 CheckLatest / ListReleases / NormalizeTag / GetRelease / CompareVersions / Apply 函数、Release / Asset 结构体
  * [POS]: internal/update 的核心引擎，被 cmd/update.go 消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -119,6 +119,27 @@ func GetRelease(tag string) (*Release, error) {
 		return nil, fmt.Errorf("failed to fetch release %s: HTTP %d", tag, status)
 	}
 	return &release, nil
+}
+
+// CompareVersions 比较 target 与 current 的 semver 大小：
+//
+//	target > current  →  1
+//	target == current →  0
+//	target < current  → -1
+//
+// 若 current 解析失败（DEV / dirty / 非法），返回 1 — 视为「current 永远旧」，
+// 这样调用方的「降级保护」对 DEV 构建自然失效。
+func CompareVersions(target, current string) int {
+	tgt, err := semver.NewVersion(strings.TrimPrefix(target, "v"))
+	if err != nil {
+		// target 应已被 NormalizeTag 校验过；保险返回 0
+		return 0
+	}
+	cur, err := semver.NewVersion(strings.TrimPrefix(current, "v"))
+	if err != nil {
+		return 1
+	}
+	return tgt.Compare(cur)
 }
 
 // fetchJSON 发送 GET 请求并将响应体解码到 target。
