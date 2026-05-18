@@ -26,10 +26,14 @@ import (
 // 数据结构
 // -----------------------------------------------------------------------
 
-// Release 表示 GitHub Releases API 返回的最新版本
+// Release 表示 GitHub Releases API 返回的版本
 type Release struct {
-	TagName string  `json:"tag_name"`
-	Assets  []Asset `json:"assets"`
+	TagName     string  `json:"tag_name"`
+	Name        string  `json:"name"`
+	PublishedAt string  `json:"published_at"`
+	Prerelease  bool    `json:"prerelease"`
+	HTMLURL     string  `json:"html_url"`
+	Assets      []Asset `json:"assets"`
 }
 
 // Asset 表示 release 中的单个可下载文件
