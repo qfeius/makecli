@@ -24,8 +24,12 @@ var applyFunc = update.Apply
 func newUpdateCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
-		Use:          "update [version]",
-		Short:        "Update makecli to the latest or a specific version",
+		Use:   "update [version]",
+		Short: "Update makecli to the latest or a specific version",
+		Example: `  makecli update
+  makecli update v0.2.0
+  makecli update 0.2.0
+  makecli update v0.2.0 --force`,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
