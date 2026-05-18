@@ -275,7 +275,7 @@ func computeDiff(appKey string, local []ResourceManifest, remote []api.Entity) D
 			diffs = append(diffs, EntityDiff{Key: m.Key, Status: diffAdded})
 			continue
 		}
-		fieldDiffs := compareFields(&m, &re)
+		fieldDiffs := compareFields(m, &re)
 		status := diffUnchanged
 		if len(fieldDiffs) > 0 {
 			status = diffChanged
@@ -316,9 +316,9 @@ func computeDiff(appKey string, local []ResourceManifest, remote []api.Entity) D
 
 // computeRelationDiff 对比本地和远端的 Relation 集合（按 Key 匹配）
 func computeRelationDiff(local []ResourceManifest, remote []api.Relation) ([]RelationDiff, DiffSummary) {
-	remoteByKey := make(map[string]*api.Relation, len(remote))
-	for i := range remote {
-		remoteByKey[remote[i].Key] = &remote[i]
+	remoteByKey := make(map[string]api.Relation, len(remote))
+	for _, r := range remote {
+		remoteByKey[r.Key] = r
 	}
 
 	var diffs []RelationDiff
@@ -331,7 +331,7 @@ func computeRelationDiff(local []ResourceManifest, remote []api.Relation) ([]Rel
 			diffs = append(diffs, RelationDiff{Key: m.Key, Status: diffAdded})
 			continue
 		}
-		detail := compareRelationEndpoints(&m, rr)
+		detail := compareRelationEndpoints(m, &rr)
 		status := diffUnchanged
 		if detail != "" {
 			status = diffChanged
@@ -339,8 +339,7 @@ func computeRelationDiff(local []ResourceManifest, remote []api.Relation) ([]Rel
 		diffs = append(diffs, RelationDiff{Key: m.Key, Status: status, Detail: detail})
 	}
 
-	for i := range remote {
-		r := &remote[i]
+	for _, r := range remote {
 		if visited[r.Key] {
 			continue
 		}
@@ -369,7 +368,7 @@ func computeRelationDiff(local []ResourceManifest, remote []api.Relation) ([]Rel
 }
 
 // compareRelationEndpoints 对比 Relation 的 from/to 端点（按 entityKey 比对），返回变化描述
-func compareRelationEndpoints(local *ResourceManifest, remote *api.Relation) string {
+func compareRelationEndpoints(local ResourceManifest, remote *api.Relation) string {
 	localFrom := getFieldMap(local.Properties, "from")
 	localTo := getFieldMap(local.Properties, "to")
 
@@ -411,7 +410,7 @@ func diffOrder(status string) int {
 }
 
 // compareFields 对比本地 Manifest 和远端 Entity 的字段列表（按 Key 匹配）
-func compareFields(local *ResourceManifest, remote *api.Entity) []FieldDiff {
+func compareFields(local ResourceManifest, remote *api.Entity) []FieldDiff {
 	// 解析本地 fields
 	localFields := extractLocalFields(local)
 
@@ -471,7 +470,7 @@ type localField struct {
 }
 
 // extractLocalFields 从 ResourceManifest 的 properties.fields 解析出字段列表
-func extractLocalFields(m *ResourceManifest) []localField {
+func extractLocalFields(m ResourceManifest) []localField {
 	fieldsRaw, ok := m.Properties["fields"]
 	if !ok {
 		return nil

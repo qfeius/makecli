@@ -191,7 +191,7 @@ func applyResources(resources []ResourceManifest, client *api.Client) error {
 
 	// 先应用 App
 	for _, app := range apps {
-		action, err := applyApp(&app, client)
+		action, err := applyApp(app, client)
 		if err != nil {
 			return fmt.Errorf("应用 App '%s' 失败: %w", app.Key, err)
 		}
@@ -202,7 +202,7 @@ func applyResources(resources []ResourceManifest, client *api.Client) error {
 
 	// 再应用 Entity
 	for _, entity := range entities {
-		action, err := applyEntity(&entity, client)
+		action, err := applyEntity(entity, client)
 		if err != nil {
 			return fmt.Errorf("应用 Entity '%s' 失败: %w", entity.Key, err)
 		}
@@ -211,7 +211,7 @@ func applyResources(resources []ResourceManifest, client *api.Client) error {
 
 	// 最后应用 Relation
 	for _, relation := range relations {
-		action, err := applyRelation(&relation, client)
+		action, err := applyRelation(relation, client)
 		if err != nil {
 			return fmt.Errorf("应用 Relation '%s' 失败: %w", relation.Key, err)
 		}
@@ -223,7 +223,7 @@ func applyResources(resources []ResourceManifest, client *api.Client) error {
 
 // applyApp 从清单应用 App：不存在则创建，已存在则跳过（App 无 update API）
 // manifest.Key 是英文标识符，manifest.Name 是展示名；name 缺省时回退用 key
-func applyApp(manifest *ResourceManifest, client *api.Client) (string, error) {
+func applyApp(manifest ResourceManifest, client *api.Client) (string, error) {
 	if err := validResourceKey(manifest.Key); err != nil {
 		return "", err
 	}
@@ -241,7 +241,7 @@ func applyApp(manifest *ResourceManifest, client *api.Client) (string, error) {
 }
 
 // applyEntity 从清单应用 Entity：不存在则创建，已存在则更新
-func applyEntity(manifest *ResourceManifest, client *api.Client) (string, error) {
+func applyEntity(manifest ResourceManifest, client *api.Client) (string, error) {
 	if manifest.AppKey == "" {
 		return "", fmt.Errorf("entity 缺少 appKey 字段")
 	}
@@ -289,7 +289,7 @@ func applyEntity(manifest *ResourceManifest, client *api.Client) (string, error)
 }
 
 // applyRelation 从清单应用 Relation：不存在则创建，已存在则更新
-func applyRelation(manifest *ResourceManifest, client *api.Client) (string, error) {
+func applyRelation(manifest ResourceManifest, client *api.Client) (string, error) {
 	if manifest.AppKey == "" {
 		return "", fmt.Errorf("relation 缺少 appKey 字段")
 	}
