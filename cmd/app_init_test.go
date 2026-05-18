@@ -8,6 +8,7 @@
 package cmd
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -48,7 +49,7 @@ func TestRunAppInit(t *testing.T) {
 		for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
 			want, _ := agents.Templates.ReadFile(name)
 			got, _ := os.ReadFile(filepath.Join(dir, name))
-			if string(got) != string(want) {
+			if !bytes.Equal(got, want) {
 				t.Errorf("%s content mismatch", name)
 			}
 		}

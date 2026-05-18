@@ -78,7 +78,7 @@ func runConfigureVerify(output string) (*verifyResult, error) {
 	p, ok := creds[Profile]
 	if !ok || p.AccessToken == "" {
 		result.Message = "token not configured"
-		outputVerifyResult(result, output)
+		outputVerifyResult(&result, output)
 		return &result, nil
 	}
 	result.Token = mask(p.AccessToken)
@@ -86,7 +86,7 @@ func runConfigureVerify(output string) (*verifyResult, error) {
 	// JWT 格式校验
 	if err := validateJWT(p.AccessToken); err != nil {
 		result.Message = "token invalid (malformed JWT)"
-		outputVerifyResult(result, output)
+		outputVerifyResult(&result, output)
 		return &result, nil
 	}
 
@@ -110,22 +110,23 @@ func runConfigureVerify(output string) (*verifyResult, error) {
 	_, _, err = client.ListApps(1, 1, nil)
 	if err != nil {
 		result.Message = fmt.Sprintf("token invalid (%s)", err)
-		outputVerifyResult(result, output)
+		outputVerifyResult(&result, output)
 		return &result, nil
 	}
 
 	result.Valid = true
 	result.Message = "ok"
-	outputVerifyResult(result, output)
+	outputVerifyResult(&result, output)
 	return &result, nil
 }
 
-func outputVerifyResult(r verifyResult, output string) {
-	if output == outputJSON {
+func outputVerifyResult(r *verifyResult, output string) {
+	switch {
+	case output == outputJSON:
 		_ = writeJSON(r)
-	} else if r.Valid {
+	case r.Valid:
 		fmt.Printf("Profile [%s]: ok\n", r.Profile)
-	} else {
+	default:
 		fmt.Printf("Profile [%s]: %s\n", r.Profile, r.Message)
 		fmt.Fprintf(os.Stderr, "\nRun \"makecli configure --profile %s\" to set access token.\n", r.Profile)
 	}
