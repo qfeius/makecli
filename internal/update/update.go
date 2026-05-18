@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 net/http、archive/tar、compress/gzip、encoding/json、github.com/Masterminds/semver/v3
- * [OUTPUT]: 对外提供 CheckLatest / ListReleases / Apply 函数、Release / Asset 结构体
+ * [OUTPUT]: 对外提供 CheckLatest / ListReleases / NormalizeTag / Apply 函数、Release / Asset 结构体
  * [POS]: internal/update 的核心引擎，被 cmd/update.go 消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -95,6 +95,23 @@ func ListReleases(limit int) ([]Release, error) {
 	}
 
 	return releases, nil
+}
+
+// NormalizeTag 将输入归一化为带 v 前缀的合法 semver tag。
+//
+//	"v0.2.0"          → "v0.2.0"
+//	"0.2.0"           → "v0.2.0"
+//	"1.0.0-beta.1"    → "v1.0.0-beta.1"
+//	非法 semver 返回 error。
+func NormalizeTag(input string) (string, error) {
+	stripped := strings.TrimPrefix(input, "v")
+	if stripped == "" {
+		return "", fmt.Errorf("invalid version %q: empty", input)
+	}
+	if _, err := semver.StrictNewVersion(stripped); err != nil {
+		return "", fmt.Errorf("invalid version %q: %w", input, err)
+	}
+	return "v" + stripped, nil
 }
 
 // Apply 下载指定 release 的 asset 并替换当前二进制

@@ -225,3 +225,37 @@ func TestListReleases_ParseError(t *testing.T) {
 		t.Fatal("expected parse error")
 	}
 }
+
+// -----------------------------------------------------------------------
+// NormalizeTag 测试
+// -----------------------------------------------------------------------
+
+func TestNormalizeTag(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{"v0.2.0", "v0.2.0", false},
+		{"0.2.0", "v0.2.0", false},
+		{"v1.0.0-beta.1", "v1.0.0-beta.1", false},
+		{"1.0.0-beta.1", "v1.0.0-beta.1", false},
+		{"", "", true},
+		{"v", "", true},
+		{"abc", "", true},
+		{"1.2", "", true},
+		{"1.2.3.4", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := NormalizeTag(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("NormalizeTag(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("NormalizeTag(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
