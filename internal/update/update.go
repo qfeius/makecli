@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 net/http、archive/tar、compress/gzip、encoding/json、github.com/Masterminds/semver/v3
- * [OUTPUT]: 对外提供 CheckLatest / ListReleases / Apply 函数、Release / Asset 结构体
+ * [OUTPUT]: 对外提供 CheckLatest / ListReleases / NormalizeTag / GetRelease / CompareVersions / Apply 函数、Release / Asset 结构体
  * [POS]: internal/update 的核心引擎，被 cmd/update.go 消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -56,45 +56,111 @@ var apiBaseURL = "https://api.github.com"
 func CheckLatest(currentVersion string) (*Release, bool, error) {
 	url := apiBaseURL + "/repos/qfeius/makecli/releases/latest"
 
-	resp, err := http.Get(url)
+	var release Release
+	status, err := fetchJSON(url, &release)
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to check for updates: %w", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("failed to check for updates: HTTP %d", resp.StatusCode)
+	if status != http.StatusOK {
+		return nil, false, fmt.Errorf("failed to check for updates: HTTP %d", status)
 	}
 
-	var release Release
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, false, fmt.Errorf("failed to parse release info: %w", err)
-	}
-
-	newer := isNewer(currentVersion, release.TagName)
-	return &release, newer, nil
+	return &release, isNewer(currentVersion, release.TagName), nil
 }
 
 // ListReleases 拉取最近 limit 条 release（按 created_at 倒序）
 func ListReleases(limit int) ([]Release, error) {
 	url := fmt.Sprintf("%s/repos/qfeius/makecli/releases?per_page=%d", apiBaseURL, limit)
 
-	resp, err := http.Get(url)
+	var releases []Release
+	status, err := fetchJSON(url, &releases)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list releases: %w", err)
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("failed to list releases: HTTP %d", status)
+	}
+
+	return releases, nil
+}
+
+// NormalizeTag 将输入归一化为带 v 前缀的合法 semver tag。
+//
+//	"v0.2.0"          → "v0.2.0"
+//	"0.2.0"           → "v0.2.0"
+//	"1.0.0-beta.1"    → "v1.0.0-beta.1"
+//	非法 semver 返回 error。
+func NormalizeTag(input string) (string, error) {
+	stripped := strings.TrimPrefix(input, "v")
+	if stripped == "" {
+		return "", fmt.Errorf("invalid version %q: empty", input)
+	}
+	if _, err := semver.StrictNewVersion(stripped); err != nil {
+		return "", fmt.Errorf("invalid version %q: %w", input, err)
+	}
+	return "v" + stripped, nil
+}
+
+// GetRelease 按 tag 拉取指定 release。tag 必须是规范化形式（带 v 前缀）。
+//   404 → "release {tag} not found"
+//   其他非 200 → "failed to fetch release {tag}: HTTP {code}"
+func GetRelease(tag string) (*Release, error) {
+	url := fmt.Sprintf("%s/repos/qfeius/makecli/releases/tags/%s", apiBaseURL, tag)
+
+	var release Release
+	status, err := fetchJSON(url, &release)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch release %s: %w", tag, err)
+	}
+	if status == http.StatusNotFound {
+		return nil, fmt.Errorf("release %s not found", tag)
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch release %s: HTTP %d", tag, status)
+	}
+	return &release, nil
+}
+
+// CompareVersions 比较 target 与 current 的 semver 大小：
+//
+//	target > current  →  1
+//	target == current →  0
+//	target < current  → -1
+//
+// 若 current 解析失败（DEV / dirty / 非法），返回 1 — 视为「current 永远旧」，
+// 这样调用方的「降级保护」对 DEV 构建自然失效。
+func CompareVersions(target, current string) int {
+	tgt, err := semver.NewVersion(strings.TrimPrefix(target, "v"))
+	if err != nil {
+		// target 应已被 NormalizeTag 校验过；保险返回 0
+		return 0
+	}
+	cur, err := semver.NewVersion(strings.TrimPrefix(current, "v"))
+	if err != nil {
+		return 1
+	}
+	return tgt.Compare(cur)
+}
+
+// fetchJSON 发送 GET 请求并将响应体解码到 target。
+// 返回 HTTP 状态码（供调用方做语义化错误映射，如 404→"not found"）。
+// 网络错误返回 (0, err)；非 200 状态返回 (code, nil)，body 不解码；
+// 200 但 JSON 解析失败返回 (200, err)。
+func fetchJSON(url string, target any) (int, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to list releases: HTTP %d", resp.StatusCode)
+		return resp.StatusCode, nil
 	}
 
-	var releases []Release
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-		return nil, fmt.Errorf("failed to parse releases: %w", err)
+	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+		return resp.StatusCode, err
 	}
-
-	return releases, nil
+	return resp.StatusCode, nil
 }
 
 // Apply 下载指定 release 的 asset 并替换当前二进制

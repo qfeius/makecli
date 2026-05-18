@@ -72,7 +72,8 @@ diff_test.go:        覆盖 diff 子命令核心逻辑的单元测试（computeD
 schema.go:           schema 顶级子命令，调用 MakeService.GetResource 获取指定 App 的聚合 Schema（App + Entities + Relations），JSON 输出；支持 --app（必选）/ --profile
 schema_test.go:      覆盖 runSchema 的单元测试（成功/无凭证/API错误/未知profile），用 httptest 隔离网络
 output.go:           list 命令通用输出辅助（table|json 格式校验 + JSON 编码），被 app list / entity list / relation list / record list / record get 复用
-update.go:           update 子命令，从 GitHub Releases 自更新二进制；直接 import internal/build 读取版本，委托 internal/update 执行检查和替换
+update.go:           update 子命令，支持 [version] 位置参数（v0.2.0 或 0.2.0）和 --force 标志；无 arg 走 CheckLatest 流程，指定版本走 GetRelease；CompareVersions 决定 upgrade/same/downgrade 分支，降级需 --force；DEV 版本跳过比较；applyFunc 包级变量便于测试打桩
+update_test.go:      覆盖 runUpdate 的单元测试（latest 已到位/有更新、specific 升级/同版本/降级拒绝/--force 降级/规范化无 v 前缀/非法 semver/tag 不存在/DEV 跳过比较），applyFunc 打桩避免真实替换二进制
 integration.go:           integration 命令组，挂载 ocr 子命令；预留扩展点供未来其它 integration（translate / asr / embed 等）
 integration_ocr.go:       integration ocr 子命令，校验文件后缀（.pdf/.ofd/.png/.jpg/.jpeg）后通过 newClientFromProfile 上传，调用 api.OCR；renderOCRTable 风格对齐 entity list <name>：顶部 File/Bills/Took 头部 + 每张票一个 tablewriter LABEL/VALUE 边框表格，按 spec sample 解析 result.pages[].bills[].items[]（过滤空值），断言失败回退 JSON；支持 -f|--file（必选）/ --profile / --output（table|json）/ --business-id / --verify-vat（默认 true，仅 Changed 时显式发送）/ --coord-restore-original / --pages / --crop-complete / --crop-value / --merge-elec / --return-ppi
 integration_ocr_test.go:  覆盖 runIntegrationOCR / renderOCRTable 的单元测试（table 渲染 spec sample / json 输出 / 非法扩展名 / 非法格式 / 文件不存在 / 无凭证 / 未知 profile / API 错误 / 异常结构回退），用 httptest 隔离网络

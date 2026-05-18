@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -223,5 +224,145 @@ func TestListReleases_ParseError(t *testing.T) {
 	_, err := ListReleases(20)
 	if err == nil {
 		t.Fatal("expected parse error")
+	}
+}
+
+// -----------------------------------------------------------------------
+// NormalizeTag 测试
+// -----------------------------------------------------------------------
+
+func TestNormalizeTag(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{"v0.2.0", "v0.2.0", false},
+		{"0.2.0", "v0.2.0", false},
+		{"v1.0.0-beta.1", "v1.0.0-beta.1", false},
+		{"1.0.0-beta.1", "v1.0.0-beta.1", false},
+		{"", "", true},
+		{"v", "", true},
+		{"abc", "", true},
+		{"1.2", "", true},
+		{"1.2.3.4", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := NormalizeTag(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("NormalizeTag(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("NormalizeTag(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// -----------------------------------------------------------------------
+// GetRelease 测试
+// -----------------------------------------------------------------------
+
+func TestGetRelease_Success(t *testing.T) {
+	release := Release{
+		TagName: "v0.2.0",
+		Name:    "v0.2.0",
+		Assets:  []Asset{{Name: "makecli_0.2.0_linux_amd64.tar.gz"}},
+	}
+
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewEncoder(w).Encode(release)
+	}))
+	defer server.Close()
+
+	oldURL := apiBaseURL
+	apiBaseURL = server.URL
+	defer func() { apiBaseURL = oldURL }()
+
+	got, err := GetRelease("v0.2.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.TagName != "v0.2.0" {
+		t.Errorf("got tag %q, want v0.2.0", got.TagName)
+	}
+	if gotPath != "/repos/qfeius/makecli/releases/tags/v0.2.0" {
+		t.Errorf("unexpected path %q", gotPath)
+	}
+}
+
+func TestGetRelease_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	oldURL := apiBaseURL
+	apiBaseURL = server.URL
+	defer func() { apiBaseURL = oldURL }()
+
+	_, err := GetRelease("v9.9.9")
+	if err == nil {
+		t.Fatal("expected error for 404")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected 'not found' in error, got: %v", err)
+	}
+}
+
+func TestGetRelease_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	oldURL := apiBaseURL
+	apiBaseURL = server.URL
+	defer func() { apiBaseURL = oldURL }()
+
+	_, err := GetRelease("v0.2.0")
+	if err == nil {
+		t.Fatal("expected error for HTTP 500")
+	}
+}
+
+// -----------------------------------------------------------------------
+// CompareVersions 测试
+// -----------------------------------------------------------------------
+
+func TestCompareVersions(t *testing.T) {
+	tests := []struct {
+		target, current string
+		want            int
+	}{
+		// 标准比较
+		{"v1.0.0", "v0.9.0", 1},
+		{"v1.0.0", "v1.0.0", 0},
+		{"v0.9.0", "v1.0.0", -1},
+		// 不带 v 前缀的 current 也支持
+		{"v1.0.0", "1.0.0", 0},
+		// DEV current → 返回 1（永远旧）
+		{"v1.0.0", "DEV", 1},
+		{"v0.0.1", "DEV", 1},
+		// 非法 current → 返回 1
+		{"v1.0.0", "abc", 1},
+		{"v1.0.0", "", 1},
+		{"v1.0.0", "v0.2.16-7-gd65ec7e", 1}, // git-describe dirty 形式
+		// pre-release
+		{"v1.0.0-beta.2", "v1.0.0-beta.1", 1},
+		{"v1.0.0", "v1.0.0-beta.1", 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.target+"_vs_"+tt.current, func(t *testing.T) {
+			got := CompareVersions(tt.target, tt.current)
+			if got != tt.want {
+				t.Errorf("CompareVersions(%q, %q) = %d, want %d", tt.target, tt.current, got, tt.want)
+			}
+		})
 	}
 }
