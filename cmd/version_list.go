@@ -88,15 +88,11 @@ func renderReleaseTable(releases []update.Release, currentVersion string) error 
 		if strings.TrimPrefix(r.TagName, "v") == currentTag && currentTag != "" && currentTag != "DEV" {
 			marker = "*"
 		}
-		name := r.Name
-		if name == "" {
-			name = r.TagName
-		}
-		rows[i] = []string{marker, r.TagName, r.PublishedAt, name, r.HTMLURL}
+		rows[i] = []string{marker, r.TagName, r.PublishedAt, r.HTMLURL}
 	}
 
 	table := tablewriter.NewTable(os.Stdout)
-	table.Header("CURRENT", "VERSION", "PUBLISHED", "NAME", "URL")
+	table.Header("CURRENT", "VERSION", "PUBLISHED", "URL")
 	_ = table.Bulk(rows)
 	_ = table.Render()
 	return nil

@@ -48,10 +48,13 @@ func TestRunVersionList_Table(t *testing.T) {
 		}
 	})
 
-	for _, want := range []string{"VERSION", "PUBLISHED", "NAME", "URL", "v1.2.3", "v1.2.2", "v1.2.3 - fix"} {
+	for _, want := range []string{"VERSION", "PUBLISHED", "URL", "v1.2.3", "v1.2.2"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "NAME") {
+		t.Errorf("NAME column should be removed, got:\n%s", out)
 	}
 }
 
@@ -149,25 +152,6 @@ func TestRunVersionList_APIError(t *testing.T) {
 
 	if err := runVersionList(20, "table"); err == nil {
 		t.Fatal("expected error for HTTP 500")
-	}
-}
-
-func TestRunVersionList_TableEmptyNameFallsBackToTag(t *testing.T) {
-	cleanup := mockReleasesServer(t, 0, []update.Release{
-		{TagName: "v1.2.3", Name: "", PublishedAt: "2026-05-10T08:12:00Z", HTMLURL: "https://example.com/r/1.2.3"},
-	})
-	defer cleanup()
-
-	out := captureStdout(t, func() {
-		if err := runVersionList(20, "table"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-
-	// 当 Name 为空时，应使用 TagName 填充 NAME 列。
-	// v1.2.3 同时是 VERSION 与 NAME 列的值；统计该 token 出现次数应 >= 2。
-	if strings.Count(out, "v1.2.3") < 2 {
-		t.Errorf("expected v1.2.3 to appear in both VERSION and NAME columns when Name is empty, got:\n%s", out)
 	}
 }
 
