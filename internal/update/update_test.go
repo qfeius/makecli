@@ -154,3 +154,74 @@ func TestCheckLatest_HTTPError(t *testing.T) {
 		t.Fatal("expected error for HTTP 500")
 	}
 }
+
+// -----------------------------------------------------------------------
+// ListReleases 测试
+// -----------------------------------------------------------------------
+
+func TestListReleases_Success(t *testing.T) {
+	releases := []Release{
+		{TagName: "v1.2.3", Name: "v1.2.3 - fix", PublishedAt: "2026-05-10T08:12:00Z", Prerelease: false, HTMLURL: "https://example.com/r/1.2.3"},
+		{TagName: "v1.2.2", Name: "v1.2.2 - perf", PublishedAt: "2026-05-01T03:55:11Z", Prerelease: true, HTMLURL: "https://example.com/r/1.2.2"},
+	}
+
+	var gotQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		_ = json.NewEncoder(w).Encode(releases)
+	}))
+	defer server.Close()
+
+	oldURL := apiBaseURL
+	apiBaseURL = server.URL
+	defer func() { apiBaseURL = oldURL }()
+
+	got, err := ListReleases(20)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d releases, want 2", len(got))
+	}
+	if got[0].TagName != "v1.2.3" || got[0].Name != "v1.2.3 - fix" {
+		t.Errorf("first release mismatch: %+v", got[0])
+	}
+	if got[1].Prerelease != true {
+		t.Errorf("expected second release prerelease=true, got %+v", got[1])
+	}
+	if gotQuery != "per_page=20" {
+		t.Errorf("expected query per_page=20, got %q", gotQuery)
+	}
+}
+
+func TestListReleases_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	oldURL := apiBaseURL
+	apiBaseURL = server.URL
+	defer func() { apiBaseURL = oldURL }()
+
+	_, err := ListReleases(20)
+	if err == nil {
+		t.Fatal("expected error for HTTP 500")
+	}
+}
+
+func TestListReleases_ParseError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("not json"))
+	}))
+	defer server.Close()
+
+	oldURL := apiBaseURL
+	apiBaseURL = server.URL
+	defer func() { apiBaseURL = oldURL }()
+
+	_, err := ListReleases(20)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+}
