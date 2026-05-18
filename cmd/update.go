@@ -28,7 +28,6 @@ func newUpdateCmd() *cobra.Command {
 		Short: "Update makecli to the latest or a specific version",
 		Example: `  makecli update
   makecli update v0.2.0
-  makecli update 0.2.0
   makecli update --force v0.0.1`,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
