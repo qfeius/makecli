@@ -19,8 +19,10 @@
 
 ## 成员清单
 root.go:             根命令入口，挂载所有子命令（含 schema），对外暴露 Execute(version, date)；定义全局 PersistentFlag --profile / --server-url / --debug，分别绑定全局变量 Profile / ServerURL / DebugMode
-version.go:          version 子命令，格式化版本输出（参考 GitHub CLI 模式）
+version.go:          version 子命令组，默认 Run 打印当前版本（参考 GitHub CLI 模式），挂载 list 子命令
 version_test.go:     覆盖 formatVersion / changelogURL 的纯函数测试
+version_list.go:     version list 子命令，调 internal/update.ListReleases 拉取 GitHub 最近 N 条 release，tablewriter 输出 CURRENT/VERSION/PUBLISHED/NAME/URL；CURRENT 列对比 build.Version 标记当前安装版本；支持 --limit（默认20，1-100）/ --output（table|json）
+version_list_test.go: 覆盖 runVersionList 的单元测试（table 渲染 / CURRENT 标记 / JSON 输出去除 assets / 空列表 / 非法 limit / 非法 output / API 错误 / 空 Name 回退 / DEV 不打标记），用 httptest 隔离网络
 configure.go:        configure 命令组（无本地标志，复用全局 --profile），默认行为等同 token 子命令；子命令: token（交互写 ~/.make/credentials）/ config（交互写 ~/.make/config）/ set（直接写单个 key）/ get（读取单个 key）/ verify（在线验证 token）；validateConfigKey 校验合法 key 集合
 configure_test.go:   覆盖 mask / validateJWT / validateConfigKey 的纯函数测试
 configure_verify.go:     configure verify 子命令，加载 credentials + config，JWT 格式校验后调 ListApps 在线验证 token；输出 verifyResult（profile/valid/token/server_url/tenant_id/operator_id/message）；支持 --output table|json；valid=false 时 exit 1
