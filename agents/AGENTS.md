@@ -7,7 +7,7 @@
 1. 根据用户反馈的需求进行 brainstorm 和用户明确细节, 了解完整的需求场景, 产出 @apps/docs/PRD.md
 2. 根据用户的完整的需求场景进行业务建模, 生成对应的业务模型(app, entity, field, relation) 等 DSL, 保存到 @apps/dsl/ 目录下面.
 3. 将前面的 DSL 通过 makecli apply 到 make 开发平台上.
-4. 根据前面需求抽象定义后端接口沉淀到 @apps/doc/api.md 文件里面, 然后实现对应的业务逻辑实现对 make 平台的数据的 CRUD-LS 操作, make 的 API 文档可以参考 makedsl skill.
+4. 根据前面需求抽象定义后端 service 接口沉淀到 @apps/doc/api.md 文件里面,**其中后端 service 提供给 前端UI 的 api 必须以 `/api` 开头, 这样在部署的时候才能实现统一的 service api 和前端请求的流量分别转发**, 然后实现对应的业务逻辑实现对 make 平台的数据的 CRUD-LS 操作, make 的 API 文档可以参考 makedsl skill.
 5. 根据前面需求和刚才定义的 @apps/docs/api.md 文件, 实现前端UI, 交互, 动画等功能. UI 必须优先遵循 makeui skill；默认使用 React + Vite + React Router，除非用户明确要求且项目已支持其他前端栈。Make record list/table 必须通过 canvas-table-integration skill 接入 @qfei-design/canvas-table.
 6. 生成 Make 表单、Drawer 表单、详情或 schema-driven UI 前必须读取 @apps/dsl、Service schema/meta 或项目内 schema 类型；Date/User/Department/Select/File/Lookup 等复杂字段不允许默认退化成裸 Input，除非明确说明缺失 schema/API 的原因、降级行为和后续接入点。
 7. 完成 @apps/README.md 包括: 简单项目说明, 如何启动ui 和 service.
