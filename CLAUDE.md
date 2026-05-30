@@ -8,6 +8,7 @@ internal/api/    - Make Meta/Data/Integration Service HTTP 客户端（Client + 
 internal/build/ - 构建元数据（Version/Date，由 ldflags 注入）
 internal/config/ - 凭证与配置管理（读写 credentials 和 config，INI 格式；默认 ~/.make，可用 $MAKE_CLI_CONFIG_DIR 覆盖）
 internal/update/ - 自更新引擎（GitHub Releases 查询、下载、原子替换二进制）
+internal/notifier/ - 自动更新提示（读本地缓存零延迟判定，过期后台 goroutine 刷新，stderr+仅TTY 提示；三态开关 env MAKE_CLI_UPDATE_NOTIFIER > config [settings] > 默认开）
 </directory>
 
 <root>
