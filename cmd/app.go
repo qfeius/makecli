@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 github.com/spf13/cobra、fmt、path/filepath、regexp
+ * [INPUT]: 依赖 github.com/spf13/cobra、fmt、path/filepath、regexp、slices
  * [OUTPUT]: 对外提供 newAppCmd 函数、loadAppManifestFromFile helper、validResourceKey 通用 key 校验函数
  * [POS]: cmd 模块的 app 命令组，挂载 create / list / delete / init 等子命令；提供从 YAML 加载 App 清单的共享逻辑；validResourceKey 通用于 App / Entity / Field / Relation 的 key 格式校验
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 
 	"github.com/spf13/cobra"
 )
@@ -42,7 +43,7 @@ func newAppCmd() *cobra.Command {
 // loadAppManifestFromFile 从 YAML 文件加载唯一的 Make.App 资源清单
 func loadAppManifestFromFile(path string) (ResourceManifest, error) {
 	ext := filepath.Ext(path)
-	if !isRecognizedManifestExtension(ext) {
+	if !slices.Contains(recognizedManifestExtensions, ext) {
 		return ResourceManifest{}, fmt.Errorf("文件必须为 .yaml 或 .yml 格式")
 	}
 
