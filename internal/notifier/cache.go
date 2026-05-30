@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 encoding/json、os、path/filepath、time；依赖 internal/config 的 Dir
- * [OUTPUT]: 对外提供（包内）cacheData 类型与 readCache/writeCache/cachePath，及 expired 方法
+ * [INPUT]: 依赖 encoding/json、os、path/filepath、strings、time；依赖 internal/config 的 Dir
+ * [OUTPUT]: 对外提供（包内）cacheData 类型与 readCache/writeCache/cachePath/cleanStaleTemps，及 expired 方法
  * [POS]: internal/notifier 的本地缓存层，持久化最近一次 GitHub 检测结果，供 Start/Finish 消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/qfeius/makecli/internal/config"
@@ -89,4 +90,33 @@ func writeCache(c cacheData) error {
 // expired 判定缓存是否已超过 interval（now 显式传入便于测试）
 func (c cacheData) expired(interval time.Duration, now time.Time) bool {
 	return now.Sub(c.CheckedAt) >= interval
+}
+
+// staleTempAge 临时文件被视为孤儿（writeCache 中途夭折残留）的最小年龄。
+// 年轻于此阈值的不删，避免误删并发进程正在写入的临时文件。
+const staleTempAge = time.Hour
+
+// cleanStaleTemps 清扫 writeCache 留下的孤儿临时文件（.update-check-*.json）。
+// best-effort：任何一步出错即静默放弃，绝不影响主流程。真实缓存文件
+// update-check.json 无 ".update-check-" 前缀，天然不在清扫范围内。
+func cleanStaleTemps(now time.Time) {
+	dir, err := config.Dir()
+	if err != nil {
+		return
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, ".update-check-") || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || now.Sub(info.ModTime()) < staleTempAge {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, name))
+	}
 }

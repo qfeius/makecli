@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 os、time；依赖 github.com/mattn/go-isatty、internal/build 的 Version、internal/config 的 LoadSettings、internal/update 的 CheckLatest
  * [OUTPUT]: 对外提供 Notifier 类型、Start、(*Notifier).Finish；包内 isStderrTTY 钩子
- * [POS]: internal/notifier 的编排入口，被 cmd.Execute 在命令头尾钩入：并行刷新缓存 + 收尾打印提示
+ * [POS]: internal/notifier 的编排入口，被 cmd.Execute 在命令头尾钩入：并行刷新缓存（失败也落盘退避标记 + 清扫孤儿 temp）+ 收尾打印提示
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -47,8 +47,14 @@ func Start() *Notifier {
 		defer close(n.done)
 		defer func() { _ = recover() }() // 兜底 panic，绝不影响主流程
 
+		cleanStaleTemps(time.Now()) // 清扫此前 writeCache 夭折的孤儿临时文件
+
 		release, _, err := update.CheckLatest(build.Version)
 		if err != nil || release == nil {
+			// 刷新失败也落盘退避标记：CheckedAt 前进、版本留空（shouldNotify
+			// 已对空版本短路）。否则慢/离线机器每次命令都重新 spawn 并再付一次
+			// finishDeadline 等待，本应 checkInterval 才检查一次。
+			_ = writeCache(cacheData{CheckedAt: time.Now()})
 			return
 		}
 		_ = writeCache(cacheData{
