@@ -4,7 +4,7 @@
 ## 成员清单
 cache.go:        本地缓存层，cacheData(checked_at/latest_version/html_url) 原子读写（temp+rename，避免与并发读撕裂）+ expired 过期判定 + cleanStaleTemps 清扫孤儿临时文件（.update-check-*.json，仅删早于 staleTempAge=1h 的，避免误删并发写入；真实缓存 update-check.json 无该前缀天然豁免）；路径 <config.Dir>/update-check.json；读缺失返回零值无错误，损坏返回错误
 cache_test.go:   覆盖缓存往返 / 缺失零值 / 过期判定，用 MAKE_CLI_CONFIG_DIR 隔离文件系统
-decision.go:     纯判定层，notifierEnabled（三态 env>config>默认开）/ shouldNotify（isReleaseVersion·CI·非TTY·skipCommands·空缓存逐条短路，DEV-guard 必须先于 CompareVersions）/ isReleaseVersion（拒绝 DEV/非法/任何带 prerelease 的版本——git-describe 伪版本 v0.3.0-16-g… 视为开发态，否则 semver「prerelease 低于正式版」会把降级误报成升级）/ renderNotice（提示写 io.Writer）；skipCommands={version,update,help,completion}
+decision.go:     纯判定层，notifierEnabled（三态 env>config>默认开，env 值先 TrimSpace：纯空白视为未设置、非法值下沉）/ shouldNotify（isReleaseVersion·CI·非TTY·skipCommands·空缓存逐条短路，DEV-guard 必须先于 CompareVersions）/ isReleaseVersion（拒绝 DEV/非法/任何带 prerelease 的版本——git-describe 伪版本 v0.3.0-16-g… 视为开发态，否则 semver「prerelease 低于正式版」会把降级误报成升级）/ renderNotice（提示写 io.Writer）；skipCommands={version,update,help,completion}
 decision_test.go: 穷举 notifierEnabled / shouldNotify 组合 + renderNotice 有/无 URL 两分支
 notifier.go:     编排入口，Start（缓存过期才起 goroutine：先 cleanStaleTemps 清扫孤儿 temp，再调 update.CheckLatest 刷新；成功落盘版本，失败也落盘退避标记 CheckedAt=now+空版本，让慢/离线机器退避 checkInterval 不再每次 spawn，recover 兜底 panic）/ Finish（finishDeadline 收尾 select→LoadSettings→判定链→renderNotice 到 stderr）；isStderrTTY 包级闭包便于测试替换
 notifier_test.go: Start 刷新落盘 / 新鲜缓存跳过 / Finish 禁用不阻塞，用 httptest + SetAPIBaseURLForTest 隔离网络，<-done 确定性同步无 sleep
