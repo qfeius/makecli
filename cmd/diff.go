@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client/GetApp/ListEntities/ListRelations/Entity/Relation/RelationProperties/RelationEnd）、cmd/apply（loadManifestsFromFile/Dir/ResourceManifest/getFieldMap）、cmd/output（validateOutputFormat/writeJSON）、encoding/json、fmt、os、reflect、sort、strings
- * [OUTPUT]: 对外提供 newDiffCmd 函数
- * [POS]: cmd 模块的顶层 diff 命令，对比远端 Meta Server 上的 App DSL（Entity + Relation）与本地 YAML 文件的差异；按 Key 匹配资源，Field 也按 Key 匹配
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client/GetApp/ListEntities/ListRelations/Entity/Relation/RelationProperties/RelationEnd）、cmd/apply（loadManifestsFromFile/Dir/ResourceManifest/getFieldMap）、cmd/output（validateOutputFormat/writeJSON）、encoding/json、errors、fmt、os、reflect、sort、strings
+ * [OUTPUT]: 对外提供 newDiffCmd 函数、errDiffFound 哨兵错误
+ * [POS]: cmd 模块的顶层 diff 命令，对比远端 Meta Server 上的 App DSL（Entity + Relation）与本地 YAML 文件的差异；按 Key 匹配资源，Field 也按 Key 匹配；有差异时返回 errDiffFound（由 Execute 转译为退出码 1），实现 CI 漂移门禁
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -9,6 +9,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -18,6 +19,13 @@ import (
 	"github.com/qfeius/makecli/internal/api"
 	"github.com/spf13/cobra"
 )
+
+// ---------------------------------- 哨兵错误 ----------------------------------
+
+// errDiffFound 表示检测到差异（drift）。它沿 cobra RunE 链向上返回，
+// 由 main.go 转译为退出码 1，使 CI 能据此门禁；不属于真正的执行失败，
+// 故 diff 命令静默其错误消息（SilenceErrors），避免污染 stderr。
+var errDiffFound = errors.New("diff: differences found")
 
 // ---------------------------------- 命令定义 ----------------------------------
 
@@ -32,10 +40,11 @@ func newDiffCmd() *cobra.Command {
 The app name is inferred from the Make.App manifest or entity's app field in the YAML files.`,
 		Example: `  makecli diff -f ./dsl/
   makecli diff -f app.yaml --output json`,
-		Args:         cobra.NoArgs,
-		SilenceUsage: true,
+		Args:          cobra.NoArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true, // 有差异时返回 errDiffFound 仅作退出码信号，不打印 error: 行
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDiff(path, output)
+			return reportDiffError(cmd, runDiff(path, output))
 		},
 	}
 
@@ -43,6 +52,16 @@ The app name is inferred from the Make.App manifest or entity's app field in the
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
 	_ = cmd.MarkFlagRequired("file")
 	return cmd
+}
+
+// reportDiffError 在 diff 命令开启 SilenceErrors 的前提下，亲自打印真实错误到 stderr，
+// 但放过 errDiffFound 哨兵——它不是错误，仅用于把「检测到差异」翻译成非零退出码。
+// 原样透传 err 给上层，由 main 决定退出码。
+func reportDiffError(cmd *cobra.Command, err error) error {
+	if err != nil && !errors.Is(err, errDiffFound) {
+		cmd.PrintErrln(cmd.ErrPrefix(), err.Error())
+	}
+	return err
 }
 
 // ---------------------------------- Diff 数据类型 ----------------------------------
@@ -159,15 +178,21 @@ func runDiff(path, output string) error {
 		},
 	}
 
-	// 输出
-	if output == outputJSON {
-		return writeJSON(result)
-	}
-	renderDiffTable(&result)
+	// 先算一次「是否有差异」，让两种输出模式共享同一退出决策
+	hasDiff := result.Summary.Added > 0 || result.Summary.Removed > 0 || result.Summary.Changed > 0
 
-	// 有差异时退出码 1
-	if result.Summary.Added > 0 || result.Summary.Removed > 0 || result.Summary.Changed > 0 {
-		os.Exit(1)
+	// 输出（JSON / 表格），writeJSON 的错误照常向上传播
+	if output == outputJSON {
+		if err := writeJSON(result); err != nil {
+			return err
+		}
+	} else {
+		renderDiffTable(&result)
+	}
+
+	// 有差异时返回哨兵错误 → Execute 转译为退出码 1（不依赖 os.Exit，可单测）
+	if hasDiff {
+		return errDiffFound
 	}
 	return nil
 }

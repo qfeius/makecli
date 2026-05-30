@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd 包内函数（包内白盒）、internal/config、internal/api、encoding/json、net/http、net/http/httptest、os、path/filepath、strings、testing
- * [OUTPUT]: 覆盖 diff 子命令核心逻辑的单元测试（Entity + Relation）
- * [POS]: cmd 模块顶层 diff 命令的配套测试，用 httptest 隔离网络、临时文件测试差异对比
+ * [INPUT]: 依赖 cmd 包内函数（包内白盒）、internal/config、internal/api、encoding/json、errors、io、net/http、net/http/httptest、os、path/filepath、strings、testing
+ * [OUTPUT]: 覆盖 diff 子命令核心逻辑的单元测试（Entity + Relation + 退出码契约：有差异返回 errDiffFound）
+ * [POS]: cmd 模块顶层 diff 命令的配套测试，用 httptest 隔离网络、临时文件测试差异对比；自包含 stdout 劫持验证 JSON/表格两种输出模式的退出语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -9,6 +9,8 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -71,6 +73,111 @@ func TestRunDiff(t *testing.T) {
 			t.Fatal("expected error for invalid output format")
 		}
 	})
+}
+
+// ---------------------------------- runDiff 退出码契约测试 ----------------------------------
+//
+// 关键：有差异时 runDiff 必须返回 errDiffFound（而非 nil、也不调用 os.Exit），
+// 否则 `diff --output json` 永远退出 0，CI 漂移门禁失效。os.Exit 会杀掉测试进程，
+// 故退出决策必须以哨兵错误形式上抛、可单测。
+
+func TestRunDiffExitContract(t *testing.T) {
+	// setupDiffEnv 准备一个本地有差异的环境：远端为空（app 存在但无 entity），
+	// 本地有一个 Task entity → 必然产生 added 差异。
+	setupDiffEnv := func(t *testing.T, remoteEntities []api.Entity) string {
+		t.Helper()
+		srv := newDiffServer(t, remoteEntities, nil)
+		t.Cleanup(srv.Close)
+		t.Setenv("HOME", t.TempDir())
+		saveDiffToken(t)
+		ServerURL = srv.URL
+		return writeDiffYAML(t, entityYAML("Task", "myapp", "title", "Make.Field.Text"))
+	}
+
+	t.Run("has-diff json path returns sentinel and emits valid JSON", func(t *testing.T) {
+		// 远端有一个空 entity 列表（app 存在），本地多一个 Task → added=1
+		dir := setupDiffEnv(t, []api.Entity{})
+
+		out, err := captureRunDiffStdout(t, dir, outputJSON)
+		if !errors.Is(err, errDiffFound) {
+			t.Fatalf("expected errDiffFound, got %v", err)
+		}
+		var result DiffResult
+		if jerr := json.Unmarshal([]byte(out), &result); jerr != nil {
+			t.Fatalf("stdout is not valid JSON: %v\noutput: %q", jerr, out)
+		}
+		if result.Summary.Added != 1 {
+			t.Errorf("expected JSON summary added=1, got %d", result.Summary.Added)
+		}
+		if result.AppKey != "myapp" {
+			t.Errorf("expected appKey=myapp in JSON, got %q", result.AppKey)
+		}
+	})
+
+	t.Run("has-diff table path returns sentinel", func(t *testing.T) {
+		dir := setupDiffEnv(t, []api.Entity{})
+
+		out, err := captureRunDiffStdout(t, dir, outputTable)
+		if !errors.Is(err, errDiffFound) {
+			t.Fatalf("expected errDiffFound, got %v", err)
+		}
+		if !strings.Contains(out, "Task") {
+			t.Errorf("expected table output to mention Task entity, got %q", out)
+		}
+	})
+
+	t.Run("no-diff json path returns nil and emits valid JSON", func(t *testing.T) {
+		// 远端与本地完全一致 → 无差异
+		remote := []api.Entity{
+			makeRemoteEntity("Task", api.Field{Key: "title", Name: "title", Type: "Make.Field.Text"}),
+		}
+		dir := setupDiffEnv(t, remote)
+
+		out, err := captureRunDiffStdout(t, dir, outputJSON)
+		if err != nil {
+			t.Fatalf("expected nil error for no-diff, got %v", err)
+		}
+		var result DiffResult
+		if jerr := json.Unmarshal([]byte(out), &result); jerr != nil {
+			t.Fatalf("stdout is not valid JSON: %v\noutput: %q", jerr, out)
+		}
+		if result.Summary.Added != 0 || result.Summary.Removed != 0 || result.Summary.Changed != 0 {
+			t.Errorf("expected no diffs, got %+v", result.Summary)
+		}
+	})
+
+	t.Run("no-diff table path returns nil", func(t *testing.T) {
+		remote := []api.Entity{
+			makeRemoteEntity("Task", api.Field{Key: "title", Name: "title", Type: "Make.Field.Text"}),
+		}
+		dir := setupDiffEnv(t, remote)
+
+		if _, err := captureRunDiffStdout(t, dir, outputTable); err != nil {
+			t.Fatalf("expected nil error for no-diff, got %v", err)
+		}
+	})
+}
+
+// captureRunDiffStdout 在劫持 os.Stdout 的前提下运行 runDiff，返回 stdout 内容与 runDiff 的错误。
+// 自包含实现，不依赖外部 helper，避免与现有测试基建耦合。
+func captureRunDiffStdout(t *testing.T, path, output string) (string, error) {
+	t.Helper()
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+
+	runErr := runDiff(path, output)
+
+	_ = w.Close()
+	os.Stdout = orig
+	data, rerr := io.ReadAll(r)
+	if rerr != nil {
+		t.Fatalf("read captured stdout: %v", rerr)
+	}
+	return string(data), runErr
 }
 
 // ---------------------------------- computeDiff 测试 ----------------------------------

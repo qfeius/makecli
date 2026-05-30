@@ -68,7 +68,7 @@ record_list.go:             record list 子命令，分页查询 Record，自动
 record_list_test.go:        覆盖 runRecordList 的单元测试（表格/JSON/空列表/无凭证/API错误/未知profile/非法页码/非法格式/非法排序），用 httptest 隔离网络
 apply.go:            apply 子命令，从 YAML 文件/目录批量应用资源（create-or-update 语义：按 Key 检测存在性，App 不存在则创建/已存在则跳过，Entity/Relation 不存在则创建/已存在则更新）；存在性判定经 api.ErrNotFound 哨兵——仅"确实不存在"才创建，Get 的瞬时/传输/非 not-found 错误一律上抛不创建（杜绝误建重复资源或把 update 降级为 create）；依赖顺序 App→Entity→Relation；ResourceManifest 提供 Key（标识符）/Name（展示名）/Type/AppKey/Meta/Properties 字段；支持多文档 YAML 和目录扫描
 apply_test.go:       apply 子命令的单元测试，覆盖单文件、多文档、目录扫描、Relation 创建/更新/缺 appKey 字段错误、App+Entity+Relation 混合目录场景
-diff.go:             diff 子命令，对比远端 Meta Server 上的 App DSL（Entity + Relation）与本地 YAML 文件的差异；App key 从 YAML 自动推断（Make.App key 或 Entity/Relation appKey 字段）；分页获取全部远端资源，按 Key 匹配后逐字段（key）/端点（entityKey）比对；支持 -f（必选）/ --output；退出码 0=无差异 1=有差异
+diff.go:             diff 子命令，对比远端 Meta Server 上的 App DSL（Entity + Relation）与本地 YAML 文件的差异；App key 从 YAML 自动推断（Make.App key 或 Entity/Relation appKey 字段）；分页获取全部远端资源，按 Key 匹配后逐字段（key）/端点（entityKey）比对；支持 -f（必选）/ --output；退出码 0=无差异 1=有差异（table 与 json 模式一致，经 errDiffFound 哨兵上抛到 main 转译，不再用 os.Exit，可单测）；命令开 SilenceErrors，由 reportDiffError 亲自打印真实错误、放过 errDiffFound 哨兵不污染 stderr
 diff_test.go:        覆盖 diff 子命令核心逻辑的单元测试（computeDiff/computeRelationDiff/fetchAllEntities/fetchAllRelations/jsonDeepEqual/runDiff 错误路径），用 httptest 隔离网络
 schema.go:           schema 顶级子命令，按 appKey 调用 MakeService.GetResource 获取聚合 Schema（App + Entities + Relations），JSON 输出
 schema_test.go:      覆盖 runSchema 的单元测试（成功/无凭证/API错误/未知profile），用 httptest 隔离网络
