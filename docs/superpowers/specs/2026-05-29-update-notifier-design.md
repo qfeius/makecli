@@ -45,7 +45,7 @@ cmd.Execute()
 
 ## 4. 刷新机制（goroutine + 短 deadline）
 
-1. `Start()`：读缓存。`checked_at` 距今 < 24h（`checkInterval`）→ 直接返回，不发任何请求。过期 → 起一个 goroutine 调 `update.CheckLatest`，结果写回缓存文件。请求自带独立 HTTP 超时（不依赖主进程存活）。
+1. `Start()`：读缓存。`checked_at` 距今 < 72h（`checkInterval`）→ 直接返回，不发任何请求。过期 → 起一个 goroutine 调 `update.CheckLatest`，结果写回缓存文件。请求自带独立 HTTP 超时（不依赖主进程存活）。
 2. goroutine 与命令本体**并行**：走网络的命令（`record list` 等）天然给了它几百毫秒窗口。
 3. `Finish()`：给 goroutine ~250ms（`finishDeadline`）的收尾窗口；到点未完成就放弃（缓存这次没填上，下次命令再填）。然后读缓存、判定、打印。
 
@@ -114,7 +114,7 @@ config 包改动（实现阶段细化）：把 INI 解析下沉为"通用 sectio
 
 | 项 | 默认值 |
 |----|--------|
-| `checkInterval` | 24h |
+| `checkInterval` | 72h |
 | `finishDeadline` | 250ms |
 | 缓存文件 | `<config.Dir()>/update-check.json` |
 | 启用开关环境变量 | `MAKE_CLI_UPDATE_NOTIFIER`（三态 true/false，未设下沉） |
