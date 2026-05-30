@@ -10,6 +10,7 @@ package config
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,30 +62,25 @@ func LoadConfig() (Config, error) {
 	return parseConfigINI(f)
 }
 
-// parseConfigINI 解析 INI 格式内容，只处理 [section] 和 key = value
-func parseConfigINI(f *os.File) (Config, error) {
-	cfg := Config{}
+// parseINISections 通用 INI 解析：section → (key → value)。
+// 忽略空行与 # / ; 注释；无 section 头的键被丢弃。
+func parseINISections(r io.Reader) (map[string]map[string]string, error) {
+	sections := map[string]map[string]string{}
 	current := ""
 
-	scanner := bufio.NewScanner(f)
+	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-
-		// 跳过空行和注释
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}
-
-		// [section]
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			current = strings.TrimSpace(line[1 : len(line)-1])
-			if _, ok := cfg[current]; !ok {
-				cfg[current] = ConfigProfile{}
+			if _, ok := sections[current]; !ok {
+				sections[current] = map[string]string{}
 			}
 			continue
 		}
-
-		// key = value
 		if current == "" {
 			continue
 		}
@@ -92,22 +88,29 @@ func parseConfigINI(f *os.File) (Config, error) {
 		if len(parts) != 2 {
 			continue
 		}
-		key := strings.TrimSpace(parts[0])
-		val := strings.TrimSpace(parts[1])
-
-		p := cfg[current]
-		switch key {
-		case "server-url":
-			p.ServerURL = val
-		case "X-Tenant-ID":
-			p.XTenantID = val
-		case "X-Operator-ID":
-			p.OperatorID = val
-		}
-		cfg[current] = p
+		sections[current][strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
 	}
+	return sections, scanner.Err()
+}
 
-	return cfg, scanner.Err()
+// parseConfigINI 解析 config 文件为 Config（profile 集合），跳过保留的 [settings] 全局段
+func parseConfigINI(f *os.File) (Config, error) {
+	sections, err := parseINISections(f)
+	if err != nil {
+		return nil, err
+	}
+	cfg := Config{}
+	for name, kv := range sections {
+		if name == settingsSection {
+			continue
+		}
+		cfg[name] = ConfigProfile{
+			ServerURL:  kv["server-url"],
+			XTenantID:  kv["X-Tenant-ID"],
+			OperatorID: kv["X-Operator-ID"],
+		}
+	}
+	return cfg, nil
 }
 
 // ---------------------------------- 写入 ----------------------------------
