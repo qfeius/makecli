@@ -85,3 +85,16 @@ func TestRenderNotice(t *testing.T) {
 		}
 	}
 }
+
+// 空 HTMLURL 时不应渲染 URL 行
+func TestRenderNotice_NoURL(t *testing.T) {
+	var buf bytes.Buffer
+	renderNotice(&buf, "1.0.0", cacheData{LatestVersion: "v2.0.0"})
+	out := buf.String()
+	if !strings.Contains(out, "1.0.0 → 2.0.0") {
+		t.Errorf("notice missing version line; got:\n%s", out)
+	}
+	if strings.Contains(out, "http") {
+		t.Errorf("expected no URL line when HTMLURL empty; got:\n%s", out)
+	}
+}
