@@ -27,11 +27,11 @@ var skipCommands = map[string]bool{
 
 // notifierEnabled 三态裁决是否启用更新提示：env > config > 默认(true)。
 //
-//	envVal: MAKE_CLI_UPDATE_NOTIFIER 原始值（"" = 未设置；非法值忽略并下沉）
+//	envVal: MAKE_CLI_UPDATE_NOTIFIER 原始值（先 TrimSpace；空/纯空白 = 未设置；非法值忽略并下沉）
 //	cfgVal: config [settings] check-for-updates（nil = 未设置）
 func notifierEnabled(envVal string, cfgVal *bool) bool {
-	if envVal != "" {
-		if b, err := strconv.ParseBool(envVal); err == nil {
+	if v := strings.TrimSpace(envVal); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
 			return b
 		}
 	}
