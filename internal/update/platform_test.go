@@ -66,7 +66,7 @@ func TestExtractBinaryFromZip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read extracted: %v", err)
 	}
-	if string(got) != string(payload) {
+	if !bytes.Equal(got, payload) {
 		t.Errorf("extracted content = %q, want %q", got, payload)
 	}
 }
