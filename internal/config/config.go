@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 os、bufio、fmt、strings、path/filepath；依赖 paths.go 的 Dir
+ * [INPUT]: 依赖 os、bufio、fmt、io、sort、strings、path/filepath；依赖 paths.go 的 Dir
  * [OUTPUT]: 对外提供 LoadConfig、SaveConfig、ConfigPath 函数，Config/ConfigProfile 类型
  * [POS]: internal/config 的 config 文件管理，读写 config 文件（默认 ~/.make/config，INI 格式）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -115,6 +116,21 @@ func parseConfigINI(f *os.File) (Config, error) {
 
 // ---------------------------------- 写入 ----------------------------------
 
+// existingSettings 读取磁盘上已存在的 [settings] 段（Config 模型不含全局段，
+// SaveConfig 覆盖写时需显式保留，否则用户手写的全局配置会丢失）。
+func existingSettings(path string) map[string]string {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = f.Close() }()
+	sections, err := parseINISections(f)
+	if err != nil {
+		return nil
+	}
+	return sections[settingsSection]
+}
+
 // SaveConfig 将 Config 写入 ~/.make/config
 // 自动创建 ~/.make/ 目录（0700），文件权限 0600
 func SaveConfig(cfg Config) error {
@@ -127,6 +143,9 @@ func SaveConfig(cfg Config) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("创建配置目录 %s 失败: %w", dir, err)
 	}
+
+	// 覆盖写会清空文件，先抓取磁盘上的 [settings] 全局段以便末尾重新落盘
+	settings := existingSettings(path)
 
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
@@ -160,6 +179,22 @@ func SaveConfig(cfg Config) error {
 		}
 		if p.OperatorID != "" {
 			_, _ = fmt.Fprintf(w, "X-Operator-ID = %s\n", p.OperatorID)
+		}
+	}
+
+	// 末尾保留全局 [settings] 段（读路径跳过它，写路径必须显式回写，否则数据丢失）
+	if len(settings) > 0 {
+		if len(order) > 0 {
+			_, _ = fmt.Fprintln(w)
+		}
+		_, _ = fmt.Fprintf(w, "[%s]\n", settingsSection)
+		keys := make([]string, 0, len(settings))
+		for k := range settings {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			_, _ = fmt.Fprintf(w, "%s = %s\n", k, settings[k])
 		}
 	}
 

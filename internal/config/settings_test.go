@@ -50,7 +50,7 @@ func TestLoadSettings_Disabled(t *testing.T) {
 	if s.CheckForUpdates == nil {
 		t.Fatal("expected CheckForUpdates set, got nil")
 	}
-	if *s.CheckForUpdates != false {
+	if *s.CheckForUpdates {
 		t.Errorf("CheckForUpdates = %v, want false", *s.CheckForUpdates)
 	}
 }
@@ -79,5 +79,25 @@ func TestLoadConfig_IgnoresSettingsSection(t *testing.T) {
 	}
 	if cfg["default"].XTenantID != "t1" {
 		t.Errorf("default profile lost: %+v", cfg["default"])
+	}
+}
+
+func TestSaveConfig_PreservesSettings(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	writeConfigFile(t, "[settings]\ncheck-for-updates = false\n\n[default]\nX-Tenant-ID = t1\n")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	s, err := LoadSettings()
+	if err != nil {
+		t.Fatalf("LoadSettings: %v", err)
+	}
+	if s.CheckForUpdates == nil || *s.CheckForUpdates != false {
+		t.Errorf("settings lost across SaveConfig round-trip: %v", s.CheckForUpdates)
 	}
 }
