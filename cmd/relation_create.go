@@ -52,9 +52,7 @@ func runRelationCreate(key, displayName, appKey, jsonFile string) error {
 		return err
 	}
 
-	if displayName == "" {
-		displayName = key
-	}
+	displayName = defaultName(displayName, key)
 
 	if err := client.CreateRelation(key, displayName, appKey, props); err != nil {
 		return err

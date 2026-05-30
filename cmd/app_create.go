@@ -65,10 +65,7 @@ func runAppCreateFromFile(path string) error {
 	}
 
 	// 展示名缺省时回退用 key
-	displayName := manifest.Name
-	if displayName == "" {
-		displayName = manifest.Key
-	}
+	displayName := defaultName(manifest.Name, manifest.Key)
 
 	if apiErr := client.CreateApp(manifest.Key, displayName, props); apiErr != nil {
 		return apiErr
@@ -89,9 +86,7 @@ func runAppCreate(key, displayName, description string) error {
 	}
 
 	// 展示名缺省时回退用 key
-	if displayName == "" {
-		displayName = key
-	}
+	displayName = defaultName(displayName, key)
 
 	props := map[string]any{}
 	if description != "" {

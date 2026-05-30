@@ -239,10 +239,7 @@ func applyApp(manifest ResourceManifest, client *api.Client) (string, error) {
 		return "", err // 瞬时/传输/非 not-found 业务错误，上抛不创建
 	}
 
-	displayName := manifest.Name
-	if displayName == "" {
-		displayName = manifest.Key
-	}
+	displayName := defaultName(manifest.Name, manifest.Key)
 	return "created", client.CreateApp(manifest.Key, displayName, manifest.Properties)
 }
 
@@ -281,10 +278,7 @@ func applyEntity(manifest ResourceManifest, client *api.Client) (string, error) 
 		}
 	}
 
-	displayName := manifest.Name
-	if displayName == "" {
-		displayName = manifest.Key
-	}
+	displayName := defaultName(manifest.Name, manifest.Key)
 
 	_, err := client.GetEntity(manifest.AppKey, manifest.Key)
 	if err == nil {
@@ -308,10 +302,7 @@ func applyRelation(manifest ResourceManifest, client *api.Client) (string, error
 		return "", err
 	}
 
-	displayName := manifest.Name
-	if displayName == "" {
-		displayName = manifest.Key
-	}
+	displayName := defaultName(manifest.Name, manifest.Key)
 
 	_, err = client.GetRelation(manifest.AppKey, manifest.Key)
 	if err == nil {
@@ -347,24 +338,20 @@ func parseRelationProperties(properties map[string]any) (api.RelationProperties,
 	}, nil
 }
 
-// getField 安全获取字段值
-func getField(m map[string]any, key string) any {
-	v, ok := m[key]
-	if !ok {
-		return nil
-	}
-	return v
-}
-
-// getFieldMap 安全获取 map[string]any 类型字段
+// getFieldMap 安全获取 map[string]any 类型字段（缺失或类型不符均返回 nil）
 func getFieldMap(m map[string]any, key string) map[string]any {
-	v := getField(m, key)
-	if v == nil {
-		return nil
-	}
-	m2, ok := v.(map[string]any)
+	m2, ok := m[key].(map[string]any)
 	if !ok {
 		return nil
 	}
 	return m2
+}
+
+// defaultName 返回展示名：name 非空时用 name，否则回退用 key（标识符）。
+// 收口「displayName 缺省回退 key」这个在多个 create/apply 路径重复了 8 次的惯用法。
+func defaultName(name, key string) string {
+	if name == "" {
+		return key
+	}
+	return name
 }

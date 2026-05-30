@@ -57,9 +57,7 @@ func runEntityCreate(key, displayName, appKey, jsonFile string) error {
 		}
 	}
 
-	if displayName == "" {
-		displayName = key
-	}
+	displayName = defaultName(displayName, key)
 
 	if err := client.CreateEntity(key, displayName, appKey, fields); err != nil {
 		return err
