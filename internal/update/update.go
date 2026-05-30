@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 net/http、time、archive/tar、compress/gzip、encoding/json、github.com/Masterminds/semver/v3
+ * [INPUT]: 依赖 net/http、time、archive/tar、compress/gzip、encoding/json、github.com/Masterminds/semver/v3；依赖同包 checksum.go 的 fetchChecksums/verifyChecksum 做完整性校验
  * [OUTPUT]: 对外提供 CheckLatest / ListReleases / NormalizeTag / GetRelease / CompareVersions / Apply 函数、Release / Asset 结构体
- * [POS]: internal/update 的核心引擎，被 cmd/update.go 消费
+ * [POS]: internal/update 的核心引擎，被 cmd/update.go 消费；Apply 在替换二进制前强制 SHA-256 校验（fail-closed）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -52,6 +52,9 @@ var apiBaseURL = "https://api.github.com"
 // metaClient 用于元数据 JSON 请求（latest / list / tag），带超时以约束后台刷新。
 // 注意：二进制下载（download）不复用此 client，避免大文件被超时打断。
 var metaClient = &http.Client{Timeout: 10 * time.Second}
+
+// renameFile 抽出 os.Rename 作为 seam，便于测试注入失败以验证 installBinary 的回滚路径。
+var renameFile = os.Rename
 
 // -----------------------------------------------------------------------
 // 公开 API
@@ -107,8 +110,9 @@ func NormalizeTag(input string) (string, error) {
 }
 
 // GetRelease 按 tag 拉取指定 release。tag 必须是规范化形式（带 v 前缀）。
-//   404 → "release {tag} not found"
-//   其他非 200 → "failed to fetch release {tag}: HTTP {code}"
+//
+//	404 → "release {tag} not found"
+//	其他非 200 → "failed to fetch release {tag}: HTTP {code}"
 func GetRelease(tag string) (*Release, error) {
 	url := fmt.Sprintf("%s/repos/qfeius/makecli/releases/tags/%s", apiBaseURL, tag)
 
@@ -183,6 +187,16 @@ func Apply(release *Release) error {
 		return err
 	}
 	defer func() { _ = os.Remove(archivePath) }()
+
+	// 完整性校验：拉取 checksums.txt 并比对下载归档的 SHA-256。
+	// fail-closed —— 任何缺失/不符都在替换二进制前终止，运行中的二进制不受影响。
+	checksums, err := fetchChecksums(release.Assets)
+	if err != nil {
+		return err
+	}
+	if err := verifyChecksum(archivePath, checksums, asset.Name); err != nil {
+		return err
+	}
 
 	// 从归档中提取二进制
 	newBinaryPath, err := extractBinary(archivePath)
@@ -293,14 +307,7 @@ func extractBinary(archivePath string) (string, error) {
 	return "", fmt.Errorf("makecli binary not found in archive")
 }
 
-// replaceBinary 原子替换当前运行的二进制
-//
-// 步骤:
-//  1. copy 新二进制到目标目录（确保同一文件系统）
-//  2. rename current → current.old（备份）
-//  3. rename tmp → current（安装）
-//  4. 删除 current.old（清理，best-effort）
-//  5. 若步骤 3 失败，回滚 current.old → current
+// replaceBinary 定位当前 exe、解析符号链接、校验写权限后，委托 installBinary 完成替换。
 func replaceBinary(newBinaryPath string) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -313,32 +320,47 @@ func replaceBinary(newBinaryPath string) error {
 		return fmt.Errorf("failed to resolve symlink: %w", err)
 	}
 
-	dir := filepath.Dir(exe)
-
 	// 检查目录写权限
-	if err := checkWritable(dir); err != nil {
+	if err := checkWritable(filepath.Dir(exe)); err != nil {
 		return fmt.Errorf("permission denied, try: sudo makecli update")
 	}
 
-	// 步骤 1: copy 到同一目录确保同一文件系统
-	stagePath := filepath.Join(dir, ".makecli.tmp")
+	return installBinary(newBinaryPath, exe)
+}
+
+// installBinary 把 newBinaryPath 原子安装为 exe（exe 注入便于测试）。
+//
+// 步骤:
+//  1. copy 新二进制到 exe 同目录（确保同一文件系统）；defer 清理 stage，
+//     无论后续成败都不残留——一个 defer 消除了原先两处分散的 stage 删除分支。
+//  2. rename exe → exe.old（备份）
+//  3. rename stage → exe（安装）；失败则回滚 exe.old → exe
+//  4. 安装成功后删除 exe.old
+//
+// 若安装与回滚都失败，原二进制仍保留在 exe.old，错误信息附带手动恢复指令。
+func installBinary(newBinaryPath, exe string) error {
+	stagePath := filepath.Join(filepath.Dir(exe), ".makecli.tmp")
 	if err := copyFile(newBinaryPath, stagePath); err != nil {
 		return fmt.Errorf("failed to stage new binary: %w", err)
 	}
+	defer func() { _ = os.Remove(stagePath) }()
 
 	backupPath := exe + ".old"
 
 	// 步骤 2: 备份当前二进制
-	if err := os.Rename(exe, backupPath); err != nil {
-		_ = os.Remove(stagePath)
+	if err := renameFile(exe, backupPath); err != nil {
 		return fmt.Errorf("failed to backup current binary: %w", err)
 	}
 
 	// 步骤 3: 安装新二进制
-	if err := os.Rename(stagePath, exe); err != nil {
-		// 回滚
-		_ = os.Rename(backupPath, exe)
-		return fmt.Errorf("failed to install new binary: %w", err)
+	if err := renameFile(stagePath, exe); err != nil {
+		// 安装失败，尝试回滚备份
+		if rbErr := renameFile(backupPath, exe); rbErr != nil {
+			return fmt.Errorf("failed to install new binary: %w; rollback failed: %v; "+
+				"your previous binary is preserved at %s — restore it manually: mv %s %s",
+				err, rbErr, backupPath, backupPath, exe)
+		}
+		return fmt.Errorf("failed to install new binary (rolled back): %w", err)
 	}
 
 	// 步骤 4: 清理备份（best-effort）
