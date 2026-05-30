@@ -147,12 +147,6 @@ func SaveConfig(cfg Config) error {
 	// 覆盖写会清空文件，先抓取磁盘上的 [settings] 全局段以便末尾重新落盘
 	settings := existingSettings(path)
 
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return fmt.Errorf("写入 config 失败: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-
 	// default profile 优先输出，其余保持稳定顺序
 	order := []string{}
 	if _, ok := cfg["default"]; ok {
@@ -164,39 +158,42 @@ func SaveConfig(cfg Config) error {
 		}
 	}
 
-	w := bufio.NewWriter(f)
-	for i, name := range order {
-		if i > 0 {
-			_, _ = fmt.Fprintln(w)
+	if err := atomicWrite(path, 0600, func(w io.Writer) error {
+		for i, name := range order {
+			if i > 0 {
+				_, _ = fmt.Fprintln(w)
+			}
+			_, _ = fmt.Fprintf(w, "[%s]\n", name)
+			p := cfg[name]
+			if p.ServerURL != "" {
+				_, _ = fmt.Fprintf(w, "server-url = %s\n", p.ServerURL)
+			}
+			if p.XTenantID != "" {
+				_, _ = fmt.Fprintf(w, "X-Tenant-ID = %s\n", p.XTenantID)
+			}
+			if p.OperatorID != "" {
+				_, _ = fmt.Fprintf(w, "X-Operator-ID = %s\n", p.OperatorID)
+			}
 		}
-		_, _ = fmt.Fprintf(w, "[%s]\n", name)
-		p := cfg[name]
-		if p.ServerURL != "" {
-			_, _ = fmt.Fprintf(w, "server-url = %s\n", p.ServerURL)
-		}
-		if p.XTenantID != "" {
-			_, _ = fmt.Fprintf(w, "X-Tenant-ID = %s\n", p.XTenantID)
-		}
-		if p.OperatorID != "" {
-			_, _ = fmt.Fprintf(w, "X-Operator-ID = %s\n", p.OperatorID)
-		}
-	}
 
-	// 末尾保留全局 [settings] 段（读路径跳过它，写路径必须显式回写，否则数据丢失）
-	if len(settings) > 0 {
-		if len(order) > 0 {
-			_, _ = fmt.Fprintln(w)
+		// 末尾保留全局 [settings] 段（读路径跳过它，写路径必须显式回写，否则数据丢失）
+		if len(settings) > 0 {
+			if len(order) > 0 {
+				_, _ = fmt.Fprintln(w)
+			}
+			_, _ = fmt.Fprintf(w, "[%s]\n", settingsSection)
+			keys := make([]string, 0, len(settings))
+			for k := range settings {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				_, _ = fmt.Fprintf(w, "%s = %s\n", k, settings[k])
+			}
 		}
-		_, _ = fmt.Fprintf(w, "[%s]\n", settingsSection)
-		keys := make([]string, 0, len(settings))
-		for k := range settings {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			_, _ = fmt.Fprintf(w, "%s = %s\n", k, settings[k])
-		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("写入 config 失败: %w", err)
 	}
-
-	return w.Flush()
+	return nil
 }

@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 os、bufio、fmt、strings、path/filepath；依赖 paths.go 的 Dir
+ * [INPUT]: 依赖 os、bufio、io、fmt、strings、path/filepath；依赖 paths.go 的 Dir、atomic.go 的 atomicWrite
  * [OUTPUT]: 对外提供 Load、Save、CredentialsPath 函数，Credentials/Profile 类型
  * [POS]: internal/config 的核心，管理 credentials 文件（默认 ~/.make/credentials）的 INI 格式读写
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -118,12 +118,6 @@ func Save(creds Credentials) error {
 		return fmt.Errorf("创建配置目录 %s 失败: %w", dir, err)
 	}
 
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return fmt.Errorf("写入 credentials 失败: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-
 	// default profile 优先输出，其余按字典序
 	order := []string{}
 	if _, ok := creds["default"]; ok {
@@ -135,14 +129,17 @@ func Save(creds Credentials) error {
 		}
 	}
 
-	w := bufio.NewWriter(f)
-	for i, name := range order {
-		if i > 0 {
-			_, _ = fmt.Fprintln(w)
+	if err := atomicWrite(path, 0600, func(w io.Writer) error {
+		for i, name := range order {
+			if i > 0 {
+				_, _ = fmt.Fprintln(w)
+			}
+			_, _ = fmt.Fprintf(w, "[%s]\n", name)
+			_, _ = fmt.Fprintf(w, "access_token = %s\n", creds[name].AccessToken)
 		}
-		_, _ = fmt.Fprintf(w, "[%s]\n", name)
-		_, _ = fmt.Fprintf(w, "access_token = %s\n", creds[name].AccessToken)
+		return nil
+	}); err != nil {
+		return fmt.Errorf("写入 credentials 失败: %w", err)
 	}
-
-	return w.Flush()
+	return nil
 }
