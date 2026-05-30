@@ -39,6 +39,15 @@ make vet            # 静态检查
 make local          # 构建并安装到 ~/.local/bin
 ```
 
+## 开发纪律（AI Agent 必读）
+验证必须**门控**提交——血泪教训，曾三次推送编译失败的代码到 main。
+
+1. **Edit 失败必核实**：返回 "String to replace not found" = 该编辑**未生效**，必须重读文件重做，绝不假设成功后继续。一次静默失败的 import/调用点替换就会让整包 build red。
+2. **改 Go 代码后先验证再提交**：单独跑 `make vet && make test`（+ `golangci-lint run ./...`），**确认 exit 0** 才进入 `git commit` / `git push`。**禁止**在同一批工具调用里 test + commit + push——red 会来不及拦住提交。
+3. **gofmt 不查编译**：`gofmt -l` 干净 ≠ 能编译。CI 门禁含 golangci-lint，本地须 0 issues 才 push（新测试常踩 gocritic：`stringXbytes` 改 `bytes.Equal`、手写线性查找改 `slices.Contains`）。
+4. **沙箱假性失败**：`go vet/test/build` 在命令沙箱下因 module cache（`~/code/go/pkg/mod`）不可写而报 `operation not permitted`，非代码错误；Go 工具链命令直接禁用沙箱跑。
+5. **跨 worktree 落地用 patch/逐段 Edit**，勿整文件 cp 覆盖——worktree 可能基于陈旧 commit，会静默回退他人近期工作。
+
 ## 安装方式
 ```bash
 brew tap qfeius/makecli
