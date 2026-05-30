@@ -331,6 +331,16 @@ func TestGetRelease_HTTPError(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------
+// metaClient 超时守卫
+// -----------------------------------------------------------------------
+
+func TestMetaClientHasTimeout(t *testing.T) {
+	if metaClient.Timeout <= 0 {
+		t.Error("metaClient must carry a positive timeout to bound background refresh")
+	}
+}
+
+// -----------------------------------------------------------------------
 // CompareVersions 测试
 // -----------------------------------------------------------------------
 

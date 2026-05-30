@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 net/http、archive/tar、compress/gzip、encoding/json、github.com/Masterminds/semver/v3
+ * [INPUT]: 依赖 net/http、time、archive/tar、compress/gzip、encoding/json、github.com/Masterminds/semver/v3
  * [OUTPUT]: 对外提供 CheckLatest / ListReleases / NormalizeTag / GetRelease / CompareVersions / Apply 函数、Release / Asset 结构体
  * [POS]: internal/update 的核心引擎，被 cmd/update.go 消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 )
@@ -47,6 +48,10 @@ type Asset struct {
 // -----------------------------------------------------------------------
 
 var apiBaseURL = "https://api.github.com"
+
+// metaClient 用于元数据 JSON 请求（latest / list / tag），带超时以约束后台刷新。
+// 注意：二进制下载（download）不复用此 client，避免大文件被超时打断。
+var metaClient = &http.Client{Timeout: 10 * time.Second}
 
 // -----------------------------------------------------------------------
 // 公开 API
@@ -147,7 +152,7 @@ func CompareVersions(target, current string) int {
 // 网络错误返回 (0, err)；非 200 状态返回 (code, nil)，body 不解码；
 // 200 但 JSON 解析失败返回 (200, err)。
 func fetchJSON(url string, target any) (int, error) {
-	resp, err := http.Get(url)
+	resp, err := metaClient.Get(url)
 	if err != nil {
 		return 0, err
 	}
