@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 cmd 包内的 runAppInit（包内白盒），os、path/filepath、github.com/qfeius/makecli/agents
+ * [INPUT]: 依赖 cmd 包内的 runAppInit（包内白盒），bytes、os、path/filepath、strings、testing、github.com/qfeius/makecli/agents
  * [OUTPUT]: 覆盖 app init 子命令核心逻辑的单元测试
  * [POS]: cmd 模块 app_init.go 的配套测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/qfeius/makecli/agents"
@@ -51,6 +52,34 @@ func TestRunAppInit(t *testing.T) {
 			got, _ := os.ReadFile(filepath.Join(dir, name))
 			if !bytes.Equal(got, want) {
 				t.Errorf("%s content mismatch", name)
+			}
+		}
+	})
+
+	t.Run("AGENTS.md includes runtime build contract", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := runAppInit(dir); err != nil {
+			t.Fatalf("runAppInit: %v", err)
+		}
+
+		data, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+		if err != nil {
+			t.Fatalf("read AGENTS.md: %v", err)
+		}
+		content := string(data)
+
+		for _, want := range []string{
+			"make-app-runtime",
+			"apps/ui/dist",
+			"apps/service/dist/server.js",
+			"apps/ui/package.json",
+			"apps/service/package.json",
+			"build/start",
+			"apps/package.json",
+			"pnpm run build",
+		} {
+			if !strings.Contains(content, want) {
+				t.Errorf("AGENTS.md missing %q", want)
 			}
 		}
 	})
