@@ -35,7 +35,10 @@ jobs:
       - run: go test ./...
 
   security:
-    if: github.event_name == 'pull_request'
+    # Skip on fork PRs: GitHub forces a read-only token and withholds secrets +
+    # id-token for cross-repo PRs, so the OIDC fetch can never succeed. Fork PRs
+    # get reviewed by a maintainer commenting @claude (see claude.yml).
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read

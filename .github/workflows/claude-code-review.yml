@@ -12,11 +12,10 @@ on:
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+    # Skip on fork PRs: GitHub forces a read-only token and withholds secrets +
+    # id-token for cross-repo PRs, so the OIDC fetch can never succeed. Fork PRs
+    # get reviewed by a maintainer commenting @claude (see claude.yml).
+    if: github.event.pull_request.head.repo.full_name == github.repository
 
     runs-on: ubuntu-latest
     permissions:
