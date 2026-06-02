@@ -10,7 +10,8 @@
 4. 根据前面需求抽象定义后端 service 接口沉淀到 @apps/doc/api.md 文件里面,**其中后端 service 提供给 前端UI 的 api 必须以 `/api` 开头, 这样在部署的时候才能实现统一的 service api 和前端请求的流量分别转发**, 然后实现对应的业务逻辑实现对 make 平台的数据的 CRUD-LS 操作, make 的 API 文档可以参考 makedsl skill.
 5. 根据前面需求和刚才定义的 @apps/docs/api.md 文件, 实现前端UI, 交互, 动画等功能. UI 必须优先遵循 makeui skill；默认使用 React + Vite + React Router，除非用户明确要求且项目已支持其他前端栈。Make record list/table 必须通过 canvas-table-integration skill 接入 @qfei-design/canvas-table.
 6. 生成 Make 表单、Drawer 表单、详情或 schema-driven UI 前必须读取 @apps/dsl、Service schema/meta 或项目内 schema 类型；Date/User/Department/Select/File/Lookup 等复杂字段不允许默认退化成裸 Input，除非明确说明缺失 schema/API 的原因、降级行为和后续接入点。
-7. 完成 @apps/README.md 包括: 简单项目说明, 如何启动ui 和 service.
+7. 生成或修改 @apps/ui、@apps/service、@apps/package.json、package scripts、build/start 或发布产物时必须使用 make-app-runtime skill，确保本地开发脚本和生产构建产物满足 Make App 发布契约。
+8. 完成 @apps/README.md 包括: 简单项目说明, 如何启动ui 和 service.
 </implement_workflow>
 
 <update_workflow>
@@ -28,6 +29,7 @@ npx skills add qfeius/make-platform-skills --all -y
 - makecli: apply / diff / schema / record 等 Make CLI 操作
 - makeui: apps/ui 前端 UI 设计和代码生成
 - canvas-table-integration: Make record list/table 和 cell editing
+- make-app-runtime: apps workspace、UI/Service build output、Service dist/server.js、package scripts、publish readiness
 </require_skills>
 
 <structure>
@@ -61,7 +63,7 @@ MAKE_API_TOKEN 访问 Make 平台需要的 token 统一抽取出来
 <dev_ports>
 - apps/ui 默认从 6000 端口启动.
 - Vite dev server 不要启用 strictPort; 如果 6000 被占用, 允许自动递增到 6001、6002 等可用端口.
-- apps/service 暂不强制指定端口, 沿用项目默认后端端口; UI 通过 SERVICE_BASE_URL 连接后端.
+- apps/service 端口遵循 make-app-runtime 的 Service 端口契约, 默认 3000; UI 通过 SERVICE_BASE_URL 连接后端.
 </dev_ports>
 
 <dataflow>
@@ -107,6 +109,9 @@ apps/package.json：
   {
     "scripts": {
       "dev": "concurrently -n service,ui -c blue,green \"pnpm run app:service\" \"pnpm run app:ui\"",
+      "build": "pnpm run build:ui && pnpm run build:service",
+      "build:ui": "pnpm --filter ui build",
+      "build:service": "pnpm --filter service build",
       "app:service": "pnpm --filter service dev",
       "app:ui": "pnpm --filter ui dev -- --host 0.0.0.0 --port 6000"
     },
@@ -115,7 +120,13 @@ apps/package.json：
     }
   }
 ```
-5. 数据流正常, 数据可以持久化到 Make Platform
-6. @apps/docs/PRD.md 里面的需求被完整实现
-7. 根据 @apps/docs/api.md 生成对应的 API 接口测试 到 @apps/tests/ 里面, 保证测试执行可以通过.
+5. 生产构建能力满足 make-app-runtime 契约:
+   - apps/package.json 必须包含 build、build:ui、build:service
+   - apps/ui/package.json 必须包含 build, UI 产物必须是 apps/ui/dist
+   - apps/service/package.json 必须包含 build/start, build 后必须生成 apps/service/dist/server.js
+   - apps/service start 必须使用 node dist/server.js
+   - `cd apps && pnpm run build` 必须通过
+6. 数据流正常, 数据可以持久化到 Make Platform
+7. @apps/docs/PRD.md 里面的需求被完整实现
+8. 根据 @apps/docs/api.md 生成对应的 API 接口测试 到 @apps/tests/ 里面, 保证测试执行可以通过.
 </Definition of done>
