@@ -64,7 +64,7 @@ record_update.go:           record update 子命令，透明路由——1 个 re
 record_update_test.go:      覆盖 runRecordUpdate 的单元测试（单条路由验证/批量路由验证/无凭证/API错误/未知profile/非法JSON），用 httptest 隔离网络，重点验证请求路径
 record_delete.go:           record delete 子命令，批量删除 Record，汇报每条记录的删除结果；支持 --app（继承）/ --entity（继承）/ --profile
 record_delete_test.go:      覆盖 runRecordDelete 的单元测试（单条/批量/部分失败/无凭证/API错误/未知profile），用 httptest 隔离网络
-record_list.go:             record list 子命令，分页查询 Record，自动从首条记录提取列名或使用 --fields 指定列，parseSortSpec 解析排序说明，extractKeys 提取 map 键；支持 --app（继承）/ --entity（继承）/ --profile / --page / --size / --output / --fields / --sort
+record_list.go:             record list 子命令，分页查询 Record，自动从首条记录提取列名或使用 --fields 指定列，parseSortSpec 解析排序说明，extractKeys 提取 map 键；--filter 直收 raw CEL 表达式（不在 CLI 解析，原样塞进 filter.expression，服务端裁决合法性；命令带 Long+EXAMPLES 教 CEL 用法）；支持 --app（继承）/ --entity（继承）/ --profile / --page / --size / --output / --fields / --sort / --filter
 record_list_test.go:        覆盖 runRecordList 的单元测试（表格/JSON/空列表/无凭证/API错误/未知profile/非法页码/非法格式/非法排序），用 httptest 隔离网络
 apply.go:            apply 子命令，从 YAML 文件/目录批量应用资源（create-or-update 语义：按 Key 检测存在性，App 不存在则创建/已存在则跳过，Entity/Relation 不存在则创建/已存在则更新）；存在性判定经 api.ErrNotFound 哨兵——仅"确实不存在"才创建，Get 的瞬时/传输/非 not-found 错误一律上抛不创建（杜绝误建重复资源或把 update 降级为 create）；依赖顺序 App→Entity→Relation；ResourceManifest 提供 Key（标识符）/Name（展示名）/Type/AppKey/Meta/Properties 字段；支持多文档 YAML 和目录扫描
 apply_test.go:       apply 子命令的单元测试，覆盖单文件、多文档、目录扫描、Relation 创建/更新/缺 appKey 字段错误、App+Entity+Relation 混合目录场景

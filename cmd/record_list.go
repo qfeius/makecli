@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（ListRecordOpts/SortField）、fmt、os、sort、strings、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助
  * [OUTPUT]: 对外提供 newRecordListCmd 函数
- * [POS]: cmd/record 的 list 子命令，按 appKey + entityKey 分页查询 Record，支持 fields（fieldKey 列表）/sort（fieldKey:order）/table|json 输出
+ * [POS]: cmd/record 的 list 子命令，按 appKey + entityKey 分页查询 Record，支持 fields（fieldKey 列表）/sort（fieldKey:order）/filter（raw CEL 直透，服务端裁决）/table|json 输出
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -24,16 +24,27 @@ func newRecordListCmd() *cobra.Command {
 	var output string
 	var fields string
 	var sortSpec string
+	var filter string
 
 	cmd := &cobra.Command{
-		Use:          "list",
-		Short:        "List records in an entity",
+		Use:   "list",
+		Short: "List records in an entity",
+		Long: `List records in an entity. Use --filter to narrow results with a CEL
+expression evaluated server-side (a subset of https://cel.dev).`,
+		Example: `  # numeric + set membership
+  makecli record list --app crm --entity order --filter "amount >= 100 && status in ['todo','doing']"
+
+  # text contains + null check
+  makecli record list --app crm --entity order --filter "title.contains('升级') && owner != null"
+
+  # records I own (Make system variable)
+  makecli record list --app crm --entity order --filter "owner == _currentUser"`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			appKey, _ := cmd.Parent().Flags().GetString("app")
 			entityKey, _ := cmd.Parent().Flags().GetString("entity")
-			return runRecordList(appKey, entityKey, page, size, output, fields, sortSpec)
+			return runRecordList(appKey, entityKey, page, size, output, fields, sortSpec, filter)
 		},
 	}
 
@@ -42,10 +53,11 @@ func newRecordListCmd() *cobra.Command {
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
 	cmd.Flags().StringVar(&fields, "fields", "", "comma-separated field keys to display")
 	cmd.Flags().StringVar(&sortSpec, "sort", "", "sort specification, e.g. createdAt:desc,id:asc (fieldKey:order)")
+	cmd.Flags().StringVar(&filter, "filter", "", "CEL filter expression evaluated server-side (see EXAMPLES)")
 	return cmd
 }
 
-func runRecordList(appKey, entityKey string, page, size int, output, fields, sortSpec string) error {
+func runRecordList(appKey, entityKey string, page, size int, output, fields, sortSpec, filter string) error {
 	if err := validateOutputFormat(output); err != nil {
 		return err
 	}
@@ -61,7 +73,7 @@ func runRecordList(appKey, entityKey string, page, size int, output, fields, sor
 		return err
 	}
 
-	opts := api.ListRecordOpts{Page: page, Size: size}
+	opts := api.ListRecordOpts{Page: page, Size: size, Filter: filter}
 	if fields != "" {
 		opts.Fields = strings.Split(fields, ",")
 	}

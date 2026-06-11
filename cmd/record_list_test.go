@@ -32,7 +32,7 @@ func TestRunRecordList(t *testing.T) {
 		ServerURL = srv.URL
 
 		out := captureStdout(t, func() {
-			if err := runRecordList("TODO", "User", 1, 20, outputTable, "", ""); err != nil {
+			if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", ""); err != nil {
 				t.Fatalf("runRecordList: %v", err)
 			}
 		})
@@ -61,7 +61,7 @@ func TestRunRecordList(t *testing.T) {
 		ServerURL = srv.URL
 
 		out := captureStdout(t, func() {
-			if err := runRecordList("TODO", "User", 1, 20, outputJSON, "", ""); err != nil {
+			if err := runRecordList("TODO", "User", 1, 20, outputJSON, "", "", ""); err != nil {
 				t.Fatalf("runRecordList json: %v", err)
 			}
 		})
@@ -88,7 +88,7 @@ func TestRunRecordList(t *testing.T) {
 		ServerURL = srv.URL
 
 		out := captureStdout(t, func() {
-			if err := runRecordList("TODO", "User", 1, 20, outputTable, "", ""); err != nil {
+			if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", ""); err != nil {
 				t.Fatalf("runRecordList empty: %v", err)
 			}
 		})
@@ -101,7 +101,7 @@ func TestRunRecordList(t *testing.T) {
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		ServerURL = "http://unused"
-		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", ""); err == nil {
+		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", ""); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
 	})
@@ -115,7 +115,7 @@ func TestRunRecordList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = srv.URL
 
-		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", ""); err == nil {
+		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", ""); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 	})
@@ -125,25 +125,25 @@ func TestRunRecordList(t *testing.T) {
 		saveDefaultToken(t)
 		ServerURL = "http://unused"
 		setProfile(t, "nonexistent")
-		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", ""); err == nil {
+		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", ""); err == nil {
 			t.Fatal("expected error for unknown profile")
 		}
 	})
 
 	t.Run("fails when page is less than 1", func(t *testing.T) {
-		if err := runRecordList("TODO", "User", 0, 20, outputTable, "", ""); err == nil {
+		if err := runRecordList("TODO", "User", 0, 20, outputTable, "", "", ""); err == nil {
 			t.Fatal("expected error for invalid page")
 		}
 	})
 
 	t.Run("fails when size is less than 1", func(t *testing.T) {
-		if err := runRecordList("TODO", "User", 1, 0, outputTable, "", ""); err == nil {
+		if err := runRecordList("TODO", "User", 1, 0, outputTable, "", "", ""); err == nil {
 			t.Fatal("expected error for invalid size")
 		}
 	})
 
 	t.Run("fails on unsupported output format", func(t *testing.T) {
-		if err := runRecordList("TODO", "User", 1, 20, "xml", "", ""); err == nil {
+		if err := runRecordList("TODO", "User", 1, 20, "xml", "", "", ""); err == nil {
 			t.Fatal("expected error for unsupported output format")
 		}
 	})
@@ -152,9 +152,41 @@ func TestRunRecordList(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		ServerURL = "http://unused"
-		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "bad"); err == nil {
+		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "bad", ""); err == nil {
 			t.Fatal("expected error for invalid sort spec")
 		}
+	})
+
+	t.Run("sends filter as Expression object", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			obj, ok := req["filter"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected filter to be Expression object, got %T", req["filter"])
+			}
+			if obj["expression"] != "amount >= 100" {
+				t.Errorf("expected raw CEL passthrough, got %v", obj["expression"])
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200, "msg": "success",
+				"data":       []any{},
+				"pagination": map[string]any{"page": 1, "size": 20, "total": 0},
+			})
+		}))
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		ServerURL = srv.URL
+
+		out := captureStdout(t, func() {
+			if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", "amount >= 100"); err != nil {
+				t.Fatalf("runRecordList with filter: %v", err)
+			}
+		})
+		_ = out
 	})
 }
 

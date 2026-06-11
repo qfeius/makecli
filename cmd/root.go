@@ -33,9 +33,9 @@ var rootCmd = &cobra.Command{
 }
 
 // usageTemplate 对齐 GitHub CLI 风格：段落标题全大写
-const usageTemplate = `{{with .Long}}{{. | trimRightSpace}}
-
-{{end}}USAGE
+// 不含命令描述——描述由 cobra 默认 HelpTemplate 的 (or .Long .Short) 负责，
+// 此处再印一遍会与 --help 重复（曾因所有命令只设 Short 而未暴露）
+const usageTemplate = `USAGE
   {{.UseLine}}{{if .HasAvailableSubCommands}} [command]{{end}}
 {{if .HasAvailableSubCommands}}
 AVAILABLE COMMANDS

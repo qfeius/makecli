@@ -254,6 +254,13 @@ func TestRecordList(t *testing.T) {
 			if body["sort"] == nil {
 				t.Error("expected sort in request body")
 			}
+			// 验证 filter 包成 Expression 对象（CEL 原样透传）
+			obj, ok := body["filter"].(map[string]any)
+			if !ok {
+				t.Errorf("expected filter to be Expression object, got %T", body["filter"])
+			} else if obj["expression"] != "amount >= 100" {
+				t.Errorf("expected expression 'amount >= 100', got %v", obj["expression"])
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "ok",
 				"data": []map[string]any{
@@ -268,6 +275,7 @@ func TestRecordList(t *testing.T) {
 		records, total, err := New(srv.URL, "test-token").ListRecords("myapp", "user", ListRecordOpts{
 			Fields: []string{"name", "age"},
 			Sort:   []SortField{{FieldKey: "age", Order: "desc"}},
+			Filter: "amount >= 100",
 			Page:   1,
 			Size:   10,
 		})
@@ -295,6 +303,9 @@ func TestRecordList(t *testing.T) {
 			}
 			if body["sort"] != nil {
 				t.Error("expected no sort in request body")
+			}
+			if body["filter"] != nil {
+				t.Error("expected no filter in request body")
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "ok",

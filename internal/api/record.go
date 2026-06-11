@@ -25,9 +25,11 @@ type SortField struct {
 }
 
 // ListRecordOpts 封装 ListRecords 的可选参数
+// Filter 为可选的 CEL 表达式文本（原样透传，由服务端校验），空串时不发送
 type ListRecordOpts struct {
 	Fields []string
 	Sort   []SortField
+	Filter string
 	Page   int
 	Size   int
 }
@@ -143,6 +145,9 @@ func (c *Client) ListRecords(appKey, entityKey string, opts ListRecordOpts) ([]m
 	}
 	if len(opts.Sort) > 0 {
 		reqBody["sort"] = opts.Sort
+	}
+	if opts.Filter != "" {
+		reqBody["filter"] = map[string]any{"expression": opts.Filter}
 	}
 
 	var result struct {
