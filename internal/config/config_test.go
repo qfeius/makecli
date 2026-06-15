@@ -45,7 +45,7 @@ func TestSaveConfigAndLoad(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	original := Config{
-		"default": {XTenantID: "tenant-1", OperatorID: "op-1"},
+		"default": {RepoServerURL: "https://repo.example/api/make", XTenantID: "tenant-1", OperatorID: "op-1"},
 		"staging": {XTenantID: "tenant-2", OperatorID: ""},
 	}
 
@@ -68,6 +68,9 @@ func TestSaveConfigAndLoad(t *testing.T) {
 	}
 	for profile, want := range original {
 		got := loaded[profile]
+		if got.RepoServerURL != want.RepoServerURL {
+			t.Errorf("profile %q: RepoServerURL = %q, want %q", profile, got.RepoServerURL, want.RepoServerURL)
+		}
 		if got.XTenantID != want.XTenantID {
 			t.Errorf("profile %q: XTenantID = %q, want %q", profile, got.XTenantID, want.XTenantID)
 		}

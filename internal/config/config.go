@@ -21,9 +21,10 @@ import (
 
 // ConfigProfile 代表一个命名配置块，如 [default]，持有租户与操作者信息
 type ConfigProfile struct {
-	ServerURL  string
-	XTenantID  string
-	OperatorID string
+	ServerURL     string
+	RepoServerURL string
+	XTenantID     string
+	OperatorID    string
 }
 
 // Config 是所有 profile 的集合，key 为 profile 名
@@ -106,9 +107,10 @@ func parseConfigINI(f *os.File) (Config, error) {
 			continue
 		}
 		cfg[name] = ConfigProfile{
-			ServerURL:  kv["server-url"],
-			XTenantID:  kv["X-Tenant-ID"],
-			OperatorID: kv["X-Operator-ID"],
+			ServerURL:     kv["server-url"],
+			RepoServerURL: kv["repo-server-url"],
+			XTenantID:     kv["X-Tenant-ID"],
+			OperatorID:    kv["X-Operator-ID"],
 		}
 	}
 	return cfg, nil
@@ -167,6 +169,9 @@ func SaveConfig(cfg Config) error {
 			p := cfg[name]
 			if p.ServerURL != "" {
 				_, _ = fmt.Fprintf(w, "server-url = %s\n", p.ServerURL)
+			}
+			if p.RepoServerURL != "" {
+				_, _ = fmt.Fprintf(w, "repo-server-url = %s\n", p.RepoServerURL)
 			}
 			if p.XTenantID != "" {
 				_, _ = fmt.Fprintf(w, "X-Tenant-ID = %s\n", p.XTenantID)

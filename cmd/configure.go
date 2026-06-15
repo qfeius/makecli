@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/qfeius/makecli/internal/config"
@@ -113,6 +114,14 @@ func runConfigureConfig() error {
 		current.ServerURL = serverURL
 	}
 
+	repoServerURL, err := prompt("repo-server-url", current.RepoServerURL)
+	if err != nil {
+		return err
+	}
+	if repoServerURL != "" {
+		current.RepoServerURL = repoServerURL
+	}
+
 	tenantID, err := prompt("X-Tenant-ID", current.XTenantID)
 	if err != nil {
 		return err
@@ -141,13 +150,11 @@ func runConfigureConfig() error {
 
 // ---------------------------------- set 子命令 ----------------------------------
 
-var validConfigKeys = []string{"server-url", "X-Tenant-ID", "X-Operator-ID"}
+var validConfigKeys = []string{"server-url", "repo-server-url", "X-Tenant-ID", "X-Operator-ID"}
 
 func validateConfigKey(key string) error {
-	for _, k := range validConfigKeys {
-		if key == k {
-			return nil
-		}
+	if slices.Contains(validConfigKeys, key) {
+		return nil
 	}
 	return fmt.Errorf("unknown config key '%s', valid keys: %s", key, strings.Join(validConfigKeys, ", "))
 }
@@ -176,6 +183,8 @@ func runConfigureSet(key, value string) error {
 	switch key {
 	case "server-url":
 		p.ServerURL = value
+	case "repo-server-url":
+		p.RepoServerURL = value
 	case "X-Tenant-ID":
 		p.XTenantID = value
 	case "X-Operator-ID":
@@ -211,6 +220,8 @@ func runConfigureGet(key string) error {
 	switch key {
 	case "server-url":
 		fmt.Println(p.ServerURL)
+	case "repo-server-url":
+		fmt.Println(p.RepoServerURL)
 	case "X-Tenant-ID":
 		fmt.Println(p.XTenantID)
 	case "X-Operator-ID":

@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/qfeius/makecli/internal/config"
@@ -25,9 +26,67 @@ func TestRunAppCreate(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		ServerURL = srv.URL
+		stubRepoServer(t, srv.URL)
 
 		if err := runAppCreate("myapp", "", ""); err != nil {
 			t.Fatalf("runAppCreate: %v", err)
+		}
+	})
+
+	t.Run("prints code repositories after create", func(t *testing.T) {
+		srv := newMockMeta(t, 200, "create app success")
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		ServerURL = srv.URL
+		stubRepoServer(t, newMockRepoServer(t).URL)
+
+		out := captureStdout(t, func() {
+			if err := runAppCreate("myapp", "", ""); err != nil {
+				t.Errorf("runAppCreate: %v", err)
+			}
+		})
+		if !strings.Contains(out, "myapp-preview.git") || !strings.Contains(out, "myapp-production.git") {
+			t.Errorf("output missing clone urls: %q", out)
+		}
+	})
+
+	t.Run("repo preparation failure does not fail create", func(t *testing.T) {
+		srv := newMockMeta(t, 200, "create app success")
+		defer srv.Close()
+		repoSrv := newMockMeta(t, 500, "repository could not be prepared")
+		defer repoSrv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		ServerURL = srv.URL
+		stubRepoServer(t, repoSrv.URL)
+
+		if err := runAppCreate("myapp", "", ""); err != nil {
+			t.Fatalf("repo failure should not fail app create: %v", err)
+		}
+	})
+
+	t.Run("uses --name as key when key omitted", func(t *testing.T) {
+		srv := newMockMeta(t, 200, "create app success")
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		ServerURL = srv.URL
+		stubRepoServer(t, srv.URL)
+
+		cmd := newAppCreateCmd()
+		cmd.SetArgs([]string{"--name", "myapp"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("app create --name myapp: %v", err)
+		}
+	})
+
+	t.Run("fails without key and name", func(t *testing.T) {
+		cmd := newAppCreateCmd()
+		cmd.SetArgs([]string{})
+		cmd.SilenceErrors = true
+		if err := cmd.Execute(); err == nil {
+			t.Fatal("expected error without key, --name and -f")
 		}
 	})
 
@@ -56,6 +115,7 @@ func TestRunAppCreate(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		ServerURL = srv.URL
+		stubRepoServer(t, srv.URL)
 
 		if err := runAppCreate("myapp", "test app", ""); err != nil {
 			t.Fatalf("runAppCreate with description: %v", err)
@@ -102,6 +162,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		ServerURL = srv.URL
+		stubRepoServer(t, srv.URL)
 
 		f := filepath.Join(t.TempDir(), "app.yaml")
 		writeTestFile(t, f, []byte("key: fileapp\nname: 文件应用\ntype: Make.App\nproperties:\n  description: from file\n"))
@@ -117,6 +178,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		ServerURL = srv.URL
+		stubRepoServer(t, srv.URL)
 
 		f := filepath.Join(t.TempDir(), "app.yml")
 		writeTestFile(t, f, []byte("key: bareapp\nname: 简易应用\ntype: Make.App\n"))
@@ -189,6 +251,14 @@ func newMockMeta(t *testing.T, code int, message string) *httptest.Server {
 			"data":    map[string]any{},
 		})
 	}))
+}
+
+// stubRepoServer 测试期间把代码仓库服务指向给定 URL，结束自动还原
+func stubRepoServer(t *testing.T, url string) {
+	t.Helper()
+	old := RepoServerURL
+	RepoServerURL = url
+	t.Cleanup(func() { RepoServerURL = old })
 }
 
 // saveDefaultToken 在当前 HOME 下写入 default profile 的测试 JWT
