@@ -45,7 +45,7 @@ func TestSaveConfigAndLoad(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	original := Config{
-		"default": {RepoServerURL: "https://repo.example/api/make", XTenantID: "tenant-1", OperatorID: "op-1"},
+		"default": {RepoServerURL: "https://repo.example/api/make", AuthServerURL: "https://auth.example", XTenantID: "tenant-1", OperatorID: "op-1"},
 		"staging": {XTenantID: "tenant-2", OperatorID: ""},
 	}
 
@@ -77,6 +77,9 @@ func TestSaveConfigAndLoad(t *testing.T) {
 		if got.OperatorID != want.OperatorID {
 			t.Errorf("profile %q: OperatorID = %q, want %q", profile, got.OperatorID, want.OperatorID)
 		}
+		if got.AuthServerURL != want.AuthServerURL {
+			t.Errorf("profile %q: AuthServerURL = %q, want %q", profile, got.AuthServerURL, want.AuthServerURL)
+		}
 	}
 }
 
@@ -107,6 +110,19 @@ func TestParseConfigINI(t *testing.T) {
 		}
 		if cfg["default"].OperatorID != "" {
 			t.Errorf("OperatorID = %q, want empty", cfg["default"].OperatorID)
+		}
+	})
+
+	t.Run("auth-server-url key", func(t *testing.T) {
+		f := writeTempINI(t, "[test]\nserver-url = https://test-make.qtech.cn/api/make\nauth-server-url = https://test-myaccount.qtech.cn\n")
+		defer func() { _ = f.Close() }()
+
+		cfg, err := parseConfigINI(f)
+		if err != nil {
+			t.Fatalf("parseConfigINI: %v", err)
+		}
+		if cfg["test"].AuthServerURL != "https://test-myaccount.qtech.cn" {
+			t.Errorf("AuthServerURL = %q, want %q", cfg["test"].AuthServerURL, "https://test-myaccount.qtech.cn")
 		}
 	})
 }

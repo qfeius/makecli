@@ -122,6 +122,14 @@ func runConfigureConfig() error {
 		current.RepoServerURL = repoServerURL
 	}
 
+	authServerURL, err := prompt("auth-server-url", current.AuthServerURL)
+	if err != nil {
+		return err
+	}
+	if authServerURL != "" {
+		current.AuthServerURL = authServerURL
+	}
+
 	tenantID, err := prompt("X-Tenant-ID", current.XTenantID)
 	if err != nil {
 		return err
@@ -150,7 +158,7 @@ func runConfigureConfig() error {
 
 // ---------------------------------- set 子命令 ----------------------------------
 
-var validConfigKeys = []string{"server-url", "repo-server-url", "X-Tenant-ID", "X-Operator-ID"}
+var validConfigKeys = []string{"server-url", "repo-server-url", "auth-server-url", "X-Tenant-ID", "X-Operator-ID"}
 
 func validateConfigKey(key string) error {
 	if slices.Contains(validConfigKeys, key) {
@@ -185,6 +193,8 @@ func runConfigureSet(key, value string) error {
 		p.ServerURL = value
 	case "repo-server-url":
 		p.RepoServerURL = value
+	case "auth-server-url":
+		p.AuthServerURL = value
 	case "X-Tenant-ID":
 		p.XTenantID = value
 	case "X-Operator-ID":
@@ -222,6 +232,8 @@ func runConfigureGet(key string) error {
 		fmt.Println(p.ServerURL)
 	case "repo-server-url":
 		fmt.Println(p.RepoServerURL)
+	case "auth-server-url":
+		fmt.Println(p.AuthServerURL)
 	case "X-Tenant-ID":
 		fmt.Println(p.XTenantID)
 	case "X-Operator-ID":

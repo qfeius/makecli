@@ -68,11 +68,20 @@ func stubBrowserInjectCallback(t *testing.T, code string) {
 	t.Cleanup(func() { openBrowserFunc = old })
 }
 
-func setMetadataURL(t *testing.T, srv *httptest.Server) {
+// setAuthBaseURL 把当前 Profile 的 auth-server-url 指向 httptest，派生的 .well-known 路径正好命中 mock。
+// 须在 t.Setenv("HOME",...) 之后、且 setProfile 之后调用（写入对应 profile）。
+func setAuthBaseURL(t *testing.T, srv *httptest.Server) {
 	t.Helper()
-	old := authMetadataURL
-	authMetadataURL = srv.URL + "/.well-known/oauth-authorization-server/make"
-	t.Cleanup(func() { authMetadataURL = old })
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := cfg[Profile]
+	p.AuthServerURL = srv.URL
+	cfg[Profile] = p
+	if err := config.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestRunLoginSuccess(t *testing.T) {
@@ -80,7 +89,7 @@ func TestRunLoginSuccess(t *testing.T) {
 	srv := newOAuthServer(t, true, fakeToken)
 	defer srv.Close()
 	t.Setenv("HOME", t.TempDir())
-	setMetadataURL(t, srv)
+	setAuthBaseURL(t, srv)
 	stubBrowserInjectCallback(t, "auth-code-1")
 
 	var runErr error
@@ -108,9 +117,9 @@ func TestRunLoginWritesToSelectedProfile(t *testing.T) {
 	srv := newOAuthServer(t, true, fakeToken)
 	defer srv.Close()
 	t.Setenv("HOME", t.TempDir())
-	setMetadataURL(t, srv)
-	stubBrowserInjectCallback(t, "auth-code-1")
 	setProfile(t, "todo")
+	setAuthBaseURL(t, srv)
+	stubBrowserInjectCallback(t, "auth-code-1")
 
 	var runErr error
 	_ = captureStdout(t, func() {
@@ -133,7 +142,7 @@ func TestRunLoginNoOpenBrowserPrintsURLAndTimesOut(t *testing.T) {
 	srv := newOAuthServer(t, true, "unused")
 	defer srv.Close()
 	t.Setenv("HOME", t.TempDir())
-	setMetadataURL(t, srv)
+	setAuthBaseURL(t, srv)
 	// openBrowserFunc not stubbed: no callback ever arrives -> Wait times out.
 
 	var runErr error
@@ -152,7 +161,7 @@ func TestRunLoginMissingRegistrationEndpoint(t *testing.T) {
 	srv := newOAuthServer(t, false, "unused") // no registration_endpoint
 	defer srv.Close()
 	t.Setenv("HOME", t.TempDir())
-	setMetadataURL(t, srv)
+	setAuthBaseURL(t, srv)
 
 	err := runLogin(5*time.Second, false)
 	if err == nil {
@@ -160,5 +169,21 @@ func TestRunLoginMissingRegistrationEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "registration_endpoint") {
 		t.Errorf("error = %v, want mention of registration_endpoint", err)
+	}
+}
+
+func TestAuthMetadataURL(t *testing.T) {
+	cases := []struct{ authBase, want string }{
+		// 未配置 → 回退 dev 基址
+		{"", "https://dev-myaccount.qtech.cn/.well-known/oauth-authorization-server/make"},
+		// 配置 test 基址
+		{"https://test-myaccount.qtech.cn", "https://test-myaccount.qtech.cn/.well-known/oauth-authorization-server/make"},
+		// 末尾斜杠被裁剪
+		{"https://test-myaccount.qtech.cn/", "https://test-myaccount.qtech.cn/.well-known/oauth-authorization-server/make"},
+	}
+	for _, c := range cases {
+		if got := authMetadataURL(c.authBase); got != c.want {
+			t.Errorf("authMetadataURL(%q) = %q, want %q", c.authBase, got, c.want)
+		}
 	}
 }

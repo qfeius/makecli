@@ -16,8 +16,8 @@ func TestMask(t *testing.T) {
 	}{
 		{"", ""},
 		{"ab", "**"},
-		{"abcd", "****"},         // 恰好 4 位 → 全遮掩
-		{"abcde", "*bcde"},       // 5 位 → 1 星 + 末4位
+		{"abcd", "****"},   // 恰好 4 位 → 全遮掩
+		{"abcde", "*bcde"}, // 5 位 → 1 星 + 末4位
 		{"hello", "*ello"},
 		{"12345678", "****5678"}, // 8 位 → 4 星 + 末4位
 	}
@@ -64,6 +64,9 @@ func TestValidConfigKeys(t *testing.T) {
 	}
 	if err := validateConfigKey("repo-server-url"); err != nil {
 		t.Errorf("repo-server-url should be valid: %v", err)
+	}
+	if err := validateConfigKey("auth-server-url"); err != nil {
+		t.Errorf("auth-server-url should be valid: %v", err)
 	}
 	if err := validateConfigKey("X-Tenant-ID"); err != nil {
 		t.Errorf("X-Tenant-ID should be valid: %v", err)

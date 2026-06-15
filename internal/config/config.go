@@ -23,6 +23,7 @@ import (
 type ConfigProfile struct {
 	ServerURL     string
 	RepoServerURL string
+	AuthServerURL string
 	XTenantID     string
 	OperatorID    string
 }
@@ -109,6 +110,7 @@ func parseConfigINI(f *os.File) (Config, error) {
 		cfg[name] = ConfigProfile{
 			ServerURL:     kv["server-url"],
 			RepoServerURL: kv["repo-server-url"],
+			AuthServerURL: kv["auth-server-url"],
 			XTenantID:     kv["X-Tenant-ID"],
 			OperatorID:    kv["X-Operator-ID"],
 		}
@@ -172,6 +174,9 @@ func SaveConfig(cfg Config) error {
 			}
 			if p.RepoServerURL != "" {
 				_, _ = fmt.Fprintf(w, "repo-server-url = %s\n", p.RepoServerURL)
+			}
+			if p.AuthServerURL != "" {
+				_, _ = fmt.Fprintf(w, "auth-server-url = %s\n", p.AuthServerURL)
 			}
 			if p.XTenantID != "" {
 				_, _ = fmt.Fprintf(w, "X-Tenant-ID = %s\n", p.XTenantID)
