@@ -76,7 +76,7 @@ func BuildAuthorizationURL(request AuthorizationRequest) (string, error) {
 	query.Set("code_challenge", request.CodeChallenge)
 	query.Set("code_challenge_method", "S256")
 	query.Set("redirect_uri", request.RedirectURL)
-	if strings.TrimSpace(request.Resource) != "" {
+	if request.Resource != "" {
 		query.Set("resource", request.Resource)
 	}
 	query.Set("response_type", "code")
@@ -98,7 +98,7 @@ func ExchangeAuthorizationCode(ctx context.Context, client *http.Client, request
 	form.Set("code_verifier", request.CodeVerifier)
 	form.Set("grant_type", "authorization_code")
 	form.Set("redirect_uri", request.RedirectURL)
-	if strings.TrimSpace(request.Resource) != "" {
+	if request.Resource != "" {
 		form.Set("resource", request.Resource)
 	}
 
@@ -178,10 +178,9 @@ func StartCallbackServer() (*CallbackServer, string, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
-		callback.results <- callbackResult{
-			code:  query.Get("code"),
-			state: query.Get("state"),
-			err:   query.Get("error"),
+		select {
+		case callback.results <- callbackResult{code: query.Get("code"), state: query.Get("state"), err: query.Get("error")}:
+		default: // 已收到首个回调，后续重复请求直接忽略
 		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.WriteString(w, "Authorization received. You can return to the terminal.\n")
@@ -227,23 +226,16 @@ func (s *CallbackServer) Close() {
 
 // OpenBrowser 用平台默认方式打开 URL。
 func OpenBrowser(authURL string) error {
-	var command string
+	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		command = "open"
+		cmd = exec.Command("open", authURL)
 	case "linux":
-		command = "xdg-open"
+		cmd = exec.Command("xdg-open", authURL)
 	case "windows":
-		command = "rundll32"
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", authURL)
 	default:
 		return fmt.Errorf("unsupported platform for browser auto-open")
-	}
-
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command(command, "url.dll,FileProtocolHandler", authURL)
-	} else {
-		cmd = exec.Command(command, authURL)
 	}
 	return cmd.Start()
 }

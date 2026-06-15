@@ -93,8 +93,12 @@ func TestExchangeAuthorizationCodeHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := ExchangeAuthorizationCode(context.Background(), srv.Client(), TokenExchangeRequest{TokenEndpoint: srv.URL}); err == nil {
-		t.Error("expected error on 400 response")
+	_, err := ExchangeAuthorizationCode(context.Background(), srv.Client(), TokenExchangeRequest{TokenEndpoint: srv.URL})
+	if err == nil {
+		t.Fatal("expected error on 400 response")
+	}
+	if !strings.Contains(err.Error(), "400") {
+		t.Errorf("error = %v, want mention of status 400", err)
 	}
 }
 

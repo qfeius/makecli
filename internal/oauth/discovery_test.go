@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -39,7 +40,21 @@ func TestDiscoverHTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
+	_, err := Discover(context.Background(), srv.Client(), srv.URL)
+	if err == nil {
+		t.Fatal("expected error on 500 response")
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("error = %v, want mention of status 500", err)
+	}
+}
+
+func TestDiscoverMissingEndpoints(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"issuer":"https://idp.example"}`))
+	}))
+	defer srv.Close()
 	if _, err := Discover(context.Background(), srv.Client(), srv.URL); err == nil {
-		t.Error("expected error on 500 response")
+		t.Error("expected error when authorization_endpoint/token_endpoint are missing")
 	}
 }

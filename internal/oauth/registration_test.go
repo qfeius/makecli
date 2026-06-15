@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -44,7 +45,11 @@ func TestRegisterClientMissingID(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := RegisterClient(context.Background(), srv.Client(), srv.URL, ClientRegistrationRequest{}); err == nil {
-		t.Error("expected error when client_id is missing")
+	_, err := RegisterClient(context.Background(), srv.Client(), srv.URL, ClientRegistrationRequest{})
+	if err == nil {
+		t.Fatal("expected error when client_id is missing")
+	}
+	if !strings.Contains(err.Error(), "client_id") {
+		t.Errorf("error = %v, want mention of client_id", err)
 	}
 }
