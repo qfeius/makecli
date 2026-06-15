@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildAuthorizationURL(t *testing.T) {
@@ -93,5 +95,74 @@ func TestExchangeAuthorizationCodeHTTPError(t *testing.T) {
 
 	if _, err := ExchangeAuthorizationCode(context.Background(), srv.Client(), TokenExchangeRequest{TokenEndpoint: srv.URL}); err == nil {
 		t.Error("expected error on 400 response")
+	}
+}
+
+func TestStartCallbackServerEphemeralPort(t *testing.T) {
+	cb, redirectURL, err := StartCallbackServer()
+	if err != nil {
+		t.Fatalf("StartCallbackServer: %v", err)
+	}
+	defer cb.Close()
+
+	if !strings.HasPrefix(redirectURL, "http://127.0.0.1:") {
+		t.Errorf("redirectURL = %q, want loopback http URL", redirectURL)
+	}
+	if !strings.HasSuffix(redirectURL, "/callback") {
+		t.Errorf("redirectURL = %q, want /callback path", redirectURL)
+	}
+}
+
+func TestCallbackServerWaitSuccess(t *testing.T) {
+	cb, redirectURL, err := StartCallbackServer()
+	if err != nil {
+		t.Fatalf("StartCallbackServer: %v", err)
+	}
+	defer cb.Close()
+
+	resp, err := http.Get(redirectURL + "?code=code-xyz&state=state-1")
+	if err != nil {
+		t.Fatalf("callback GET: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	code, err := cb.Wait(context.Background(), "state-1")
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+	if code != "code-xyz" {
+		t.Errorf("code = %q, want code-xyz", code)
+	}
+}
+
+func TestCallbackServerWaitStateMismatch(t *testing.T) {
+	cb, redirectURL, err := StartCallbackServer()
+	if err != nil {
+		t.Fatalf("StartCallbackServer: %v", err)
+	}
+	defer cb.Close()
+
+	resp, err := http.Get(redirectURL + "?code=code-xyz&state=WRONG")
+	if err != nil {
+		t.Fatalf("callback GET: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	if _, err := cb.Wait(context.Background(), "state-1"); err == nil {
+		t.Error("expected state mismatch error")
+	}
+}
+
+func TestCallbackServerWaitTimeout(t *testing.T) {
+	cb, _, err := StartCallbackServer()
+	if err != nil {
+		t.Fatalf("StartCallbackServer: %v", err)
+	}
+	defer cb.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := cb.Wait(ctx, "state-1"); err == nil {
+		t.Error("expected timeout error when no callback arrives")
 	}
 }
