@@ -30,7 +30,7 @@ const (
 	authClientName   = "makecli"
 )
 
-var authScopes = []string{"mcp:tools", "mcp:resources"}
+var authScopes = []string{"make:resources"}
 
 // openBrowserFunc 为包级可打桩变量，单测替换以免真浏览器（参照 deploy.go gitPushFunc 模式）。
 var openBrowserFunc = oauth.OpenBrowser

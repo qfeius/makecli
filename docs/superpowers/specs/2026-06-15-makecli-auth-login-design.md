@@ -70,7 +70,7 @@ const (
     authResource     = ""                 // 留空：授权/换 token 不带 resource 参数
     authClientName   = "makecli"
 )
-var authScopes = []string{"mcp:tools", "mcp:resources"}
+var authScopes = []string{"make:resources"}
 ```
 位置：`cmd/login.go`，与 `root.go` 的 `defaultMetaServer` 等常量风格一致。
 
