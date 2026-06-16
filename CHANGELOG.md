@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.3] - 2026-06-16
+
+### Features
+
+- **preflight**: Add `--type` flag (`fullstack`/`service`/`ui`, default `fullstack`) so headless and ui-only apps can gate CI/deploy without failing on absent siblings; `apps/dsl` stays required across all types
+
 ## [v0.4.2] - 2026-06-16
 
 ### Features
@@ -107,7 +113,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.4.3...HEAD
+[v0.4.3]: https://github.com/qfeius/makecli/releases/tag/v0.4.3
 [v0.4.2]: https://github.com/qfeius/makecli/releases/tag/v0.4.2
 [v0.4.1]: https://github.com/qfeius/makecli/releases/tag/v0.4.1
 [v0.4.0]: https://github.com/qfeius/makecli/releases/tag/v0.4.0
