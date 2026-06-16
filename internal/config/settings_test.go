@@ -101,3 +101,80 @@ func TestSaveConfig_PreservesSettings(t *testing.T) {
 		t.Errorf("settings lost across SaveConfig round-trip: %v", s.CheckForUpdates)
 	}
 }
+
+func TestLoadSettings_Environment(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	writeConfigFile(t, "[settings]\nenvironment = test\n")
+	s, err := LoadSettings()
+	if err != nil {
+		t.Fatalf("LoadSettings: %v", err)
+	}
+	if s.Environment != "test" {
+		t.Errorf("Environment = %q, want test", s.Environment)
+	}
+}
+
+func TestSetSetting_WritesAndPreserves(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	// 预置：一个 profile + 一个已有 settings 键
+	writeConfigFile(t, "[settings]\ncheck-for-updates = false\n\n[default]\nmeta-server-url = https://x/api/make\n")
+
+	if err := SetSetting("environment", "production"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+
+	s, err := LoadSettings()
+	if err != nil {
+		t.Fatalf("LoadSettings: %v", err)
+	}
+	if s.Environment != "production" {
+		t.Errorf("Environment = %q, want production", s.Environment)
+	}
+	// 既有 settings 键保留
+	if s.CheckForUpdates == nil || *s.CheckForUpdates != false {
+		t.Errorf("check-for-updates lost across SetSetting: %v", s.CheckForUpdates)
+	}
+	// profile 段保留
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg["default"].MetaServerURL != "https://x/api/make" {
+		t.Errorf("profile lost across SetSetting: %+v", cfg["default"])
+	}
+}
+
+func TestSetSetting_NoExistingFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := SetSetting("environment", "test"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	s, err := LoadSettings()
+	if err != nil {
+		t.Fatalf("LoadSettings: %v", err)
+	}
+	if s.Environment != "test" {
+		t.Errorf("Environment = %q, want test", s.Environment)
+	}
+}
+
+func TestValidateProfileName(t *testing.T) {
+	if err := ValidateProfileName("settings"); err == nil {
+		t.Error("'settings' must be rejected as a profile name (reserved section)")
+	}
+	for _, name := range []string{"default", "test", "production", "my-profile"} {
+		if err := ValidateProfileName(name); err != nil {
+			t.Errorf("%q should be a valid profile name: %v", name, err)
+		}
+	}
+}
+
+func TestSaveRejectsReservedProfile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := SaveConfig(Config{"settings": {MetaServerURL: "https://x"}}); err == nil {
+		t.Error("SaveConfig should reject a profile named 'settings'")
+	}
+	if err := Save(Credentials{"settings": {AccessToken: "tok"}}); err == nil {
+		t.Error("Save (credentials) should reject a profile named 'settings'")
+	}
+}

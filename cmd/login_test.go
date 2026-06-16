@@ -173,12 +173,9 @@ func TestRunLoginMissingRegistrationEndpoint(t *testing.T) {
 }
 
 func TestAuthMetadataURL(t *testing.T) {
+	// 基址已由调用方按 flag>profile>env 解析；本函数只负责拼 .well-known 路径 + 裁末尾斜杠。
 	cases := []struct{ authBase, want string }{
-		// 未配置 → 回退 dev 基址
-		{"", "https://dev-myaccount.qtech.cn/.well-known/oauth-authorization-server/make"},
-		// 配置 test 基址
 		{"https://test-myaccount.qtech.cn", "https://test-myaccount.qtech.cn/.well-known/oauth-authorization-server/make"},
-		// 末尾斜杠被裁剪
 		{"https://test-myaccount.qtech.cn/", "https://test-myaccount.qtech.cn/.well-known/oauth-authorization-server/make"},
 	}
 	for _, c := range cases {

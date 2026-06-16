@@ -29,7 +29,7 @@ func TestRunRecordList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		out := captureStdout(t, func() {
 			if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", ""); err != nil {
@@ -58,7 +58,7 @@ func TestRunRecordList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		out := captureStdout(t, func() {
 			if err := runRecordList("TODO", "User", 1, 20, outputJSON, "", "", ""); err != nil {
@@ -85,7 +85,7 @@ func TestRunRecordList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		out := captureStdout(t, func() {
 			if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", ""); err != nil {
@@ -100,7 +100,7 @@ func TestRunRecordList(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", ""); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
@@ -113,7 +113,7 @@ func TestRunRecordList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", ""); err == nil {
 			t.Fatal("expected error on API failure")
@@ -123,7 +123,7 @@ func TestRunRecordList(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", ""); err == nil {
 			t.Fatal("expected error for unknown profile")
@@ -151,7 +151,7 @@ func TestRunRecordList(t *testing.T) {
 	t.Run("fails on invalid sort spec", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "bad", ""); err == nil {
 			t.Fatal("expected error for invalid sort spec")
 		}
@@ -179,7 +179,7 @@ func TestRunRecordList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		out := captureStdout(t, func() {
 			if err := runRecordList("TODO", "User", 1, 20, outputTable, "", "", "amount >= 100"); err != nil {

@@ -49,7 +49,7 @@ func TestRunAppList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runAppList(1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runAppList: %v", err)
@@ -67,7 +67,7 @@ func TestRunAppList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runAppList(1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runAppList: %v", err)
@@ -89,7 +89,7 @@ func TestRunAppList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		output := captureStdout(t, func() {
 			if err := runAppList(2, 20, outputJSON, ""); err != nil {
@@ -113,7 +113,7 @@ func TestRunAppList(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		if err := runAppList(1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
@@ -126,7 +126,7 @@ func TestRunAppList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runAppList(1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error on API failure")
@@ -174,7 +174,7 @@ func TestRunAppList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runAppList(1, 20, outputTable, "name=todo,key=todo"); err != nil {
 			t.Fatalf("runAppList with filter: %v", err)

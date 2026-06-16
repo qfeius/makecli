@@ -48,7 +48,7 @@ func TestRunEntityList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runEntityList("TODO", "", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runEntityList: %v", err)
@@ -79,7 +79,7 @@ func TestRunEntityList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runEntityList("TODO", "", 1, 20, outputTable, "name=任务"); err != nil {
 			t.Fatalf("runEntityList with filter: %v", err)
@@ -97,7 +97,7 @@ func TestRunEntityList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runEntityList("TODO", "", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runEntityList empty: %v", err)
@@ -117,7 +117,7 @@ func TestRunEntityList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		output := captureStdout(t, func() {
 			if err := runEntityList("TODO", "", 2, 20, outputJSON, ""); err != nil {
@@ -161,7 +161,7 @@ func TestRunEntityList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runEntityList("TODO", "project", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runEntityList with name: %v", err)
@@ -186,7 +186,7 @@ func TestRunEntityList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		output := captureStdout(t, func() {
 			if err := runEntityList("TODO", "project", 1, 20, outputJSON, ""); err != nil {
@@ -216,7 +216,7 @@ func TestRunEntityList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runEntityList("TODO", "empty_entity", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runEntityList no fields: %v", err)
@@ -225,7 +225,7 @@ func TestRunEntityList(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		if err := runEntityList("TODO", "", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
@@ -234,7 +234,7 @@ func TestRunEntityList(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 		if err := runEntityList("TODO", "", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error for unknown profile")
@@ -248,7 +248,7 @@ func TestRunEntityList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runEntityList("TODO", "", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error on API failure")
@@ -262,7 +262,7 @@ func TestRunEntityList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runEntityList("TODO", "不存在", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error on get API failure")

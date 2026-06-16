@@ -109,6 +109,12 @@ func parseINI(f *os.File) (Credentials, error) {
 // Save 将 Credentials 写入 ~/.make/credentials
 // 自动创建 ~/.make/ 目录（0700），文件权限 0600
 func Save(creds Credentials) error {
+	for name := range creds {
+		if err := ValidateProfileName(name); err != nil {
+			return err
+		}
+	}
+
 	path, err := CredentialsPath()
 	if err != nil {
 		return err

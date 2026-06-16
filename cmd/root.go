@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 github.com/spf13/cobra、github.com/spf13/pflag、os、internal/notifier
- * [OUTPUT]: 对外提供 Execute 函数、rootCmd 根命令、全局变量 Profile / ServerURL / DebugMode；包内 commandName 解析器
- * [POS]: cmd 模块的入口，挂载 version / configure / login / app / entity / relation / record / apply / diff / update / schema / integration / preflight 子命令；定义全局 --profile / --server-url / --debug 三个 PersistentFlag
+ * [INPUT]: 依赖 github.com/spf13/cobra、github.com/spf13/pflag、os、strings、internal/config（EnvironmentNames/DefaultEnvironment）、internal/notifier
+ * [OUTPUT]: 对外提供 Execute 函数、rootCmd 根命令、全局变量 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode；包内 commandName 解析器
+ * [POS]: cmd 模块的入口，挂载 version / configure / login / app / entity / relation / record / apply / diff / update / schema / integration / preflight 子命令；定义全局 --profile / --meta-server-url / --repo-server-url / --env / --debug PersistentFlag；后端 URL 兜底交给 config.Environment preset
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -9,7 +9,9 @@ package cmd
 
 import (
 	"os"
+	"strings"
 
+	"github.com/qfeius/makecli/internal/config"
 	"github.com/qfeius/makecli/internal/notifier"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -18,8 +20,8 @@ import (
 // DebugMode 全局调试模式标志，从命令行读取
 var DebugMode bool
 
-// ServerURL Meta Server 基础 URL，从命令行读取
-var ServerURL string
+// MetaServerURL Meta Server 基础 URL，从命令行读取
+var MetaServerURL string
 
 // RepoServerURL 代码仓库服务（make-gitea）基础 URL，从命令行读取
 var RepoServerURL string
@@ -28,9 +30,9 @@ var RepoServerURL string
 // 默认值与 PersistentFlag 注册一致，确保未经过 cobra 解析时（如单元测试）也可用。
 var Profile = "default"
 
-const defaultMetaServer = "https://dev-make.qtech.cn/api/make"
-
-const defaultRepoServer = "https://dev-make-repo.qtech.cn/api/make"
+// Environment 全局环境名（--env）。空串 = 回退 [settings] environment 或 config.DefaultEnvironment。
+// 后端 URL 三件套由当前环境的 config.Environment preset 兜底（见 client.go resolveEnvironment）。
+var Environment string
 
 var rootCmd = &cobra.Command{
 	Use:   "makecli",
@@ -61,7 +63,6 @@ EXAMPLES
 Use "{{.CommandPath}} [command] --help" for more information about a command.
 {{end}}`
 
-
 // Execute 是程序入口，由 main.go 调用
 func Execute(version, buildDate string) error {
 	// 注册模板函数：拆分 InheritedFlags 为 global（root 级）和 parent（中间命令级）
@@ -89,9 +90,10 @@ func Execute(version, buildDate string) error {
 	rootCmd.SetErrPrefix("error:")
 	rootCmd.PersistentFlags().BoolVar(&DebugMode, "debug", false, "enable debug mode to show curl output")
 	_ = rootCmd.PersistentFlags().MarkHidden("debug")
-	rootCmd.PersistentFlags().StringVar(&ServerURL, "server-url", "", "Meta Server base URL (default: config or "+defaultMetaServer+")")
-	rootCmd.PersistentFlags().StringVar(&RepoServerURL, "repo-server-url", "", "Code Repository Server base URL (default: config or "+defaultRepoServer+")")
+	rootCmd.PersistentFlags().StringVar(&MetaServerURL, "meta-server-url", "", "Meta Server base URL (overrides profile config and environment default)")
+	rootCmd.PersistentFlags().StringVar(&RepoServerURL, "repo-server-url", "", "Code Repository Server base URL (overrides profile config and environment default)")
 	rootCmd.PersistentFlags().StringVar(&Profile, "profile", "default", "credentials profile to use")
+	rootCmd.PersistentFlags().StringVar(&Environment, "env", "", "backend environment "+strings.Join(config.EnvironmentNames(), "|")+" (overrides [settings] environment, default "+config.DefaultEnvironment+")")
 	rootCmd.AddCommand(newVersionCmd(version, buildDate))
 	rootCmd.AddCommand(newConfigureCmd())
 	rootCmd.AddCommand(newLoginCmd())

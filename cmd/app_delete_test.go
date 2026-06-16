@@ -18,7 +18,7 @@ func TestRunAppDelete(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runAppDelete("myapp"); err != nil {
 			t.Fatalf("runAppDelete: %v", err)
@@ -27,7 +27,7 @@ func TestRunAppDelete(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		if err := runAppDelete("myapp"); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
@@ -38,7 +38,7 @@ func TestRunAppDelete(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runAppDelete("myapp"); err == nil {
 			t.Fatal("expected error on API failure")
@@ -48,7 +48,7 @@ func TestRunAppDelete(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 
 		if err := runAppDelete("myapp"); err == nil {
@@ -63,7 +63,7 @@ func TestRunAppDeleteFromFile(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		f := filepath.Join(t.TempDir(), "app.yaml")
 		writeTestFile(t, f, []byte("key: fileapp\nname: 文件应用\ntype: Make.App\n"))

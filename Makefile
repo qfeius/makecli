@@ -7,7 +7,7 @@ LDFLAGS := -s -w \
 	-X $(MODULE)/internal/build.Version=$(VERSION) \
 	-X $(MODULE)/internal/build.Date=$(DATE)
 
-.PHONY: build local test vet lint clean
+.PHONY: build local test vet lint geb clean
 
 build:
 	mkdir -p bin
@@ -25,6 +25,10 @@ vet:
 
 lint:
 	golangci-lint run ./...
+
+# GEB 分形文档一致性检查；排除 vendored 的 deps/（geb 不读 .gitignore，须显式 --exclude）
+geb:
+	geb lint . --exclude deps
 
 clean:
 	rm -rf bin/

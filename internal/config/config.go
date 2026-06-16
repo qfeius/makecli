@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 os、bufio、fmt、io、sort、strings、path/filepath；依赖 paths.go 的 Dir
- * [OUTPUT]: 对外提供 LoadConfig、SaveConfig、ConfigPath 函数，Config/ConfigProfile 类型
+ * [OUTPUT]: 对外提供 LoadConfig、SaveConfig、SetSetting、ConfigPath 函数，Config/ConfigProfile 类型
  * [POS]: internal/config 的 config 文件管理，读写 config 文件（默认 ~/.make/config，INI 格式）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -21,7 +21,7 @@ import (
 
 // ConfigProfile 代表一个命名配置块，如 [default]，持有租户与操作者信息
 type ConfigProfile struct {
-	ServerURL     string
+	MetaServerURL string
 	RepoServerURL string
 	AuthServerURL string
 	XTenantID     string
@@ -108,7 +108,7 @@ func parseConfigINI(f *os.File) (Config, error) {
 			continue
 		}
 		cfg[name] = ConfigProfile{
-			ServerURL:     kv["server-url"],
+			MetaServerURL: kv["meta-server-url"],
 			RepoServerURL: kv["repo-server-url"],
 			AuthServerURL: kv["auth-server-url"],
 			XTenantID:     kv["X-Tenant-ID"],
@@ -135,9 +135,44 @@ func existingSettings(path string) map[string]string {
 	return sections[settingsSection]
 }
 
-// SaveConfig 将 Config 写入 ~/.make/config
+// SaveConfig 将 Config 写入 ~/.make/config，原样保留磁盘上已有的 [settings] 全局段。
 // 自动创建 ~/.make/ 目录（0700），文件权限 0600
 func SaveConfig(cfg Config) error {
+	path, err := ConfigPath()
+	if err != nil {
+		return err
+	}
+	return saveConfigWithSettings(cfg, existingSettings(path))
+}
+
+// SetSetting 写入 [settings] 段的单个全局键（read-modify-write）：
+// 读取现有 profile 段与 [settings]，改/插该键后整体落盘，保留其余内容。
+func SetSetting(key, value string) error {
+	cfg, err := LoadConfig()
+	if err != nil {
+		return err
+	}
+	path, err := ConfigPath()
+	if err != nil {
+		return err
+	}
+	settings := existingSettings(path)
+	if settings == nil {
+		settings = map[string]string{}
+	}
+	settings[key] = value
+	return saveConfigWithSettings(cfg, settings)
+}
+
+// saveConfigWithSettings 是 config 文件的唯一写路径：落盘 profile 段 + 显式的 [settings] 段。
+// settings 由调用方提供（SaveConfig 传磁盘现状以保留，SetSetting 传修改后的副本）。
+func saveConfigWithSettings(cfg Config, settings map[string]string) error {
+	for name := range cfg {
+		if err := ValidateProfileName(name); err != nil {
+			return err
+		}
+	}
+
 	path, err := ConfigPath()
 	if err != nil {
 		return err
@@ -147,9 +182,6 @@ func SaveConfig(cfg Config) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("创建配置目录 %s 失败: %w", dir, err)
 	}
-
-	// 覆盖写会清空文件，先抓取磁盘上的 [settings] 全局段以便末尾重新落盘
-	settings := existingSettings(path)
 
 	// default profile 优先输出，其余保持稳定顺序
 	order := []string{}
@@ -169,8 +201,8 @@ func SaveConfig(cfg Config) error {
 			}
 			_, _ = fmt.Fprintf(w, "[%s]\n", name)
 			p := cfg[name]
-			if p.ServerURL != "" {
-				_, _ = fmt.Fprintf(w, "server-url = %s\n", p.ServerURL)
+			if p.MetaServerURL != "" {
+				_, _ = fmt.Fprintf(w, "meta-server-url = %s\n", p.MetaServerURL)
 			}
 			if p.RepoServerURL != "" {
 				_, _ = fmt.Fprintf(w, "repo-server-url = %s\n", p.RepoServerURL)

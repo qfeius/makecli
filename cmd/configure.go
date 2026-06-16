@@ -26,6 +26,10 @@ func newConfigureCmd() *cobra.Command {
 		Use:          "configure",
 		Short:        "Configure MakeCLI credentials and settings",
 		SilenceUsage: true,
+		// 所有 configure 子命令统一前置校验 profile 名（settings 为保留段名，不可作 profile）
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return config.ValidateProfileName(Profile)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConfigureToken()
 		},
@@ -106,12 +110,12 @@ func runConfigureConfig() error {
 	current := cfg[Profile]
 	fmt.Printf("Configuring config profile [%s]\n", Profile)
 
-	serverURL, err := prompt("server-url", current.ServerURL)
+	serverURL, err := prompt("meta-server-url", current.MetaServerURL)
 	if err != nil {
 		return err
 	}
 	if serverURL != "" {
-		current.ServerURL = serverURL
+		current.MetaServerURL = serverURL
 	}
 
 	repoServerURL, err := prompt("repo-server-url", current.RepoServerURL)
@@ -158,13 +162,24 @@ func runConfigureConfig() error {
 
 // ---------------------------------- set 子命令 ----------------------------------
 
-var validConfigKeys = []string{"server-url", "repo-server-url", "auth-server-url", "X-Tenant-ID", "X-Operator-ID"}
+var validConfigKeys = []string{"meta-server-url", "repo-server-url", "auth-server-url", "X-Tenant-ID", "X-Operator-ID"}
 
 func validateConfigKey(key string) error {
 	if slices.Contains(validConfigKeys, key) {
 		return nil
 	}
 	return fmt.Errorf("unknown config key '%s', valid keys: %s", key, strings.Join(validConfigKeys, ", "))
+}
+
+// environmentKey 是 configure set/get 里路由到全局 [settings]（而非 profile）的特殊键名。
+const environmentKey = "environment"
+
+// setEnvironment 校验环境名后写入全局 [settings] environment（不受 --profile 影响）。
+func setEnvironment(value string) error {
+	if !slices.Contains(config.EnvironmentNames(), value) {
+		return fmt.Errorf("unknown environment '%s', valid: %s", value, strings.Join(config.EnvironmentNames(), ", "))
+	}
+	return config.SetSetting(environmentKey, value)
 }
 
 func newConfigureSetCmd() *cobra.Command {
@@ -180,6 +195,9 @@ func newConfigureSetCmd() *cobra.Command {
 }
 
 func runConfigureSet(key, value string) error {
+	if key == environmentKey {
+		return setEnvironment(value)
+	}
 	if err := validateConfigKey(key); err != nil {
 		return err
 	}
@@ -189,8 +207,8 @@ func runConfigureSet(key, value string) error {
 	}
 	p := cfg[Profile]
 	switch key {
-	case "server-url":
-		p.ServerURL = value
+	case "meta-server-url":
+		p.MetaServerURL = value
 	case "repo-server-url":
 		p.RepoServerURL = value
 	case "auth-server-url":
@@ -219,6 +237,14 @@ func newConfigureGetCmd() *cobra.Command {
 }
 
 func runConfigureGet(key string) error {
+	if key == environmentKey {
+		settings, err := config.LoadSettings()
+		if err != nil {
+			return err
+		}
+		fmt.Println(firstNonEmpty(settings.Environment, config.DefaultEnvironment))
+		return nil
+	}
 	if err := validateConfigKey(key); err != nil {
 		return err
 	}
@@ -228,8 +254,8 @@ func runConfigureGet(key string) error {
 	}
 	p := cfg[Profile]
 	switch key {
-	case "server-url":
-		fmt.Println(p.ServerURL)
+	case "meta-server-url":
+		fmt.Println(p.MetaServerURL)
 	case "repo-server-url":
 		fmt.Println(p.RepoServerURL)
 	case "auth-server-url":

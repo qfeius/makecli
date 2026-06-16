@@ -33,7 +33,7 @@ func TestRunRecordGet(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		out := captureStdout(t, func() {
 			if err := runRecordGet("TODO", "用户", "rec_001", outputTable); err != nil {
@@ -63,7 +63,7 @@ func TestRunRecordGet(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		out := captureStdout(t, func() {
 			if err := runRecordGet("TODO", "用户", "rec_001", outputJSON); err != nil {
@@ -81,7 +81,7 @@ func TestRunRecordGet(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		if err := runRecordGet("TODO", "用户", "rec_001", outputTable); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
@@ -94,7 +94,7 @@ func TestRunRecordGet(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runRecordGet("TODO", "用户", "rec_001", outputTable); err == nil {
 			t.Fatal("expected error on API failure")
@@ -104,7 +104,7 @@ func TestRunRecordGet(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 		if err := runRecordGet("TODO", "用户", "rec_001", outputTable); err == nil {
 			t.Fatal("expected error for unknown profile")

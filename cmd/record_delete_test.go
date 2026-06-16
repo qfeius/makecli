@@ -36,7 +36,7 @@ func TestRunRecordDelete(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runRecordDelete("myapp", "tasks", []string{"rec_001"}); err != nil {
 			t.Fatalf("runRecordDelete: %v", err)
@@ -51,7 +51,7 @@ func TestRunRecordDelete(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		out := captureStdout(t, func() {
 			if err := runRecordDelete("myapp", "tasks", []string{"rec_001", "rec_002"}); err != nil {
@@ -72,7 +72,7 @@ func TestRunRecordDelete(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		var err error
 		out := captureStdout(t, func() {
@@ -95,7 +95,7 @@ func TestRunRecordDelete(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		if err := runRecordDelete("myapp", "tasks", []string{"rec_001"}); err == nil {
 			t.Fatal("expected error for missing credentials")
@@ -107,7 +107,7 @@ func TestRunRecordDelete(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runRecordDelete("myapp", "tasks", []string{"rec_001"}); err == nil {
 			t.Fatal("expected error on API failure")
@@ -117,7 +117,7 @@ func TestRunRecordDelete(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 
 		if err := runRecordDelete("myapp", "tasks", []string{"rec_001"}); err == nil {

@@ -28,7 +28,7 @@ func TestRunAppApply(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `key: myapp
@@ -56,7 +56,7 @@ properties:
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		yamlFile := writeYAMLFileForApply(t, testDir, "multi.yaml", `key: app1
@@ -96,7 +96,7 @@ properties:
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		writeYAMLFileForApply(t, testDir, "app.yaml", `key: myapp
@@ -142,7 +142,7 @@ properties:
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `key: project_has_tasks
@@ -184,7 +184,7 @@ properties:
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `key: project_has_tasks
@@ -216,7 +216,7 @@ properties:
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `key: project_has_tasks
@@ -243,7 +243,7 @@ properties:
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		yamlFile := writeYAMLFileForApply(t, testDir, "relation.yaml", `key: project_has_tasks
@@ -273,7 +273,7 @@ properties:
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		writeYAMLFileForApply(t, testDir, "app.yaml", `key: myapp
@@ -325,7 +325,7 @@ properties:
 
 	t.Run("fails with missing credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		testDir := t.TempDir()
 		// 不写入凭证，测试缺失凭证的情况
 
@@ -347,7 +347,7 @@ properties:
 		t.Setenv("HOME", t.TempDir())
 		testDir := t.TempDir()
 		saveDefaultTokenForApply(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "unknown")
 		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `key: test
 name: 测试应用
@@ -368,7 +368,7 @@ properties:
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `key: test
@@ -390,7 +390,7 @@ properties:
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		yamlFile := writeYAMLFileForApply(t, testDir, "entity.yaml", `key: task
@@ -412,7 +412,7 @@ properties:
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `key: todo
@@ -438,7 +438,7 @@ properties:
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		testDir := t.TempDir()
 
 		yamlFile := writeYAMLFileForApply(t, testDir, "empty.yaml", "")
@@ -456,7 +456,7 @@ properties:
 	t.Run("fails on invalid YAML", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultTokenForApply(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		testDir := t.TempDir()
 		bad := filepath.Join(testDir, "bad.yaml")
 		_ = os.WriteFile(bad, []byte("invalid: yaml: ["), 0644)
@@ -548,7 +548,7 @@ properties:
 			defer srv.Close()
 			t.Setenv("HOME", t.TempDir())
 			saveDefaultTokenForApply(t)
-			ServerURL = srv.URL
+			MetaServerURL = srv.URL
 			testDir := t.TempDir()
 
 			yamlFile := writeYAMLFileForApply(t, testDir, "res.yaml", tc.yaml)
@@ -582,7 +582,7 @@ func TestRunAppApplyCreatesOnNotFound(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("HOME", t.TempDir())
 	saveDefaultTokenForApply(t)
-	ServerURL = srv.URL
+	MetaServerURL = srv.URL
 	testDir := t.TempDir()
 
 	yamlFile := writeYAMLFileForApply(t, testDir, "app.yaml", `key: myapp
@@ -624,7 +624,7 @@ func TestRunAppApplyUpdatesOnExisting(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("HOME", t.TempDir())
 	saveDefaultTokenForApply(t)
-	ServerURL = srv.URL
+	MetaServerURL = srv.URL
 	testDir := t.TempDir()
 
 	yamlFile := writeYAMLFileForApply(t, testDir, "entity.yaml", `key: task
@@ -654,7 +654,7 @@ properties:
 func TestRunAppApplyFailsWithoutRecognizedYAMLFiles(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	saveDefaultTokenForApply(t)
-	ServerURL = "http://unused"
+	MetaServerURL = "http://unused"
 	testDir := t.TempDir()
 	writeYAMLFileForApply(t, testDir, "app.json", `{"name":"app1"}`)
 

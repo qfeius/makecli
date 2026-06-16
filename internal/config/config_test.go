@@ -114,7 +114,7 @@ func TestParseConfigINI(t *testing.T) {
 	})
 
 	t.Run("auth-server-url key", func(t *testing.T) {
-		f := writeTempINI(t, "[test]\nserver-url = https://test-make.qtech.cn/api/make\nauth-server-url = https://test-myaccount.qtech.cn\n")
+		f := writeTempINI(t, "[test]\nmeta-server-url = https://test-make.qtech.cn/api/make\nauth-server-url = https://test-myaccount.qtech.cn\n")
 		defer func() { _ = f.Close() }()
 
 		cfg, err := parseConfigINI(f)
