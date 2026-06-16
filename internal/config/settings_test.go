@@ -117,7 +117,7 @@ func TestLoadSettings_Environment(t *testing.T) {
 func TestSetSetting_WritesAndPreserves(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	// 预置：一个 profile + 一个已有 settings 键
-	writeConfigFile(t, "[settings]\ncheck-for-updates = false\n\n[default]\nserver-url = https://x/api/make\n")
+	writeConfigFile(t, "[settings]\ncheck-for-updates = false\n\n[default]\nmeta-server-url = https://x/api/make\n")
 
 	if err := SetSetting("environment", "production"); err != nil {
 		t.Fatalf("SetSetting: %v", err)
@@ -139,7 +139,7 @@ func TestSetSetting_WritesAndPreserves(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	if cfg["default"].ServerURL != "https://x/api/make" {
+	if cfg["default"].MetaServerURL != "https://x/api/make" {
 		t.Errorf("profile lost across SetSetting: %+v", cfg["default"])
 	}
 }
@@ -171,7 +171,7 @@ func TestValidateProfileName(t *testing.T) {
 
 func TestSaveRejectsReservedProfile(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	if err := SaveConfig(Config{"settings": {ServerURL: "https://x"}}); err == nil {
+	if err := SaveConfig(Config{"settings": {MetaServerURL: "https://x"}}); err == nil {
 		t.Error("SaveConfig should reject a profile named 'settings'")
 	}
 	if err := Save(Credentials{"settings": {AccessToken: "tok"}}); err == nil {

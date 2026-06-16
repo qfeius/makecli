@@ -27,7 +27,7 @@ import (
 func TestRunDiff(t *testing.T) {
 	t.Run("fails with missing credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		dir := writeDiffYAML(t, entityYAML("Task", "myapp", "title", "Make.Field.Text"))
 
 		err := runDiff(dir, outputTable)
@@ -39,7 +39,7 @@ func TestRunDiff(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDiffToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "unknown")
 		dir := writeDiffYAML(t, entityYAML("Task", "myapp", "title", "Make.Field.Text"))
 
@@ -54,7 +54,7 @@ func TestRunDiff(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDiffToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		dir := writeDiffYAML(t, entityYAML("Task", "myapp", "title", "Make.Field.Text"))
 
 		err := runDiff(dir, outputTable)
@@ -65,7 +65,7 @@ func TestRunDiff(t *testing.T) {
 
 	t.Run("fails with invalid output format", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		dir := writeDiffYAML(t, entityYAML("Task", "myapp", "title", "Make.Field.Text"))
 
 		err := runDiff(dir, "xml")
@@ -90,7 +90,7 @@ func TestRunDiffExitContract(t *testing.T) {
 		t.Cleanup(srv.Close)
 		t.Setenv("HOME", t.TempDir())
 		saveDiffToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		return writeDiffYAML(t, entityYAML("Task", "myapp", "title", "Make.Field.Text"))
 	}
 
@@ -760,7 +760,7 @@ func newDiffServer(t *testing.T, remoteEntities []api.Entity, remoteRelations []
 			})
 
 		case "MakeService.ListResources":
-			if r.URL.Path == "/meta/v1/relation" {
+			if strings.HasSuffix(r.URL.Path, "/meta/v1/relation") {
 				relations := remoteRelations
 				if relations == nil {
 					relations = []api.Relation{}

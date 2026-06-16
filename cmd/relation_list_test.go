@@ -39,7 +39,7 @@ func TestRunRelationList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runRelationList("TODO", "", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runRelationList: %v", err)
@@ -57,7 +57,7 @@ func TestRunRelationList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runRelationList("TODO", "", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runRelationList empty: %v", err)
@@ -95,7 +95,7 @@ func TestRunRelationList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runRelationList("TODO", "", 1, 20, outputTable, "name=project"); err != nil {
 			t.Fatalf("runRelationList with filter: %v", err)
@@ -122,7 +122,7 @@ func TestRunRelationList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		output := captureStdout(t, func() {
 			if err := runRelationList("TODO", "", 1, 20, outputJSON, ""); err != nil {
@@ -158,7 +158,7 @@ func TestRunRelationList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		out := captureStdout(t, func() {
 			if err := runRelationList("TODO", "project_has_tasks", 1, 20, outputTable, ""); err != nil {
@@ -194,7 +194,7 @@ func TestRunRelationList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		output := captureStdout(t, func() {
 			if err := runRelationList("TODO", "project_has_tasks", 1, 20, outputJSON, ""); err != nil {
@@ -209,7 +209,7 @@ func TestRunRelationList(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		if err := runRelationList("TODO", "", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
@@ -218,7 +218,7 @@ func TestRunRelationList(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 		if err := runRelationList("TODO", "", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error for unknown profile")
@@ -232,7 +232,7 @@ func TestRunRelationList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runRelationList("TODO", "", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error on API failure")
@@ -246,7 +246,7 @@ func TestRunRelationList(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runRelationList("TODO", "不存在", 1, 20, outputTable, ""); err == nil {
 			t.Fatal("expected error on get API failure")

@@ -64,7 +64,7 @@ func TestRunIntegrationOCR(t *testing.T) {
 
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		dir := t.TempDir()
 		file := filepath.Join(dir, "demo.pdf")
@@ -102,7 +102,7 @@ func TestRunIntegrationOCR(t *testing.T) {
 
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		dir := t.TempDir()
 		file := filepath.Join(dir, "demo.pdf")
@@ -122,7 +122,7 @@ func TestRunIntegrationOCR(t *testing.T) {
 
 	t.Run("rejects unsupported extension", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		if err := runIntegrationOCR("/tmp/foo.txt", outputTable, api.OCROptions{}); err == nil {
 			t.Fatal("expected error for unsupported extension")
 		}
@@ -136,7 +136,7 @@ func TestRunIntegrationOCR(t *testing.T) {
 
 	t.Run("rejects missing file", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		if err := runIntegrationOCR("/tmp/does-not-exist.pdf", outputTable, api.OCROptions{}); err == nil {
 			t.Fatal("expected error for missing file")
 		}
@@ -144,7 +144,7 @@ func TestRunIntegrationOCR(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		dir := t.TempDir()
 		file := filepath.Join(dir, "demo.png")
 		if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
@@ -158,7 +158,7 @@ func TestRunIntegrationOCR(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 		dir := t.TempDir()
 		file := filepath.Join(dir, "demo.jpg")
@@ -178,7 +178,7 @@ func TestRunIntegrationOCR(t *testing.T) {
 
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		dir := t.TempDir()
 		file := filepath.Join(dir, "demo.jpeg")

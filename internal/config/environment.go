@@ -12,7 +12,9 @@ import "sort"
 // ---------------------------------- 环境 preset ----------------------------------
 
 // Environment 是一个后端环境的 URL 三件套 preset——把"永远一起出现"的数据泥团收编为对象。
-// MetaServerURL / RepoServerURL 为完整 URL；AuthServerURL 为身份服务器基址（login 追加 .well-known 路径）。
+// 三者均为主机基址（scheme://host），不含路径：
+//   - MetaServerURL / RepoServerURL 的网关前缀 /api/make 由 cmd 层 withGateway 统一补齐
+//   - AuthServerURL 为身份服务器基址，login 追加 .well-known 路径
 type Environment struct {
 	MetaServerURL string
 	RepoServerURL string
@@ -25,18 +27,18 @@ const DefaultEnvironment = "dev"
 // environments 是内建环境 preset 表，主机名遵循 {dev-, test-, ""} 前缀规律。
 var environments = map[string]Environment{
 	"dev": {
-		MetaServerURL: "https://dev-make.qtech.cn/api/make",
-		RepoServerURL: "https://dev-make-repo.qtech.cn/api/make",
+		MetaServerURL: "https://dev-make.qtech.cn",
+		RepoServerURL: "https://dev-make-repo.qtech.cn",
 		AuthServerURL: "https://dev-myaccount.qtech.cn",
 	},
 	"test": {
-		MetaServerURL: "https://test-make.qtech.cn/api/make",
-		RepoServerURL: "https://test-make-repo.qtech.cn/api/make",
+		MetaServerURL: "https://test-make.qtech.cn",
+		RepoServerURL: "https://test-make-repo.qtech.cn",
 		AuthServerURL: "https://test-myaccount.qtech.cn",
 	},
 	"production": {
-		MetaServerURL: "https://make.qtech.cn/api/make",
-		RepoServerURL: "https://make-repo.qtech.cn/api/make",
+		MetaServerURL: "https://make.qtech.cn",
+		RepoServerURL: "https://make-repo.qtech.cn",
 		AuthServerURL: "https://myaccount.qtech.cn",
 	},
 }

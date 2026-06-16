@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 resolveEnvironment / 全局 Environment（白盒），internal/config（SetSetting）、testing
- * [OUTPUT]: 覆盖环境解析优先级（flag > settings > 默认）的单元测试
- * [POS]: cmd 模块 client.go resolveEnvironment 的配套测试，t.Setenv 隔离配置
+ * [OUTPUT]: 覆盖环境解析优先级（flag > settings > 默认）与 withGateway 网关前缀拼接的单元测试
+ * [POS]: cmd 模块 client.go resolveEnvironment / withGateway 的配套测试，t.Setenv 隔离配置
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -29,7 +29,7 @@ func TestResolveEnvironment(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveEnvironment: %v", err)
 		}
-		if env.MetaServerURL != "https://dev-make.qtech.cn/api/make" {
+		if env.MetaServerURL != "https://dev-make.qtech.cn" {
 			t.Errorf("default MetaServerURL = %q", env.MetaServerURL)
 		}
 	})
@@ -44,7 +44,7 @@ func TestResolveEnvironment(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveEnvironment: %v", err)
 		}
-		if env.RepoServerURL != "https://test-make-repo.qtech.cn/api/make" {
+		if env.RepoServerURL != "https://test-make-repo.qtech.cn" {
 			t.Errorf("RepoServerURL = %q, want test", env.RepoServerURL)
 		}
 	})
@@ -59,7 +59,7 @@ func TestResolveEnvironment(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveEnvironment: %v", err)
 		}
-		if env.MetaServerURL != "https://make.qtech.cn/api/make" {
+		if env.MetaServerURL != "https://make.qtech.cn" {
 			t.Errorf("MetaServerURL = %q, want production", env.MetaServerURL)
 		}
 	})
@@ -71,4 +71,21 @@ func TestResolveEnvironment(t *testing.T) {
 			t.Error("expected error for unknown environment")
 		}
 	})
+}
+
+// TestWithGateway 锁定网关前缀拼接的幂等契约：主机基址补 /api/make，
+// 已含前缀/尾随斜杠/空串各自的归一化行为。
+func TestWithGateway(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"https://test-make.qtech.cn", "https://test-make.qtech.cn/api/make"},          // 纯主机名补前缀
+		{"https://test-make.qtech.cn/", "https://test-make.qtech.cn/api/make"},         // 尾随斜杠先裁后补
+		{"https://test-make.qtech.cn/api/make", "https://test-make.qtech.cn/api/make"}, // 幂等：已含前缀原样返回
+		{"https://x/api/make/", "https://x/api/make"},                                  // 幂等 + 裁尾斜杠
+		{"", ""}, // 空串原样返回
+	}
+	for _, c := range cases {
+		if got := withGateway(c.in); got != c.want {
+			t.Errorf("withGateway(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
 }

@@ -21,7 +21,7 @@ func TestRunSchema(t *testing.T) {
 			if r.Header.Get("X-Make-Target") != "MakeService.GetResource" {
 				t.Errorf("unexpected X-Make-Target: %s", r.Header.Get("X-Make-Target"))
 			}
-			if r.URL.Path != "/meta/v1/schema" {
+			if !strings.HasSuffix(r.URL.Path, "/meta/v1/schema") {
 				t.Errorf("unexpected path: %s", r.URL.Path)
 			}
 			var req map[string]string
@@ -56,7 +56,7 @@ func TestRunSchema(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		output := captureStdout(t, func() {
 			if err := runSchema("expense_management"); err != nil {
@@ -80,7 +80,7 @@ func TestRunSchema(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		if err := runSchema("myapp"); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
@@ -93,7 +93,7 @@ func TestRunSchema(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runSchema("myapp"); err == nil {
 			t.Fatal("expected error on API failure")
@@ -103,7 +103,7 @@ func TestRunSchema(t *testing.T) {
 	t.Run("fails on unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 		if err := runSchema("myapp"); err == nil {
 			t.Fatal("expected error for unknown profile")

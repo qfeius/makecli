@@ -110,12 +110,12 @@ func runConfigureConfig() error {
 	current := cfg[Profile]
 	fmt.Printf("Configuring config profile [%s]\n", Profile)
 
-	serverURL, err := prompt("server-url", current.ServerURL)
+	serverURL, err := prompt("meta-server-url", current.MetaServerURL)
 	if err != nil {
 		return err
 	}
 	if serverURL != "" {
-		current.ServerURL = serverURL
+		current.MetaServerURL = serverURL
 	}
 
 	repoServerURL, err := prompt("repo-server-url", current.RepoServerURL)
@@ -162,7 +162,7 @@ func runConfigureConfig() error {
 
 // ---------------------------------- set 子命令 ----------------------------------
 
-var validConfigKeys = []string{"server-url", "repo-server-url", "auth-server-url", "X-Tenant-ID", "X-Operator-ID"}
+var validConfigKeys = []string{"meta-server-url", "repo-server-url", "auth-server-url", "X-Tenant-ID", "X-Operator-ID"}
 
 func validateConfigKey(key string) error {
 	if slices.Contains(validConfigKeys, key) {
@@ -207,8 +207,8 @@ func runConfigureSet(key, value string) error {
 	}
 	p := cfg[Profile]
 	switch key {
-	case "server-url":
-		p.ServerURL = value
+	case "meta-server-url":
+		p.MetaServerURL = value
 	case "repo-server-url":
 		p.RepoServerURL = value
 	case "auth-server-url":
@@ -254,8 +254,8 @@ func runConfigureGet(key string) error {
 	}
 	p := cfg[Profile]
 	switch key {
-	case "server-url":
-		fmt.Println(p.ServerURL)
+	case "meta-server-url":
+		fmt.Println(p.MetaServerURL)
 	case "repo-server-url":
 		fmt.Println(p.RepoServerURL)
 	case "auth-server-url":

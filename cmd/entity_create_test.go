@@ -20,7 +20,7 @@ func TestRunEntityCreate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runEntityCreate("project", "项目", "TODO", ""); err != nil {
 			t.Fatalf("runEntityCreate: %v", err)
@@ -32,7 +32,7 @@ func TestRunEntityCreate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		fieldsFile := writeFieldsFile(t, []map[string]any{
 			{"key": "project_name", "name": "项目名称", "type": "Make.Field.Text", "meta": map[string]any{"version": "1.0.0"}, "properties": nil},
@@ -46,7 +46,7 @@ func TestRunEntityCreate(t *testing.T) {
 	t.Run("rejects field key starting with underscore", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		fieldsFile := writeFieldsFile(t, []map[string]any{
 			{"key": "_internal_field", "name": "内部字段", "type": "Make.Field.Text", "meta": map[string]any{"version": "1.0.0"}, "properties": nil},
@@ -59,7 +59,7 @@ func TestRunEntityCreate(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		if err := runEntityCreate("project", "项目", "TODO", ""); err == nil {
 			t.Fatal("expected error for missing credentials")
@@ -71,7 +71,7 @@ func TestRunEntityCreate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runEntityCreate("project", "项目", "TODO", ""); err == nil {
 			t.Fatal("expected error on API failure")
@@ -81,7 +81,7 @@ func TestRunEntityCreate(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 
 		if err := runEntityCreate("project", "项目", "TODO", ""); err == nil {
@@ -92,7 +92,7 @@ func TestRunEntityCreate(t *testing.T) {
 	t.Run("fails with invalid fields file", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		bad := filepath.Join(t.TempDir(), "bad.json")
 		_ = os.WriteFile(bad, []byte("not json"), 0644)

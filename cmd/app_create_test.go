@@ -25,7 +25,7 @@ func TestRunAppCreate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		stubRepoServer(t, srv.URL)
 
 		if err := runAppCreate("myapp", "", ""); err != nil {
@@ -38,7 +38,7 @@ func TestRunAppCreate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		stubRepoServer(t, newMockRepoServer(t).URL)
 
 		out := captureStdout(t, func() {
@@ -58,7 +58,7 @@ func TestRunAppCreate(t *testing.T) {
 		defer repoSrv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		stubRepoServer(t, repoSrv.URL)
 
 		if err := runAppCreate("myapp", "", ""); err != nil {
@@ -71,7 +71,7 @@ func TestRunAppCreate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		stubRepoServer(t, srv.URL)
 
 		cmd := newAppCreateCmd()
@@ -114,7 +114,7 @@ func TestRunAppCreate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		stubRepoServer(t, srv.URL)
 
 		if err := runAppCreate("myapp", "test app", ""); err != nil {
@@ -124,7 +124,7 @@ func TestRunAppCreate(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		// 未写入任何凭证，预期报错
 		if err := runAppCreate("myapp", "", ""); err == nil {
 			t.Fatal("expected error for missing credentials")
@@ -136,7 +136,7 @@ func TestRunAppCreate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		if err := runAppCreate("myapp", "", ""); err == nil {
 			t.Fatal("expected error on API failure")
@@ -146,7 +146,7 @@ func TestRunAppCreate(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 
 		if err := runAppCreate("myapp", "", ""); err == nil {
@@ -161,7 +161,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		stubRepoServer(t, srv.URL)
 
 		f := filepath.Join(t.TempDir(), "app.yaml")
@@ -177,7 +177,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 		stubRepoServer(t, srv.URL)
 
 		f := filepath.Join(t.TempDir(), "app.yml")

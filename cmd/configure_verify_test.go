@@ -43,7 +43,7 @@ func TestRunConfigureVerify(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		out := captureStdout(t, func() {
 			// runConfigureVerify 在 valid=true 时不调用 os.Exit
@@ -59,7 +59,7 @@ func TestRunConfigureVerify(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		out := captureStdout(t, func() {
 			_, _ = runConfigureVerify(outputJSON)
@@ -82,7 +82,7 @@ func TestRunConfigureVerify(t *testing.T) {
 
 	t.Run("token not configured", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		out := captureStdout(t, func() {
 			_, _ = runConfigureVerify(outputJSON)
@@ -102,7 +102,7 @@ func TestRunConfigureVerify(t *testing.T) {
 
 	t.Run("malformed JWT", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		// 写入非 JWT 格式 token
 		if err := config.Save(config.Credentials{
 			"default": config.Profile{AccessToken: "not-a-jwt"},
@@ -131,7 +131,7 @@ func TestRunConfigureVerify(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		out := captureStdout(t, func() {
 			_, _ = runConfigureVerify(outputJSON)
@@ -154,14 +154,14 @@ func TestRunConfigureVerify(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		// 写入 config
 		if err := config.SaveConfig(config.Config{
 			"default": config.ConfigProfile{
-				ServerURL:  "https://example.com",
-				XTenantID:  "t-123",
-				OperatorID: "op-456",
+				MetaServerURL: "https://example.com",
+				XTenantID:     "t-123",
+				OperatorID:    "op-456",
 			},
 		}); err != nil {
 			t.Fatal(err)
@@ -175,8 +175,8 @@ func TestRunConfigureVerify(t *testing.T) {
 		if err := json.Unmarshal([]byte(out), &r); err != nil {
 			t.Fatalf("json unmarshal: %v", err)
 		}
-		if r.ServerURL != "https://example.com" {
-			t.Errorf("expected server_url, got: %s", r.ServerURL)
+		if r.MetaServerURL != "https://example.com" {
+			t.Errorf("expected meta_server_url, got: %s", r.MetaServerURL)
 		}
 		if r.TenantID != "t-123" {
 			t.Errorf("expected tenant_id, got: %s", r.TenantID)
@@ -188,7 +188,7 @@ func TestRunConfigureVerify(t *testing.T) {
 
 	t.Run("unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 
 		out := captureStdout(t, func() {

@@ -1,8 +1,8 @@
 /**
- * [INPUT]: 依赖 internal/config（Load/LoadConfig/LoadSettings/LookupEnvironment）、internal/api（New/WithDebug/WithHeaders）、fmt、strings；从 root.go 读取全局 Profile / ServerURL / RepoServerURL / Environment / DebugMode
- * [OUTPUT]: 对外提供 newClientFromProfile / newRepoClientFromProfile / resolveEnvironment 函数
+ * [INPUT]: 依赖 internal/config（Load/LoadConfig/LoadSettings/LookupEnvironment）、internal/api（New/WithDebug/WithHeaders）、fmt、strings；从 root.go 读取全局 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode
+ * [OUTPUT]: 对外提供 newClientFromProfile / newRepoClientFromProfile / resolveEnvironment 函数、withGateway helper、apiGatewayPath 常量
  * [POS]: cmd 模块的公共 helper，统一「全局命令行入参 → API 客户端」的构建逻辑——profile / server / env / debug 全部由 root PersistentFlag 注入，子命令零参数调用；
- *        resolveProfile 收口凭证与配置解析，resolveEnvironment 收口环境 preset；URL 取值链：flag > profile config > 环境 preset
+ *        resolveProfile 收口凭证与配置解析，resolveEnvironment 收口环境 preset；URL 取值链：flag > profile config > 环境 preset，主机基址再经 withGateway 补网关前缀 /api/make
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -58,6 +58,22 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
+// apiGatewayPath 是后端网关挂载点，Meta / Data / Integration / Repo 请求共用此前缀。
+// 主机基址（preset / config / flag）只描述部署端点，网关前缀由代码统一补齐，
+// 使配置可写成纯主机名（https://test-make.qtech.cn）而非完整 URL。
+const apiGatewayPath = "/api/make"
+
+// withGateway 把网关前缀补到解析出的主机基址后。
+// 幂等：已含前缀的完整 URL 原样返回，消除「配置该不该带 /api/make」的特殊情况；
+// 空串原样返回（交由 api 层报错），尾随斜杠先行裁掉避免双斜杠。
+func withGateway(host string) string {
+	host = strings.TrimRight(host, "/")
+	if host == "" || strings.HasSuffix(host, apiGatewayPath) {
+		return host
+	}
+	return host + apiGatewayPath
+}
+
 // resolveEnvironment 解析当前后端环境 preset：--env flag > [settings] environment > DefaultEnvironment。
 // 未知环境名（typo / 非法手抄）报错，避免静默落到错误后端。
 func resolveEnvironment() (config.Environment, error) {
@@ -87,7 +103,7 @@ func newClientFromProfile() (*api.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	server := firstNonEmpty(ServerURL, cp.ServerURL, env.MetaServerURL)
+	server := withGateway(firstNonEmpty(MetaServerURL, cp.MetaServerURL, env.MetaServerURL))
 	return api.New(server, token, api.WithDebug(DebugMode), api.WithHeaders(headers)), nil
 }
 
@@ -102,6 +118,6 @@ func newRepoClientFromProfile() (*api.Client, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	server := firstNonEmpty(RepoServerURL, cp.RepoServerURL, env.RepoServerURL)
+	server := withGateway(firstNonEmpty(RepoServerURL, cp.RepoServerURL, env.RepoServerURL))
 	return api.New(server, token, api.WithDebug(DebugMode), api.WithHeaders(headers)), token, nil
 }

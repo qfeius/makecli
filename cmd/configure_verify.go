@@ -41,13 +41,13 @@ func newConfigureVerifyCmd() *cobra.Command {
 
 // verifyResult 承载验证结果，复用于 table 和 JSON 输出
 type verifyResult struct {
-	Profile    string `json:"profile"`
-	Valid      bool   `json:"valid"`
-	Token      string `json:"token"`
-	ServerURL  string `json:"server_url"`
-	TenantID   string `json:"tenant_id"`
-	OperatorID string `json:"operator_id"`
-	Message    string `json:"message"`
+	Profile       string `json:"profile"`
+	Valid         bool   `json:"valid"`
+	Token         string `json:"token"`
+	MetaServerURL string `json:"meta_server_url"`
+	TenantID      string `json:"tenant_id"`
+	OperatorID    string `json:"operator_id"`
+	Message       string `json:"message"`
 }
 
 func runConfigureVerify(output string) (*verifyResult, error) {
@@ -63,13 +63,13 @@ func runConfigureVerify(output string) (*verifyResult, error) {
 		return nil, err
 	}
 
-	// 加载配置（server-url / tenant / operator）
+	// 加载配置（meta-server-url / tenant / operator）
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return nil, err
 	}
 	if cp, ok := cfg[Profile]; ok {
-		result.ServerURL = cp.ServerURL
+		result.MetaServerURL = cp.MetaServerURL
 		result.TenantID = cp.XTenantID
 		result.OperatorID = cp.OperatorID
 	}
@@ -97,11 +97,11 @@ func runConfigureVerify(output string) (*verifyResult, error) {
 	}
 	server := env.MetaServerURL
 	headers := map[string]string{}
-	if result.ServerURL != "" {
-		server = result.ServerURL
+	if result.MetaServerURL != "" {
+		server = result.MetaServerURL
 	}
-	if ServerURL != "" {
-		server = ServerURL
+	if MetaServerURL != "" {
+		server = MetaServerURL
 	}
 	if result.TenantID != "" {
 		headers["X-Tenant-ID"] = result.TenantID
@@ -110,7 +110,7 @@ func runConfigureVerify(output string) (*verifyResult, error) {
 		headers["X-Operator-ID"] = result.OperatorID
 	}
 
-	client := api.New(server, p.AccessToken, api.WithHeaders(headers))
+	client := api.New(withGateway(server), p.AccessToken, api.WithHeaders(headers))
 	_, _, err = client.ListApps(1, 1, "")
 	if err != nil {
 		result.Message = fmt.Sprintf("token invalid (%s)", err)

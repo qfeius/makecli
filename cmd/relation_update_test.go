@@ -19,7 +19,7 @@ func TestRunRelationUpdate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		jsonFile := writeRelationJSON(t, map[string]any{
 			"from": map[string]any{"entityKey": "project", "cardinality": "one"},
@@ -33,7 +33,7 @@ func TestRunRelationUpdate(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		jsonFile := writeRelationJSON(t, map[string]any{
 			"from": map[string]any{"entityKey": "project", "cardinality": "one"},
@@ -50,7 +50,7 @@ func TestRunRelationUpdate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		jsonFile := writeRelationJSON(t, map[string]any{
 			"from": map[string]any{"entityKey": "project", "cardinality": "one"},
@@ -65,7 +65,7 @@ func TestRunRelationUpdate(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 
 		jsonFile := writeRelationJSON(t, map[string]any{
@@ -81,7 +81,7 @@ func TestRunRelationUpdate(t *testing.T) {
 	t.Run("fails with invalid JSON file", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		bad := filepath.Join(t.TempDir(), "bad.json")
 		_ = os.WriteFile(bad, []byte("not json"), 0644)

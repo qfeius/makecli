@@ -18,7 +18,7 @@ func TestLookupEnvironment(t *testing.T) {
 		if !ok {
 			t.Fatal("empty name should map to DefaultEnvironment")
 		}
-		if env.MetaServerURL != "https://dev-make.qtech.cn/api/make" {
+		if env.MetaServerURL != "https://dev-make.qtech.cn" {
 			t.Errorf("default MetaServerURL = %q", env.MetaServerURL)
 		}
 	})
@@ -26,18 +26,18 @@ func TestLookupEnvironment(t *testing.T) {
 	t.Run("known environments full preset", func(t *testing.T) {
 		cases := map[string]Environment{
 			"dev": {
-				MetaServerURL: "https://dev-make.qtech.cn/api/make",
-				RepoServerURL: "https://dev-make-repo.qtech.cn/api/make",
+				MetaServerURL: "https://dev-make.qtech.cn",
+				RepoServerURL: "https://dev-make-repo.qtech.cn",
 				AuthServerURL: "https://dev-myaccount.qtech.cn",
 			},
 			"test": {
-				MetaServerURL: "https://test-make.qtech.cn/api/make",
-				RepoServerURL: "https://test-make-repo.qtech.cn/api/make",
+				MetaServerURL: "https://test-make.qtech.cn",
+				RepoServerURL: "https://test-make-repo.qtech.cn",
 				AuthServerURL: "https://test-myaccount.qtech.cn",
 			},
 			"production": {
-				MetaServerURL: "https://make.qtech.cn/api/make",
-				RepoServerURL: "https://make-repo.qtech.cn/api/make",
+				MetaServerURL: "https://make.qtech.cn",
+				RepoServerURL: "https://make-repo.qtech.cn",
 				AuthServerURL: "https://myaccount.qtech.cn",
 			},
 		}

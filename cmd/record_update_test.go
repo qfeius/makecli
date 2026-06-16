@@ -20,7 +20,7 @@ import (
 func TestRunRecordUpdate(t *testing.T) {
 	t.Run("updates single record successfully", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/data/v1/record" {
+			if !strings.HasSuffix(r.URL.Path, "/data/v1/record") {
 				t.Errorf("expected path /data/v1/record, got %s", r.URL.Path)
 			}
 			if got := r.Header.Get("X-Make-Target"); got != "MakeService.UpdateResource" {
@@ -33,7 +33,7 @@ func TestRunRecordUpdate(t *testing.T) {
 
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		jsonFile := writeRecordJSON(t, map[string]any{"status": "done"})
 
@@ -49,7 +49,7 @@ func TestRunRecordUpdate(t *testing.T) {
 
 	t.Run("updates multiple records in batch", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/data/v1/field" {
+			if !strings.HasSuffix(r.URL.Path, "/data/v1/field") {
 				t.Errorf("expected path /data/v1/field, got %s", r.URL.Path)
 			}
 			if got := r.Header.Get("X-Make-Target"); got != "MakeService.UpdateResource" {
@@ -62,7 +62,7 @@ func TestRunRecordUpdate(t *testing.T) {
 
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		jsonFile := writeRecordJSON(t, map[string]any{"status": "archived"})
 
@@ -79,7 +79,7 @@ func TestRunRecordUpdate(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		jsonFile := writeRecordJSON(t, map[string]any{"status": "done"})
 
@@ -97,7 +97,7 @@ func TestRunRecordUpdate(t *testing.T) {
 
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		jsonFile := writeRecordJSON(t, map[string]any{"status": "done"})
 
@@ -109,7 +109,7 @@ func TestRunRecordUpdate(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 
 		jsonFile := writeRecordJSON(t, map[string]any{"status": "done"})
@@ -122,7 +122,7 @@ func TestRunRecordUpdate(t *testing.T) {
 	t.Run("fails with invalid JSON file", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		bad := filepath.Join(t.TempDir(), "bad.json")
 		_ = os.WriteFile(bad, []byte("not json"), 0644)

@@ -21,7 +21,7 @@ import (
 
 // ConfigProfile 代表一个命名配置块，如 [default]，持有租户与操作者信息
 type ConfigProfile struct {
-	ServerURL     string
+	MetaServerURL string
 	RepoServerURL string
 	AuthServerURL string
 	XTenantID     string
@@ -108,7 +108,7 @@ func parseConfigINI(f *os.File) (Config, error) {
 			continue
 		}
 		cfg[name] = ConfigProfile{
-			ServerURL:     kv["server-url"],
+			MetaServerURL: kv["meta-server-url"],
 			RepoServerURL: kv["repo-server-url"],
 			AuthServerURL: kv["auth-server-url"],
 			XTenantID:     kv["X-Tenant-ID"],
@@ -201,8 +201,8 @@ func saveConfigWithSettings(cfg Config, settings map[string]string) error {
 			}
 			_, _ = fmt.Fprintf(w, "[%s]\n", name)
 			p := cfg[name]
-			if p.ServerURL != "" {
-				_, _ = fmt.Fprintf(w, "server-url = %s\n", p.ServerURL)
+			if p.MetaServerURL != "" {
+				_, _ = fmt.Fprintf(w, "meta-server-url = %s\n", p.MetaServerURL)
 			}
 			if p.RepoServerURL != "" {
 				_, _ = fmt.Fprintf(w, "repo-server-url = %s\n", p.RepoServerURL)

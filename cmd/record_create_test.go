@@ -29,10 +29,10 @@ func TestRunRecordCreate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		jsonFile := writeRecordJSON(t, map[string]any{
-			"title": "Test Record",
+			"title":  "Test Record",
 			"status": "active",
 		})
 
@@ -49,7 +49,7 @@ func TestRunRecordCreate(t *testing.T) {
 
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		jsonFile := writeRecordJSON(t, map[string]any{"title": "Test"})
 
@@ -69,7 +69,7 @@ func TestRunRecordCreate(t *testing.T) {
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = srv.URL
+		MetaServerURL = srv.URL
 
 		jsonFile := writeRecordJSON(t, map[string]any{"title": "Test"})
 
@@ -81,7 +81,7 @@ func TestRunRecordCreate(t *testing.T) {
 	t.Run("fails with unknown profile", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 
 		jsonFile := writeRecordJSON(t, map[string]any{"title": "Test"})
@@ -94,7 +94,7 @@ func TestRunRecordCreate(t *testing.T) {
 	t.Run("fails with invalid JSON file", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		bad := filepath.Join(t.TempDir(), "bad.json")
 		_ = os.WriteFile(bad, []byte("not json"), 0644)
@@ -107,7 +107,7 @@ func TestRunRecordCreate(t *testing.T) {
 	t.Run("fails with nonexistent JSON file", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
-		ServerURL = "http://unused"
+		MetaServerURL = "http://unused"
 
 		if err := runRecordCreate("TODO", "Task", "/nonexistent.json"); err == nil {
 			t.Fatal("expected error for nonexistent file")
