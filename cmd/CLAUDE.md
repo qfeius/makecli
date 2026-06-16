@@ -8,8 +8,9 @@
 
 ## 全局标志（root PersistentFlags）
 - `--profile string`（default "default"）— 凭证 profile 名，绑定全局变量 `cmd.Profile`（包级 `var Profile = "default"`，单测无需 cobra 解析也能用）
-- `--server-url string` — Meta Server 基础 URL，覆盖 config 与默认值，绑定 `cmd.ServerURL`
-- `--repo-server-url string` — 代码仓库服务（make-gitea）基础 URL，覆盖 config `repo-server-url` 与默认值 `defaultRepoServer`，绑定 `cmd.RepoServerURL`
+- `--server-url string` — Meta Server 基础 URL，覆盖 profile config 与环境 preset，绑定 `cmd.ServerURL`
+- `--repo-server-url string` — 代码仓库服务（make-gitea）基础 URL，覆盖 profile config 与环境 preset，绑定 `cmd.RepoServerURL`
+- `--env string` — 后端环境（dev/test/production），覆盖 `[settings] environment`，绑定 `cmd.Environment`；空串=回退 settings 或默认 dev。后端 URL 三件套兜底来自 `config.Environment` preset（解析链 flag > profile config > 环境 preset，见 client.go resolveEnvironment）
 - `--debug`（隐藏）— 输出 curl 调试信息，绑定 `cmd.DebugMode`
 
 三者都不再从 `runXxx` 签名穿越，统一由 `newClientFromProfile()`（零参数）在内部直接读取全局。新增子命令时：
@@ -19,19 +20,20 @@
 - 单测需要切换 profile 时用 `setProfile(t, "name")`（stdout_test.go），t.Cleanup 自动还原
 
 ## 成员清单
-root.go:             根命令入口，挂载所有顶级子命令（schema / apply / diff / update / integration / preflight 等；deploy 已下沉为 app 子命令），对外暴露 Execute(version, date)；定义全局 PersistentFlag --profile / --server-url / --repo-server-url / --debug，分别绑定全局变量 Profile / ServerURL / RepoServerURL / DebugMode；defaultMetaServer / defaultRepoServer 常量；钩入 notifier.Start/Finish 生命周期；包内 commandName 解析顶级命令名
+root.go:             根命令入口，挂载所有顶级子命令（schema / apply / diff / update / integration / preflight 等；deploy 已下沉为 app 子命令），对外暴露 Execute(version, date)；定义全局 PersistentFlag --profile / --server-url / --repo-server-url / --env / --debug，分别绑定全局变量 Profile / ServerURL / RepoServerURL / Environment / DebugMode；后端 URL 兜底交给 config.Environment preset（不再持 default*Server 常量）；钩入 notifier.Start/Finish 生命周期；包内 commandName 解析顶级命令名
 root_test.go:        覆盖 commandName 顶级命令解析的单元测试（version/version list/update/app create/空 args/未知命令）
 version.go:          version 子命令组，默认 Run 打印当前版本（参考 GitHub CLI 模式），挂载 list 子命令
 version_test.go:     覆盖 formatVersion / changelogURL 的纯函数测试
 version_list.go:     version list 子命令，调 internal/update.ListReleases 拉取 GitHub 最近 N 条 release，tablewriter 输出 CURRENT/VERSION/PUBLISHED/URL（JSON 输出保留 name 字段）；CURRENT 列对比 build.Version 标记当前安装版本；支持 --limit（默认20，1-100）/ --output（table|json）
 version_list_test.go: 覆盖 runVersionList 的单元测试（table 渲染 / CURRENT 标记 / JSON 输出去除 assets / 空列表 / 非法 limit / 非法 output / API 错误 / DEV 不打标记），用 httptest 隔离网络
-configure.go:        configure 命令组（无本地标志，复用全局 --profile），默认行为等同 token 子命令；子命令: token（交互写 ~/.make/credentials）/ config（交互写 ~/.make/config）/ set（直接写单个 key）/ get（读取单个 key）/ verify（在线验证 token）；validateConfigKey 校验合法 key 集合（server-url / repo-server-url / auth-server-url / X-Tenant-ID / X-Operator-ID）
-login.go:            login 顶级命令，浏览器 OAuth 登陆（复用全局 --profile，本地 --timeout 默认3m / --no-open-browser）；runLogin 编排 discover→起动态端口回调 server→每次新注册 client（RFC 7591）→PKCE→开浏览器→等回调→换 token，仅把 access_token 写入 ~/.make/credentials[Profile]；make preset（business_type=make / scopes=make:resources）；OAuth 元数据地址由 profile 的 auth-server-url 派生（authMetadataURL 函数，缺省回退 defaultAuthBaseURL=dev-myaccount.qtech.cn），使 token 颁发方与后端环境对齐；openBrowserFunc 包级可打桩变量
+configure.go:        configure 命令组（无本地标志，复用全局 --profile），默认行为等同 token 子命令；子命令: token（交互写 ~/.make/credentials）/ config（交互写 ~/.make/config）/ set（直接写单个 key）/ get（读取单个 key）/ verify（在线验证 token）；validateConfigKey 校验合法 profile key 集合（server-url / repo-server-url / auth-server-url / X-Tenant-ID / X-Operator-ID）；特殊键 environment 经 setEnvironment 路由到全局 [settings]（非 profile，值校验 ∈ dev/test/production，写 config.SetSetting），get environment 读 settings 缺省回退 dev
+login.go:            login 顶级命令，浏览器 OAuth 登陆（复用全局 --profile，本地 --timeout 默认3m / --no-open-browser）；runLogin 编排 discover→起动态端口回调 server→每次新注册 client（RFC 7591）→PKCE→开浏览器→等回调→换 token，仅把 access_token 写入 ~/.make/credentials[Profile]；make preset（business_type=make / scopes=make:resources）；OAuth 元数据地址由身份服务器基址拼 .well-known 路径（authMetadataURL），基址取 profile 的 auth-server-url、缺省回退当前环境 preset 的 AuthServerURL（resolveEnvironment），使 token 颁发方与后端环境对齐；openBrowserFunc 包级可打桩变量
 login_test.go:       覆盖 runLogin 的单元测试（成功写 token / 写入选定 profile / --no-open-browser 打印 URL 并超时 / 缺 registration_endpoint 报错），用 httptest 模拟 OAuth 三端点 + openBrowserFunc 桩注入回调，t.Setenv 隔离凭证
-configure_test.go:   覆盖 mask / validateJWT / validateConfigKey 的纯函数测试
+configure_test.go:   覆盖 mask / validateJWT / validateConfigKey 的纯函数测试 + configure set/get environment（写读全局 [settings]、非法环境名拒绝、不受 --profile 影响）
 configure_verify.go:     configure verify 子命令，加载 credentials + config，JWT 格式校验后调 ListApps 在线验证 token；输出 verifyResult（profile/valid/token/server_url/tenant_id/operator_id/message）；支持 --output table|json；valid=false 时 exit 1
 configure_verify_test.go: 覆盖 runConfigureVerify 的单元测试（valid token table/json、token not configured、malformed JWT、server 401、config 字段传递、unknown profile），用 httptest 隔离网络
-client.go:           公共 helper，resolveProfile() 收口凭证与配置解析；newClientFromProfile()（零参数）构建 Meta/Data 客户端，newRepoClientFromProfile() 构建代码仓库服务客户端并额外返回裸 token（供 deploy 的 git Basic 认证）；firstNonEmpty 统一「flag > config > default」取值链
+client.go:           公共 helper，resolveProfile() 收口凭证与配置解析，resolveEnvironment() 收口环境 preset（--env flag > [settings] environment > 默认 dev，未知名报错）；newClientFromProfile()（零参数）构建 Meta/Data 客户端，newRepoClientFromProfile() 构建代码仓库服务客户端并额外返回裸 token（供 deploy 的 git Basic 认证）；firstNonEmpty 统一「flag > profile config > 环境 preset」取值链
+client_test.go:      覆盖 resolveEnvironment 优先级（默认 dev / settings 覆盖默认 / --env 覆盖 settings / 未知环境报错），setEnvFlag 临时覆盖全局 Environment
 stdout_test.go:      测试基础设施，提供 captureStdout 劫持 stdout 的辅助函数 + setProfile(t, name) 临时覆盖全局 Profile（t.Cleanup 还原）
 app.go:              app 命令组，挂载 create / list / init / delete / deploy 子命令；提供 loadAppManifestFromFile 共享 helper（从 YAML 加载唯一 Make.App 资源）
 app_create.go:       app create 子命令，位置参数为 App key（英文标识符），--name 为展示名（支持中文；key 缺省且 name 是合法标识符时直接作 key），--description 描述；支持 -f YAML 文件模式；CreateApp(key, displayName, properties) 透传；创建成功后 prepareCodeRepos 幂等准备 preview/production 双环境代码仓库并打印 cloneUrl（仓库服务故障降级为 stderr 警告不改变退出码，deploy 会自动重试）

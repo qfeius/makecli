@@ -167,6 +167,17 @@ func validateConfigKey(key string) error {
 	return fmt.Errorf("unknown config key '%s', valid keys: %s", key, strings.Join(validConfigKeys, ", "))
 }
 
+// environmentKey 是 configure set/get 里路由到全局 [settings]（而非 profile）的特殊键名。
+const environmentKey = "environment"
+
+// setEnvironment 校验环境名后写入全局 [settings] environment（不受 --profile 影响）。
+func setEnvironment(value string) error {
+	if !slices.Contains(config.EnvironmentNames(), value) {
+		return fmt.Errorf("unknown environment '%s', valid: %s", value, strings.Join(config.EnvironmentNames(), ", "))
+	}
+	return config.SetSetting(environmentKey, value)
+}
+
 func newConfigureSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:          "set <key> <value>",
@@ -180,6 +191,9 @@ func newConfigureSetCmd() *cobra.Command {
 }
 
 func runConfigureSet(key, value string) error {
+	if key == environmentKey {
+		return setEnvironment(value)
+	}
 	if err := validateConfigKey(key); err != nil {
 		return err
 	}
@@ -219,6 +233,14 @@ func newConfigureGetCmd() *cobra.Command {
 }
 
 func runConfigureGet(key string) error {
+	if key == environmentKey {
+		settings, err := config.LoadSettings()
+		if err != nil {
+			return err
+		}
+		fmt.Println(firstNonEmpty(settings.Environment, config.DefaultEnvironment))
+		return nil
+	}
 	if err := validateConfigKey(key); err != nil {
 		return err
 	}

@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 internal/config（Load/LoadConfig）、internal/api（New/WithHeaders）、cmd/client（defaultMetaServer）、cmd/output（outputJSON/validateOutputFormat/writeJSON）、fmt、os
+ * [INPUT]: 依赖 internal/config（Load/LoadConfig）、internal/api（New/WithHeaders）、cmd/client（resolveEnvironment）、cmd/output（outputJSON/validateOutputFormat/writeJSON）、fmt、os
  * [OUTPUT]: 对外提供 newConfigureVerifyCmd 函数
  * [POS]: cmd/configure 的 verify 子命令，在线验证 token 有效性并输出 profile 状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -90,8 +90,12 @@ func runConfigureVerify(output string) (*verifyResult, error) {
 		return &result, nil
 	}
 
-	// 在线验证：调用 app list(page=1, size=1)
-	server := defaultMetaServer
+	// 在线验证：调用 app list(page=1, size=1)；server 取值链 flag > profile config > 环境 preset
+	env, err := resolveEnvironment()
+	if err != nil {
+		return nil, err
+	}
+	server := env.MetaServerURL
 	headers := map[string]string{}
 	if result.ServerURL != "" {
 		server = result.ServerURL

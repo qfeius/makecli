@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 internal/oauth（Discover/RegisterClient/StartCallbackServer/PKCE/BuildAuthorizationURL/ExchangeAuthorizationCode/OpenBrowser）、internal/config（Load/Save/LoadConfig/CredentialsPath）、context、fmt、net/http、os、strings、time、github.com/spf13/cobra；从 root.go 读取全局 Profile 与 client.go 的 firstNonEmpty
+ * [INPUT]: 依赖 internal/oauth（Discover/RegisterClient/StartCallbackServer/PKCE/BuildAuthorizationURL/ExchangeAuthorizationCode/OpenBrowser）、internal/config（Load/Save/LoadConfig/CredentialsPath）、context、fmt、net/http、os、strings、time、github.com/spf13/cobra；从 root.go 读取全局 Profile / Environment 与 client.go 的 firstNonEmpty / resolveEnvironment
  * [OUTPUT]: 对外提供 newLoginCmd 函数
  * [POS]: cmd 模块的 login 顶级命令，编排浏览器 OAuth 登陆，把 access_token 写入 ~/.make/credentials[Profile]
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -22,11 +22,6 @@ import (
 
 // ---------------------------------- make preset ----------------------------------
 
-// defaultAuthBaseURL 是 auth-server-url 未配置时的回退（dev 身份服务器基址）。
-// 每个 profile 可在 ~/.make/config 用 auth-server-url 覆盖，使 token 颁发方与后端环境对齐
-// （如 test 环境 server-url=test-make.qtech.cn 对应 auth-server-url=https://test-myaccount.qtech.cn）。
-const defaultAuthBaseURL = "https://dev-myaccount.qtech.cn"
-
 const (
 	authBusinessType = "make"
 	authResource     = "" // 留空：授权/换 token 不带 resource 参数
@@ -38,10 +33,9 @@ var authScopes = []string{"make:resources"}
 // openBrowserFunc 为包级可打桩变量，单测替换以免真浏览器（参照 deploy.go gitPushFunc 模式）。
 var openBrowserFunc = oauth.OpenBrowser
 
-// authMetadataURL 由 profile 的 auth-server-url（缺省回退 dev 基址）拼出 .well-known 元数据地址。
+// authMetadataURL 把身份服务器基址拼成 .well-known 元数据地址（基址已由调用方按 flag>profile>env 解析）。
 func authMetadataURL(authBase string) string {
-	base := strings.TrimRight(firstNonEmpty(authBase, defaultAuthBaseURL), "/")
-	return base + "/.well-known/oauth-authorization-server/" + authBusinessType
+	return strings.TrimRight(authBase, "/") + "/.well-known/oauth-authorization-server/" + authBusinessType
 }
 
 // ---------------------------------- 命令 ----------------------------------
@@ -73,8 +67,14 @@ func runLogin(timeout time.Duration, noOpenBrowser bool) error {
 	if err != nil {
 		return err
 	}
+	env, err := resolveEnvironment()
+	if err != nil {
+		return err
+	}
+	// 身份服务器基址：profile 的 auth-server-url 覆盖当前环境 preset
+	authBase := firstNonEmpty(cfg[Profile].AuthServerURL, env.AuthServerURL)
 
-	meta, err := oauth.Discover(ctx, httpClient, authMetadataURL(cfg[Profile].AuthServerURL))
+	meta, err := oauth.Discover(ctx, httpClient, authMetadataURL(authBase))
 	if err != nil {
 		return err
 	}

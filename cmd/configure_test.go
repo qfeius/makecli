@@ -7,7 +7,12 @@
 
 package cmd
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/qfeius/makecli/internal/config"
+)
 
 func TestMask(t *testing.T) {
 	tests := []struct {
@@ -77,4 +82,60 @@ func TestValidConfigKeys(t *testing.T) {
 	if err := validateConfigKey("bad-key"); err == nil {
 		t.Error("bad-key should be invalid")
 	}
+}
+
+func TestConfigureSetEnvironment(t *testing.T) {
+	t.Run("valid env writes to settings", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if err := runConfigureSet("environment", "test"); err != nil {
+			t.Fatalf("runConfigureSet: %v", err)
+		}
+		s, err := config.LoadSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Environment != "test" {
+			t.Errorf("settings environment = %q, want test", s.Environment)
+		}
+	})
+
+	t.Run("invalid env rejected", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if err := runConfigureSet("environment", "staging"); err == nil {
+			t.Error("expected error for invalid environment value")
+		}
+	})
+
+	t.Run("routes to settings regardless of --profile", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		setProfile(t, "test")
+		if err := runConfigureSet("environment", "production"); err != nil {
+			t.Fatalf("runConfigureSet: %v", err)
+		}
+		s, _ := config.LoadSettings()
+		if s.Environment != "production" {
+			t.Errorf("environment not written to settings: %q", s.Environment)
+		}
+	})
+}
+
+func TestConfigureGetEnvironment(t *testing.T) {
+	t.Run("default dev when unset", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		out := captureStdout(t, func() { _ = runConfigureGet("environment") })
+		if strings.TrimSpace(out) != "dev" {
+			t.Errorf("get environment = %q, want dev", strings.TrimSpace(out))
+		}
+	})
+
+	t.Run("reflects settings value", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if err := config.SetSetting("environment", "test"); err != nil {
+			t.Fatal(err)
+		}
+		out := captureStdout(t, func() { _ = runConfigureGet("environment") })
+		if strings.TrimSpace(out) != "test" {
+			t.Errorf("get environment = %q, want test", strings.TrimSpace(out))
+		}
+	})
 }

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 fmt、os、strconv；依赖 config.go 的 parseINISections、ConfigPath
  * [OUTPUT]: 对外提供 Settings 类型、LoadSettings 函数；包内 settingsSection 常量
- * [POS]: internal/config 的全局设置读取，承载非 profile 相关的 [settings] 段（当前仅 check-for-updates）
+ * [POS]: internal/config 的全局设置读取，承载非 profile 相关的 [settings] 段（check-for-updates / environment）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -20,6 +20,8 @@ const settingsSection = "settings"
 type Settings struct {
 	// CheckForUpdates 控制自动更新提示是否启用；nil 表示未配置（由调用方决定默认）
 	CheckForUpdates *bool
+	// Environment 是当前后端环境名（dev/test/production）；空串 = 未配置（调用方回退 DefaultEnvironment）
+	Environment string
 }
 
 // LoadSettings 读取 config 文件的 [settings] 全局段。
@@ -51,6 +53,7 @@ func LoadSettings() (Settings, error) {
 				s.CheckForUpdates = &b
 			}
 		}
+		s.Environment = kv["environment"]
 	}
 	return s, nil
 }

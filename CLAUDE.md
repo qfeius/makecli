@@ -7,7 +7,7 @@ cmd/            - Cobra 子命令层（root、version、configure[token/config/s
 internal/api/    - Make Meta/Data/Integration Service HTTP 客户端（Client + functional options，X-Make-Target 路由 + 自定义 headers 注入；Meta 操作走 /meta/v1/，Record 操作走 /data/v1/，Integration 操作走 /integration/v1/，代码仓库操作走独立 host 的 /code/v1/repository）
 internal/oauth/ - 浏览器 OAuth 登陆原语（PKCE + 单跳 discovery + RFC 7591 动态注册 + 授权URL/换token + 动态端口回调 server），从 contract-cli 移植，被 cmd/login 编排
 internal/build/ - 构建元数据（Version/Date，由 ldflags 注入）
-internal/config/ - 凭证与配置管理（读写 credentials 和 config，INI 格式；默认 ~/.make，可用 $MAKE_CLI_CONFIG_DIR 覆盖）
+internal/config/ - 凭证与配置管理（读写 credentials 和 config，INI 格式；默认 ~/.make，可用 $MAKE_CLI_CONFIG_DIR 覆盖）；内建 dev/test/production 环境 preset（后端 URL 三件套），全局 [settings] environment 选当前环境，URL 解析链 flag > profile config > 环境 preset
 internal/update/ - 自更新引擎（GitHub Releases 查询、下载、原子替换二进制）
 internal/notifier/ - 自动更新提示（读本地缓存零延迟判定，过期后台 goroutine 刷新，stderr+仅TTY 提示；三态开关 env MAKE_CLI_UPDATE_NOTIFIER > config [settings] > 默认开）
 </directory>
