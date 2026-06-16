@@ -19,6 +19,7 @@ main.go                        - 程序入口，初始化并调用 cmd.Execute()
 <config>
 go.mod                         - 模块声明，module github.com/qfeius/makecli
 Makefile                       - 本地构建脚本（build/test/vet/clean），通过 ldflags 注入版本和日期
+CHANGELOG.md                   - 版本变更记录（Keep a Changelog 格式）；`update --check` 链接指向此文件；发版时由 /ship Step 5 从 git log 重生成并提交回 main
 .goreleaser.yml                - 发布流水线：多平台构建 + 自动推送 Homebrew Tap
 .github/workflows/release.yml  - 打 v* tag 时触发 GoReleaser 发布
 .github/workflows/ci.yml       - push main / PR 时运行 golangci-lint + vet + test（PR 另跑 Claude 安全扫描）

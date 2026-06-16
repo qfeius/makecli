@@ -1,9 +1,9 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra、internal/update、internal/build
- * [OUTPUT]: 对外提供 newUpdateCmd 函数
+ * [OUTPUT]: 对外提供 newUpdateCmd 函数；包内 runUpdateCheck / changelogFileURL
  * [POS]: cmd 模块的 update 子命令，从 GitHub Releases 自更新二进制；
- *        无 arg 走 latest 流程，有 arg 走指定版本流程；降级需 --force；
- *        DEV 版本跳过比较
+ *        无 arg 走 latest 流程，有 arg 走指定版本流程；降级需 --force；DEV 版本跳过比较；
+ *        --check 仅检查最新版本并打印报告（current→tag + Release HTMLURL + CHANGELOG.md 链接），不安装；--check 与版本参数互斥
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -23,10 +23,12 @@ var applyFunc = update.Apply
 
 func newUpdateCmd() *cobra.Command {
 	var force bool
+	var check bool
 	cmd := &cobra.Command{
 		Use:   "update [version]",
 		Short: "Update makecli to the latest or a specific version",
 		Example: `  makecli update
+  makecli update --check
   makecli update v0.2.0
   makecli update --force v0.0.1`,
 		Args:         cobra.MaximumNArgs(1),
@@ -36,11 +38,44 @@ func newUpdateCmd() *cobra.Command {
 			if len(args) == 1 {
 				target = args[0]
 			}
+			if check {
+				if target != "" {
+					return fmt.Errorf("--check does not take a version argument")
+				}
+				return runUpdateCheck(cmd, build.Version)
+			}
 			return runUpdate(cmd, target, force)
 		},
 	}
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "allow downgrade to an older version")
+	cmd.Flags().BoolVar(&check, "check", false, "report whether an update is available without installing")
 	return cmd
+}
+
+// runUpdateCheck 仅检查最新版本并打印报告，不下载、不替换二进制。
+func runUpdateCheck(cmd *cobra.Command, currentVersion string) error {
+	release, newer, err := update.CheckLatest(currentVersion)
+	if err != nil {
+		return err
+	}
+
+	out := cmd.OutOrStdout()
+	if !newer {
+		_, _ = fmt.Fprintf(out, "Already up to date (%s)\n", release.TagName)
+		return nil
+	}
+
+	_, _ = fmt.Fprintf(out, "Update available: %s → %s\n",
+		formatCurrentVersion(currentVersion), release.TagName)
+	_, _ = fmt.Fprintf(out, "  Release:   %s\n", release.HTMLURL)
+	_, _ = fmt.Fprintf(out, "  Changelog: %s\n", changelogFileURL())
+	_, _ = fmt.Fprintf(out, "\nRun `makecli update` to install.\n")
+	return nil
+}
+
+// changelogFileURL 返回仓库 CHANGELOG.md 的固定地址（main 分支始终最新）。
+func changelogFileURL() string {
+	return "https://github.com/qfeius/makecli/blob/main/CHANGELOG.md"
 }
 
 func runUpdate(cmd *cobra.Command, target string, force bool) error {
