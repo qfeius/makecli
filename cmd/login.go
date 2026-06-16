@@ -60,6 +60,10 @@ func newLoginCmd() *cobra.Command {
 // runLogin 执行完整登陆流程：discover → 起回调 server → 注册 client → PKCE →
 // 浏览器 → 等回调 → 换 token → 写 credentials。
 func runLogin(timeout time.Duration, noOpenBrowser bool) error {
+	if err := config.ValidateProfileName(Profile); err != nil {
+		return err
+	}
+
 	ctx := context.Background()
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 

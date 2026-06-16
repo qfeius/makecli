@@ -26,6 +26,10 @@ func newConfigureCmd() *cobra.Command {
 		Use:          "configure",
 		Short:        "Configure MakeCLI credentials and settings",
 		SilenceUsage: true,
+		// 所有 configure 子命令统一前置校验 profile 名（settings 为保留段名，不可作 profile）
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			return config.ValidateProfileName(Profile)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConfigureToken()
 		},

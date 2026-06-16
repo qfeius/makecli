@@ -167,6 +167,12 @@ func SetSetting(key, value string) error {
 // saveConfigWithSettings 是 config 文件的唯一写路径：落盘 profile 段 + 显式的 [settings] 段。
 // settings 由调用方提供（SaveConfig 传磁盘现状以保留，SetSetting 传修改后的副本）。
 func saveConfigWithSettings(cfg Config, settings map[string]string) error {
+	for name := range cfg {
+		if err := ValidateProfileName(name); err != nil {
+			return err
+		}
+	}
+
 	path, err := ConfigPath()
 	if err != nil {
 		return err

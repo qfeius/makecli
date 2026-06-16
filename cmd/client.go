@@ -18,6 +18,10 @@ import (
 
 // resolveProfile 按当前全局 Profile 读取凭证与配置，返回 token、profile 配置与附加 headers
 func resolveProfile() (string, config.ConfigProfile, map[string]string, error) {
+	if err := config.ValidateProfileName(Profile); err != nil {
+		return "", config.ConfigProfile{}, nil, err
+	}
+
 	creds, err := config.Load()
 	if err != nil {
 		return "", config.ConfigProfile{}, nil, fmt.Errorf("加载凭证失败: %w", err)

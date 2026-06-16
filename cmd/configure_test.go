@@ -119,6 +119,24 @@ func TestConfigureSetEnvironment(t *testing.T) {
 	})
 }
 
+func TestReservedProfileName(t *testing.T) {
+	t.Run("configure set rejects --profile settings", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		setProfile(t, "settings")
+		if err := runConfigureSet("auth-server-url", "https://x"); err == nil {
+			t.Error("expected error writing to reserved profile 'settings'")
+		}
+	})
+
+	t.Run("resolveProfile rejects settings", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		setProfile(t, "settings")
+		if _, _, _, err := resolveProfile(); err == nil {
+			t.Error("resolveProfile should reject reserved profile 'settings'")
+		}
+	})
+}
+
 func TestConfigureGetEnvironment(t *testing.T) {
 	t.Run("default dev when unset", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())

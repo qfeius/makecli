@@ -157,3 +157,24 @@ func TestSetSetting_NoExistingFile(t *testing.T) {
 		t.Errorf("Environment = %q, want test", s.Environment)
 	}
 }
+
+func TestValidateProfileName(t *testing.T) {
+	if err := ValidateProfileName("settings"); err == nil {
+		t.Error("'settings' must be rejected as a profile name (reserved section)")
+	}
+	for _, name := range []string{"default", "test", "production", "my-profile"} {
+		if err := ValidateProfileName(name); err != nil {
+			t.Errorf("%q should be a valid profile name: %v", name, err)
+		}
+	}
+}
+
+func TestSaveRejectsReservedProfile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := SaveConfig(Config{"settings": {ServerURL: "https://x"}}); err == nil {
+		t.Error("SaveConfig should reject a profile named 'settings'")
+	}
+	if err := Save(Credentials{"settings": {AccessToken: "tok"}}); err == nil {
+		t.Error("Save (credentials) should reject a profile named 'settings'")
+	}
+}
