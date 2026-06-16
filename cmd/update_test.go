@@ -8,13 +8,17 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/qfeius/makecli/internal/build"
+	"github.com/qfeius/makecli/internal/skillsync"
 	"github.com/qfeius/makecli/internal/update"
 	"github.com/spf13/cobra"
 )
@@ -30,6 +34,31 @@ func setApplyFunc(t *testing.T, f func(*update.Release) error) *bool {
 	}
 	t.Cleanup(func() { applyFunc = old })
 	return &called
+}
+
+// setSyncSkillsSuccess 在测试期间打桩 skills 同步，避免真实执行 npx。
+func setSyncSkillsSuccess(t *testing.T) *[]skillsync.Options {
+	t.Helper()
+	var calls []skillsync.Options
+	old := syncSkillsFunc
+	syncSkillsFunc = func(_ context.Context, opts skillsync.Options) (skillsync.Result, error) {
+		calls = append(calls, opts)
+		action := skillsync.ActionSynced
+		reason := ""
+		if opts.Skip {
+			action = skillsync.ActionSkipped
+			reason = "disabled by flag"
+		}
+		return skillsync.Result{
+			Action:  action,
+			Reason:  reason,
+			Source:  skillsync.SkillsSource,
+			Version: opts.Version,
+			Command: skillsync.SkillsCommand(),
+		}, nil
+	}
+	t.Cleanup(func() { syncSkillsFunc = old })
+	return &calls
 }
 
 // setBuildVersion 在测试期间覆盖 build.Version
@@ -66,7 +95,16 @@ func noopApply(_ *update.Release) error { return nil }
 
 // dummyCmd 提供一个有 OutOrStdout 的 cobra.Command 实例供 runUpdate 使用
 func dummyCmd() *cobra.Command {
-	return &cobra.Command{}
+	cmd := &cobra.Command{}
+	cmd.SetOut(io.Discard)
+	return cmd
+}
+
+func bufferedCmd() (*cobra.Command, *bytes.Buffer) {
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	return cmd, &out
 }
 
 // ----------------------------------------------------------------------
@@ -79,12 +117,16 @@ func TestRunUpdate_NoArg_AlreadyLatest(t *testing.T) {
 	defer cleanup()
 
 	called := setApplyFunc(t, noopApply)
+	syncCalls := setSyncSkillsSuccess(t)
 
-	if err := runUpdate(dummyCmd(), "", false); err != nil {
+	if err := runUpdate(dummyCmd(), "", false, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if *called {
 		t.Error("applyFunc should not be called when already up to date")
+	}
+	if len(*syncCalls) != 1 || (*syncCalls)[0].Version != "v1.0.0" {
+		t.Fatalf("sync calls = %+v, want one call for v1.0.0", *syncCalls)
 	}
 }
 
@@ -94,12 +136,47 @@ func TestRunUpdate_NoArg_Upgrade(t *testing.T) {
 	defer cleanup()
 
 	called := setApplyFunc(t, noopApply)
+	syncCalls := setSyncSkillsSuccess(t)
 
-	if err := runUpdate(dummyCmd(), "", false); err != nil {
+	if err := runUpdate(dummyCmd(), "", false, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !*called {
 		t.Error("applyFunc should be called when newer release is available")
+	}
+	if len(*syncCalls) != 1 || (*syncCalls)[0].Version != "v2.0.0" {
+		t.Fatalf("sync calls = %+v, want one call for v2.0.0", *syncCalls)
+	}
+}
+
+func TestRunUpdate_NoArg_UpgradeKeepsBinaryOutputAndAddsSkillsOutput(t *testing.T) {
+	setBuildVersion(t, "0.3.4-3-g5197914")
+	cleanup := mockReleaseServer(t, 0, update.Release{TagName: "v0.4.0"})
+	defer cleanup()
+
+	setApplyFunc(t, noopApply)
+	setSyncSkillsSuccess(t)
+	cmd, out := bufferedCmd()
+
+	if err := runUpdate(cmd, "", false, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := out.String()
+	for _, want := range []string{
+		"Checking for updates...",
+		"Updating makecli: v0.3.4-3-g5197914 → v0.4.0",
+		"Updated makecli: v0.3.4-3-g5197914 → v0.4.0",
+		"Syncing Make platform skills: qfeius/make-platform-skills",
+		"Skills command: npx -y skills add qfeius/make-platform-skills --all -y",
+		"Skills updated for makecli v0.4.0",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Skills state:") {
+		t.Fatalf("output should not expose internal state path:\n%s", got)
 	}
 }
 
@@ -117,8 +194,9 @@ func TestRunUpdate_SpecificVersion_Upgrade(t *testing.T) {
 		appliedTag = r.TagName
 		return nil
 	})
+	syncCalls := setSyncSkillsSuccess(t)
 
-	if err := runUpdate(dummyCmd(), "v2.0.0", false); err != nil {
+	if err := runUpdate(dummyCmd(), "v2.0.0", false, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !*called {
@@ -126,6 +204,9 @@ func TestRunUpdate_SpecificVersion_Upgrade(t *testing.T) {
 	}
 	if appliedTag != "v2.0.0" {
 		t.Errorf("applied tag = %q, want v2.0.0", appliedTag)
+	}
+	if len(*syncCalls) != 1 || (*syncCalls)[0].Version != "v2.0.0" {
+		t.Fatalf("sync calls = %+v, want one call for v2.0.0", *syncCalls)
 	}
 }
 
@@ -135,9 +216,10 @@ func TestRunUpdate_SpecificVersion_NormalizeWithoutV(t *testing.T) {
 	defer cleanup()
 
 	called := setApplyFunc(t, noopApply)
+	setSyncSkillsSuccess(t)
 
 	// 输入不带 v 前缀
-	if err := runUpdate(dummyCmd(), "2.0.0", false); err != nil {
+	if err := runUpdate(dummyCmd(), "2.0.0", false, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !*called {
@@ -151,12 +233,16 @@ func TestRunUpdate_SpecificVersion_SameVersion(t *testing.T) {
 	defer cleanup()
 
 	called := setApplyFunc(t, noopApply)
+	syncCalls := setSyncSkillsSuccess(t)
 
-	if err := runUpdate(dummyCmd(), "v1.0.0", false); err != nil {
+	if err := runUpdate(dummyCmd(), "v1.0.0", false, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if *called {
 		t.Error("applyFunc should NOT be called when target == current")
+	}
+	if len(*syncCalls) != 1 || (*syncCalls)[0].Version != "v1.0.0" {
+		t.Fatalf("sync calls = %+v, want one call for v1.0.0", *syncCalls)
 	}
 }
 
@@ -166,8 +252,9 @@ func TestRunUpdate_SpecificVersion_DowngradeRefused(t *testing.T) {
 	defer cleanup()
 
 	called := setApplyFunc(t, noopApply)
+	setSyncSkillsSuccess(t)
 
-	err := runUpdate(dummyCmd(), "v1.0.0", false)
+	err := runUpdate(dummyCmd(), "v1.0.0", false, false)
 	if err == nil {
 		t.Fatal("expected downgrade refusal error")
 	}
@@ -185,8 +272,9 @@ func TestRunUpdate_SpecificVersion_DowngradeWithForce(t *testing.T) {
 	defer cleanup()
 
 	called := setApplyFunc(t, noopApply)
+	setSyncSkillsSuccess(t)
 
-	if err := runUpdate(dummyCmd(), "v1.0.0", true); err != nil {
+	if err := runUpdate(dummyCmd(), "v1.0.0", true, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !*called {
@@ -201,8 +289,9 @@ func TestRunUpdate_InvalidSemver(t *testing.T) {
 	defer cleanup()
 
 	called := setApplyFunc(t, noopApply)
+	setSyncSkillsSuccess(t)
 
-	err := runUpdate(dummyCmd(), "abc", false)
+	err := runUpdate(dummyCmd(), "abc", false, false)
 	if err == nil {
 		t.Fatal("expected error for invalid semver")
 	}
@@ -217,8 +306,9 @@ func TestRunUpdate_TagNotFound(t *testing.T) {
 	defer cleanup()
 
 	called := setApplyFunc(t, noopApply)
+	setSyncSkillsSuccess(t)
 
-	err := runUpdate(dummyCmd(), "v9.9.9", false)
+	err := runUpdate(dummyCmd(), "v9.9.9", false, false)
 	if err == nil {
 		t.Fatal("expected error for missing tag")
 	}
@@ -237,11 +327,28 @@ func TestRunUpdate_DEVSkipsComparison(t *testing.T) {
 	defer cleanup()
 
 	called := setApplyFunc(t, noopApply)
+	setSyncSkillsSuccess(t)
 
-	if err := runUpdate(dummyCmd(), "v0.0.1", false); err != nil {
+	if err := runUpdate(dummyCmd(), "v0.0.1", false, false); err != nil {
 		t.Fatalf("DEV should allow apply without --force, got: %v", err)
 	}
 	if !*called {
 		t.Error("applyFunc should be called when current is DEV")
+	}
+}
+
+func TestRunUpdate_SkipSkillsPassesSkipOption(t *testing.T) {
+	setBuildVersion(t, "1.0.0")
+	cleanup := mockReleaseServer(t, 0, update.Release{TagName: "v1.0.0"})
+	defer cleanup()
+
+	setApplyFunc(t, noopApply)
+	syncCalls := setSyncSkillsSuccess(t)
+
+	if err := runUpdate(dummyCmd(), "", false, true); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(*syncCalls) != 1 || !(*syncCalls)[0].Skip {
+		t.Fatalf("sync calls = %+v, want Skip=true", *syncCalls)
 	}
 }

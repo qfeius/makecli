@@ -9,6 +9,7 @@ internal/oauth/ - 浏览器 OAuth 登陆原语（PKCE + 单跳 discovery + RFC 7
 internal/build/ - 构建元数据（Version/Date，由 ldflags 注入）
 internal/config/ - 凭证与配置管理（读写 credentials 和 config，INI 格式；默认 ~/.make，可用 $MAKE_CLI_CONFIG_DIR 覆盖）；内建 dev/test/production 环境 preset（后端主机基址三件套，scheme://host 不含路径），全局 [settings] environment 选当前环境，URL 解析链 flag > profile config > 环境 preset；Meta/Repo 网关前缀 /api/make 由 cmd 层 withGateway 自动补齐（配置只写主机名）
 internal/update/ - 自更新引擎（GitHub Releases 查询、下载、原子替换二进制）
+internal/skillsync/ - update 后的 Make platform skills 同步器（默认每次 npx 安装/升级 qfeius/make-platform-skills --all，--skip-skills 跳过）
 internal/notifier/ - 自动更新提示（读本地缓存零延迟判定，过期后台 goroutine 刷新，stderr+仅TTY 提示；三态开关 env MAKE_CLI_UPDATE_NOTIFIER > config [settings] > 默认开）
 </directory>
 
