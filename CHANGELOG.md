@@ -7,11 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-06-16
+
+### ⚠ Breaking Changes
+
+- **app**: Merge `app init` into `app create` — one command scaffolds the project, creates the remote App, and prepares code repositories; the standalone `app init` command is removed (#15)
+
 ### Features
 
-- **update**: Add `--check` to report whether an update is available without installing
+- **update**: Add `--check` to report whether an update is available without installing (#16)
 - **config**: Backend dev/test/production environment presets + host-only `--meta-server-url` (#14)
-- **app**: Merge `app init` into `app create` — one command scaffolds the project, creates the remote App, and prepares code repositories (#15)
 
 ### Documentation
 
@@ -85,7 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/qfeius/makecli/releases/tag/v0.4.0
 [v0.3.4]: https://github.com/qfeius/makecli/releases/tag/v0.3.4
 [v0.3.3]: https://github.com/qfeius/makecli/releases/tag/v0.3.3
 [v0.3.2]: https://github.com/qfeius/makecli/releases/tag/v0.3.2
