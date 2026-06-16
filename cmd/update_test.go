@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 cmd 包内的 runUpdate / applyFunc（白盒），internal/update 的 Release 类型 + SetAPIBaseURLForTest，internal/build 的 Version
- * [OUTPUT]: 覆盖 update 子命令决策逻辑的单元测试
+ * [INPUT]: 依赖 cmd 包内的 runUpdate / runUpdateCheck / applyFunc（白盒），internal/update 的 Release 类型 + SetAPIBaseURLForTest，internal/build 的 Version
+ * [OUTPUT]: 覆盖 update 子命令决策逻辑的单元测试（含 --check 仅检查模式）
  * [POS]: cmd 模块 update.go 的配套测试，applyFunc 钩子打桩避免真实替换二进制
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -350,5 +350,77 @@ func TestRunUpdate_SkipSkillsPassesSkipOption(t *testing.T) {
 	}
 	if len(*syncCalls) != 1 || !(*syncCalls)[0].Skip {
 		t.Fatalf("sync calls = %+v, want Skip=true", *syncCalls)
+	}
+}
+
+// ----------------------------------------------------------------------
+// --check：仅检查不安装
+// ----------------------------------------------------------------------
+
+func TestRunUpdateCheck_UpdateAvailable(t *testing.T) {
+	setBuildVersion(t, "0.3.4")
+	cleanup := mockReleaseServer(t, 0, update.Release{
+		TagName: "v0.3.6",
+		HTMLURL: "https://github.com/qfeius/makecli/releases/tag/v0.3.6",
+	})
+	defer cleanup()
+
+	// --check 永不安装：apply 被调用即失败
+	called := setApplyFunc(t, noopApply)
+	syncCalls := setSyncSkillsSuccess(t)
+
+	cmd := dummyCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	if err := runUpdateCheck(cmd, build.Version); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{
+		"Update available: v0.3.4 → v0.3.6",
+		"https://github.com/qfeius/makecli/releases/tag/v0.3.6",
+		"https://github.com/qfeius/makecli/blob/main/CHANGELOG.md",
+		"Run `makecli update` to install.",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	if *called {
+		t.Error("--check must not install (applyFunc called)")
+	}
+	if len(*syncCalls) != 0 {
+		t.Fatalf("--check must not sync skills, got calls: %+v", *syncCalls)
+	}
+}
+
+func TestRunUpdateCheck_AlreadyLatest(t *testing.T) {
+	setBuildVersion(t, "0.3.6")
+	cleanup := mockReleaseServer(t, 0, update.Release{TagName: "v0.3.6"})
+	defer cleanup()
+
+	cmd := dummyCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+
+	if err := runUpdateCheck(cmd, build.Version); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Already up to date (v0.3.6)") {
+		t.Errorf("output = %q, want 'Already up to date (v0.3.6)'", out)
+	}
+	if strings.Contains(out, "Update available") {
+		t.Errorf("should not say update available when latest:\n%s", out)
+	}
+}
+
+func TestUpdateCmd_CheckRejectsVersionArg(t *testing.T) {
+	cmd := newUpdateCmd()
+	cmd.SetArgs([]string{"--check", "v1.0.0"})
+	cmd.SilenceErrors = true
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected error: --check does not take a version argument")
 	}
 }
