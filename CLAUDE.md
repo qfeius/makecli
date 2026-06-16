@@ -1,5 +1,5 @@
 # makecli - qfeius 的命令行工具
-Go 1.25 + github.com/spf13/cobra + github.com/go-git/go-git/v5（app deploy 纯 Go 操作 git，不 shell-out，二进制自包含）
+Go 1.25.8 + github.com/spf13/cobra + github.com/go-git/go-git/v5（app deploy 纯 Go 操作 git，不 shell-out，二进制自包含）+ charm.land/huh/v2（app delete 删除确认交互表单；go directive 因其要求顶到 1.25.8，需 ≥1.25.8 工具链构建）
 
 <directory>
 agents/          - app create 脚手架模板文件（CLAUDE.md.tmpl / AGENTS.md.tmpl / gitignore.tmpl，.tmpl 后缀避开 GEB L2 撞名），通过 embed.FS 编译进二进制，写出时去后缀（gitignore.tmpl→.gitignore）

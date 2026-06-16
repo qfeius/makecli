@@ -40,8 +40,8 @@ app_create.go:       app create 子命令（合并了原 app init）——一条
 app_create_test.go:  覆盖 renderAppDSL / writeScaffold / assertScaffoldClear / runAppCreate / runAppCreateFromFile 的单元测试（DSL渲染+往返/脚手架文件/预检拒绝已存在/appKey推导含'.'/成功输出简洁无仓库信息/仓库失败 stderr 警告但 create 成功/API失败本地零残留/本地已存在不调远端即拒绝/无凭证不留半成品/未知profile/文件模式/非法目录名拒绝），用 httptest 隔离网络 + t.TempDir 隔离 FS + chdir helper 测 '.' 推导 + captureStderr 测降级警告；stubRepoServer 临时指向仓库 mock；含 validResourceKey 通用 key 校验测试（长度 2-20，不可以下划线开头）
 app_list.go:         app list 子命令，调用 MakeService.ListResources 分页列出 org 下全部 App，输出列 KEY/NAME/DESCRIPTION/VERSION/CREATED AT（description 取自 app.Properties["description"]，空则留空格）；支持 --profile / --server / --page / --size / --filter flags；parseFilter 把 "key=value" 过滤语法翻译为 CEL 表达式文本（key 走等值 `key == 'v'`，name/description 走 `field.contains('v')`，逗号 = `||`），celString 转义单引号字面量；服务端按 Expression{expression} 解析（见 AgenticDSL/Design/ExpressionDesign.md）
 app_list_test.go:    覆盖 runAppList / parseFilter 的单元测试（成功/空列表/分页JSON/过滤请求/非法过滤/无凭证/API错误/非法页码），用 httptest 隔离网络
-app_delete.go:          app delete 子命令，调用 Meta Server API（MakeService.DeleteResource）删除指定 App；支持 --profile / --server flags 和 -f YAML 文件模式
-app_delete_test.go:     覆盖 runAppDelete / runAppDeleteFromFile 的单元测试（成功/无凭证/API错误/未知profile/文件模式），用 httptest 隔离网络
+app_delete.go:          app delete 子命令，调用 Meta Server API（MakeService.DeleteResource）删除指定 App；删除前要求原样输入 app key 确认（gh repo delete 同款强护栏，charm.land/huh/v2 表单 + Validate 阻断错值提交、ErrUserAborted 视为取消；非交互终端经 go-isatty 检测直接拒绝并指引 --yes，杜绝挂起），--yes/-y 跳过确认；confirmDeleteFunc 包级可打桩变量隔离终端交互；支持 -f YAML 文件模式
+app_delete_test.go:     覆盖 runAppDelete / runAppDeleteFromFile 的单元测试（--yes 删除 / 确认通过后删除 / 确认拒绝在触网前短路 / 非交互真门控拒绝 / 无凭证 / API错误 / 未知profile / 文件模式），stubConfirm 打桩 confirmDeleteFunc 隔离终端交互 + httptest 隔离网络
 entity.go:              entity 命令组，挂载 create / delete / list 子命令；--app（appKey）参数为子命令继承
 entity_create.go:       entity create 子命令，位置参数为 Entity key，--name 为展示名（缺省回退 key），--json 加载 fields；校验 field.Key 合法（validResourceKey）；--app 传 appKey；loadFields 从 JSON 文件加载字段定义
 entity_create_test.go:  覆盖 runEntityCreate 的单元测试（成功/带fields/field key 校验/无凭证/API错误/未知profile/非法JSON），用 httptest 隔离网络
