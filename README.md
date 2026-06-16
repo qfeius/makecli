@@ -10,6 +10,14 @@ brew install makecli
 ```
 makecli update
 ```
+默认会先更新 makecli 二进制，再每次同步 Make platform skills：
+```
+npx -y skills add qfeius/make-platform-skills --all -y
+```
+如需只更新二进制，可跳过 skills：
+```
+makecli update --skip-skills
+```
 或者使用下面命令
 ```
 git -C $(brew --repo qfeius/makecli) pull && brew upgrade makecli
