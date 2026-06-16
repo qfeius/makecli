@@ -38,7 +38,7 @@ func TestRunPreflight(t *testing.T) {
 	t.Run("passes on complete layout", func(t *testing.T) {
 		root := mkValidLayout(t)
 		out := captureStdout(t, func() {
-			if err := runPreflight(root); err != nil {
+			if err := runPreflight(root, "fullstack"); err != nil {
 				t.Errorf("runPreflight: unexpected error %v", err)
 			}
 		})
@@ -56,7 +56,7 @@ func TestRunPreflight(t *testing.T) {
 			t.Fatal(err)
 		}
 		out := captureStdout(t, func() {
-			if err := runPreflight(root); !errors.Is(err, errPreflightFailed) {
+			if err := runPreflight(root, "fullstack"); !errors.Is(err, errPreflightFailed) {
 				t.Errorf("expected errPreflightFailed, got %v", err)
 			}
 		})
@@ -70,7 +70,7 @@ func TestRunPreflight(t *testing.T) {
 		if err := os.Remove(filepath.Join(root, "apps", "service", "package.json")); err != nil {
 			t.Fatal(err)
 		}
-		if err := runPreflight(root); !errors.Is(err, errPreflightFailed) {
+		if err := runPreflight(root, "fullstack"); !errors.Is(err, errPreflightFailed) {
 			t.Errorf("expected errPreflightFailed, got %v", err)
 		}
 	})
@@ -80,7 +80,7 @@ func TestRunPreflight(t *testing.T) {
 		if err := os.Remove(filepath.Join(root, "apps", "ui", "package.json")); err != nil {
 			t.Fatal(err)
 		}
-		if err := runPreflight(root); !errors.Is(err, errPreflightFailed) {
+		if err := runPreflight(root, "fullstack"); !errors.Is(err, errPreflightFailed) {
 			t.Errorf("expected errPreflightFailed, got %v", err)
 		}
 	})
@@ -95,7 +95,7 @@ func TestRunPreflight(t *testing.T) {
 			t.Fatal(err)
 		}
 		out := captureStdout(t, func() {
-			if err := runPreflight(root); !errors.Is(err, errPreflightFailed) {
+			if err := runPreflight(root, "fullstack"); !errors.Is(err, errPreflightFailed) {
 				t.Errorf("expected errPreflightFailed, got %v", err)
 			}
 		})
@@ -106,12 +106,68 @@ func TestRunPreflight(t *testing.T) {
 
 	t.Run("fails on empty directory", func(t *testing.T) {
 		out := captureStdout(t, func() {
-			if err := runPreflight(t.TempDir()); !errors.Is(err, errPreflightFailed) {
+			if err := runPreflight(t.TempDir(), "fullstack"); !errors.Is(err, errPreflightFailed) {
 				t.Errorf("expected errPreflightFailed, got %v", err)
 			}
 		})
 		if !strings.Contains(out, "FAIL: 3/3 checks failed") {
 			t.Errorf("output should report all checks failed: %q", out)
+		}
+	})
+
+	// --type service: 只查 dsl + service，缺 ui 不影响通过
+	t.Run("service type ignores missing ui", func(t *testing.T) {
+		root := mkValidLayout(t)
+		if err := os.RemoveAll(filepath.Join(root, "apps", "ui")); err != nil {
+			t.Fatal(err)
+		}
+		out := captureStdout(t, func() {
+			if err := runPreflight(root, "service"); err != nil {
+				t.Errorf("service preflight: unexpected error %v", err)
+			}
+		})
+		if strings.Contains(out, "apps/ui") {
+			t.Errorf("service type should not check apps/ui: %q", out)
+		}
+		if !strings.Contains(out, "Type:") || !strings.Contains(out, "service") {
+			t.Errorf("output should echo the project type: %q", out)
+		}
+	})
+
+	t.Run("service type still requires service package.json", func(t *testing.T) {
+		root := mkValidLayout(t)
+		if err := os.Remove(filepath.Join(root, "apps", "service", "package.json")); err != nil {
+			t.Fatal(err)
+		}
+		if err := runPreflight(root, "service"); !errors.Is(err, errPreflightFailed) {
+			t.Errorf("expected errPreflightFailed, got %v", err)
+		}
+	})
+
+	// --type ui: 只查 dsl + ui，缺 service 不影响通过
+	t.Run("ui type ignores missing service", func(t *testing.T) {
+		root := mkValidLayout(t)
+		if err := os.RemoveAll(filepath.Join(root, "apps", "service")); err != nil {
+			t.Fatal(err)
+		}
+		out := captureStdout(t, func() {
+			if err := runPreflight(root, "ui"); err != nil {
+				t.Errorf("ui preflight: unexpected error %v", err)
+			}
+		})
+		if strings.Contains(out, "apps/service") {
+			t.Errorf("ui type should not check apps/service: %q", out)
+		}
+	})
+
+	t.Run("rejects unknown type", func(t *testing.T) {
+		root := mkValidLayout(t)
+		err := runPreflight(root, "bogus")
+		if err == nil || errors.Is(err, errPreflightFailed) {
+			t.Errorf("expected a plain invalid-type error, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "invalid --type") {
+			t.Errorf("error should name the offending flag: %v", err)
 		}
 	})
 }

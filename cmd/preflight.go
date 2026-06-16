@@ -1,9 +1,10 @@
 /**
  * [INPUT]: 依赖 errors、fmt、os、path/filepath、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newPreflightCmd 函数、errPreflightFailed 哨兵错误
- * [POS]: cmd 模块的顶层 preflight 命令，校验工作目录是否具备 Make app 必需工程骨架
- *        （apps/dsl 目录 + apps/service/package.json + apps/ui/package.json）；
- *        任一缺失返回 errPreflightFailed（由 main.go 转译为退出码 1），作 CI / deploy 前置门禁
+ * [POS]: cmd 模块的顶层 preflight 命令，按 --type（fullstack/service/ui，默认 fullstack）
+ *        校验工作目录是否具备对应形态的 Make app 必需工程骨架——apps/dsl 是身份核心三形态必查，
+ *        service / ui 按形态增减；任一缺失返回 errPreflightFailed（由 main.go 转译为退出码 1），
+ *        作 CI / deploy 前置门禁
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -33,30 +34,43 @@ type layoutEntry struct {
 	dir  bool
 }
 
-// requiredLayout 是 Make app 工程的必需骨架——deploy 前置门禁。
-// dsl 目录承载 DSL 定义；service / ui 各自是带 package.json 的 Node 子工程。
-var requiredLayout = []layoutEntry{
-	{"apps/dsl", true},
-	{"apps/service/package.json", false},
-	{"apps/ui/package.json", false},
+// 三块工程骨架的基本单元：dsl 目录承载 DSL 定义（app.yaml 身份核心驻于此），
+// service / ui 各自是带 package.json 的 Node 子工程。
+var (
+	layoutDSL     = layoutEntry{"apps/dsl", true}
+	layoutService = layoutEntry{"apps/service/package.json", false}
+	layoutUI      = layoutEntry{"apps/ui/package.json", false}
+)
+
+// layoutByType 把工程形态映射到必需骨架——deploy 前置门禁。
+// apps/dsl 是 Make app 身份核心，三形态都必查；service / ui 按形态增减。
+//   fullstack: dsl + service + ui    service: dsl + service    ui: dsl + ui
+var layoutByType = map[string][]layoutEntry{
+	"fullstack": {layoutDSL, layoutService, layoutUI},
+	"service":   {layoutDSL, layoutService},
+	"ui":        {layoutDSL, layoutUI},
 }
 
 // ---------------------------------- 命令定义 ----------------------------------
 
 func newPreflightCmd() *cobra.Command {
+	var projectType string
 	cmd := &cobra.Command{
 		Use:   "preflight [dir]",
 		Short: "Check the directory has a valid Make app project layout",
-		Long: `Preflight verifies the directory contains the required Make app skeleton:
+		Long: `Preflight verifies the directory contains the required Make app skeleton
+for the chosen project type (--type, default fullstack):
 
-  apps/dsl/                  DSL definitions (directory)
-  apps/service/package.json  backend service (Node project)
-  apps/ui/package.json       frontend ui (Node project)
+  fullstack  apps/dsl/ + apps/service/package.json + apps/ui/package.json
+  service    apps/dsl/ + apps/service/package.json          (backend only)
+  ui         apps/dsl/ + apps/ui/package.json               (frontend only)
 
+apps/dsl/ holds the DSL definitions and is required in every type.
 Any missing entry fails the check (exit code 1), so it can gate CI or deploy.
 The directory defaults to the current working directory.`,
 		Example: `  makecli preflight
-  makecli preflight ./my-app`,
+  makecli preflight ./my-app
+  makecli preflight --type service`,
 		Args:          cobra.MaximumNArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true, // 检查未过返回 errPreflightFailed 仅作退出码信号，不打印 error: 行
@@ -65,9 +79,10 @@ The directory defaults to the current working directory.`,
 			if len(args) == 1 {
 				root = args[0]
 			}
-			return reportPreflightError(cmd, runPreflight(root))
+			return reportPreflightError(cmd, runPreflight(root, projectType))
 		},
 	}
+	cmd.Flags().StringVar(&projectType, "type", "fullstack", "project type: fullstack (ui+service), service (service only), ui (ui only)")
 	return cmd
 }
 
@@ -80,17 +95,23 @@ func reportPreflightError(cmd *cobra.Command, err error) error {
 	return err
 }
 
-// runPreflight 逐项 stat requiredLayout，打印 ✓ / ✗ 清单。
-// 任一项缺失或类型不符 → 返回 errPreflightFailed（退出码 1）。
-func runPreflight(root string) error {
+// runPreflight 按 projectType 选定必需骨架，逐项 stat 打印 ✓ / ✗ 清单。
+// 未知形态返回普通错误；任一项缺失或类型不符 → 返回 errPreflightFailed（退出码 1）。
+func runPreflight(root, projectType string) error {
+	layout, ok := layoutByType[projectType]
+	if !ok {
+		return fmt.Errorf("invalid --type %q: must be fullstack, service, or ui", projectType)
+	}
+
 	display := root
 	if abs, err := filepath.Abs(root); err == nil {
 		display = abs
 	}
-	fmt.Printf("%-10s %s\n\n", "Project:", display)
+	fmt.Printf("%-10s %s\n", "Project:", display)
+	fmt.Printf("%-10s %s\n\n", "Type:", projectType)
 
 	failed := 0
-	for _, e := range requiredLayout {
+	for _, e := range layout {
 		if err := checkLayoutEntry(root, e); err != nil {
 			fmt.Printf("✗ %-26s %s\n", e.path, err)
 			failed++
@@ -100,7 +121,7 @@ func runPreflight(root string) error {
 	}
 
 	if failed > 0 {
-		fmt.Printf("\nFAIL: %d/%d checks failed — not a valid Make app project\n", failed, len(requiredLayout))
+		fmt.Printf("\nFAIL: %d/%d checks failed — not a valid Make app project\n", failed, len(layout))
 		return errPreflightFailed
 	}
 	fmt.Printf("\nOK: project layout looks good\n")
