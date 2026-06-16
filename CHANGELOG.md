@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.1] - 2026-06-16
+
+### ⚠ Breaking Changes
+
+- **deploy**: Pure-Go git via go-git — no longer shells out to the system `git`; the binary is now self-contained. Reads the app key from `apps/dsl/app.yaml` (single source of truth, no `--app` flag) and auto-commits a worktree snapshot before pushing
+
+### Features
+
+- **app**: Add a DESCRIPTION column to the `app list` table (sourced from app properties)
+- **update**: Sync Make platform skills during update (#17)
+
 ## [v0.4.0] - 2026-06-16
 
 ### ⚠ Breaking Changes
@@ -90,7 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.4.1...HEAD
+[v0.4.1]: https://github.com/qfeius/makecli/releases/tag/v0.4.1
 [v0.4.0]: https://github.com/qfeius/makecli/releases/tag/v0.4.0
 [v0.3.4]: https://github.com/qfeius/makecli/releases/tag/v0.3.4
 [v0.3.3]: https://github.com/qfeius/makecli/releases/tag/v0.3.3
