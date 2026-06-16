@@ -48,7 +48,7 @@ func TestRunAppInit(t *testing.T) {
 			t.Fatalf("runAppInit: %v", err)
 		}
 		for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
-			want, _ := agents.Templates.ReadFile(name)
+			want, _ := agents.Templates.ReadFile(name + ".tmpl")
 			got, _ := os.ReadFile(filepath.Join(dir, name))
 			if !bytes.Equal(got, want) {
 				t.Errorf("%s content mismatch", name)

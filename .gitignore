@@ -32,3 +32,6 @@ go.work.sum
 # .vscode/
 bin
 .claude/
+
+# Vendored reference source (not part of this repo)
+deps/

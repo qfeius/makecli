@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 context、encoding/json、io、net/http、net/http/httptest、strings、testing；包内 RegisterClient（白盒）
+ * [OUTPUT]: 覆盖 RFC 7591 动态客户端注册 RegisterClient 的单元测试（请求体断言 / 成功解析 / 缺 client_id 错误）
+ * [POS]: internal/oauth 模块 registration.go 的配套测试，用 httptest 隔离网络
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
+
 package oauth
 
 import (

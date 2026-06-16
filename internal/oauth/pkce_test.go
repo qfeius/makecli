@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 bytes、testing；包内 NewCodeVerifier / S256Challenge（白盒）
+ * [OUTPUT]: 覆盖 PKCE code verifier 生成（确定性种子 + 短 reader 错误）与 S256 challenge（RFC 7636 向量）的单元测试
+ * [POS]: internal/oauth 模块 pkce.go 的配套测试
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
+
 package oauth
 
 import (

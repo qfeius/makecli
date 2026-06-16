@@ -6,6 +6,7 @@ cache.go:        本地缓存层，cacheData(checked_at/latest_version/html_url)
 cache_test.go:   覆盖缓存往返 / 缺失零值 / 过期判定，用 MAKE_CLI_CONFIG_DIR 隔离文件系统
 decision.go:     纯判定层，notifierEnabled（三态 env>config>默认开，env 值先 TrimSpace：纯空白视为未设置、非法值下沉）/ shouldNotify（isReleaseVersion·CI·非TTY·skipCommands·空缓存逐条短路，DEV-guard 必须先于 CompareVersions）/ isReleaseVersion（拒绝 DEV/非法/任何带 prerelease 的版本——git-describe 伪版本 v0.3.0-16-g… 视为开发态，否则 semver「prerelease 低于正式版」会把降级误报成升级）/ renderNotice（提示写 io.Writer）；skipCommands={version,update,help,completion}
 decision_test.go: 穷举 notifierEnabled / shouldNotify 组合 + renderNotice 有/无 URL 两分支
+decision_trim_test.go: 覆盖 notifierEnabled 对 env 值做 TrimSpace —— 带首尾空白的开关值仍被正确解析
 notifier.go:     编排入口，Start（缓存过期才起 goroutine：先 cleanStaleTemps 清扫孤儿 temp，再调 update.CheckLatest 刷新；成功落盘版本，失败也落盘退避标记 CheckedAt=now+空版本，让慢/离线机器退避 checkInterval 不再每次 spawn，recover 兜底 panic）/ Finish（finishDeadline 收尾 select→LoadSettings→判定链→renderNotice 到 stderr）；isStderrTTY 包级闭包便于测试替换
 notifier_test.go: Start 刷新落盘 / 新鲜缓存跳过 / Finish 禁用不阻塞，用 httptest + SetAPIBaseURLForTest 隔离网络，<-done 确定性同步无 sleep
 backoff_test.go: 覆盖刷新失败退避落盘（CheckedAt 前进、版本留空、判为新鲜）/ cleanStaleTemps 删旧留新不碰真实缓存 / Start 过期刷新时清扫孤儿 temp，用 httptest + SetAPIBaseURLForTest 隔离网络

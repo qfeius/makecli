@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 fmt、os、path/filepath、github.com/spf13/cobra、github.com/qfeius/makecli/agents
  * [OUTPUT]: 对外提供 newAppInitCmd 函数
- * [POS]: cmd/app 的 init 子命令，在目标目录创建 CLAUDE.md 和 AGENTS.md（内容来自 embed）
+ * [POS]: cmd/app 的 init 子命令，在目标目录创建 CLAUDE.md 和 AGENTS.md（内容来自 embed 的 *.tmpl 模板，写出时去 .tmpl 后缀）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -49,9 +49,9 @@ func runAppInit(folder string) error {
 		}
 	}
 
-	// 从 embed.FS 读取模板并写出
+	// 从 embed.FS 读取模板并写出：源文件带 .tmpl 后缀，目标去掉后缀
 	for _, name := range initFiles {
-		data, err := agents.Templates.ReadFile(name)
+		data, err := agents.Templates.ReadFile(name + ".tmpl")
 		if err != nil {
 			return fmt.Errorf("read embedded %s: %w", name, err)
 		}

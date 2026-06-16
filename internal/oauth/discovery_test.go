@@ -1,3 +1,10 @@
+/**
+ * [INPUT]: 依赖 context、net/http、net/http/httptest、strings、testing；包内 Discover（白盒）
+ * [OUTPUT]: 覆盖 Discover 的单元测试（成功解析端点 / 500 错误 / 缺 authz·token 端点）
+ * [POS]: internal/oauth 模块 discovery.go 的配套测试，用 httptest 隔离网络
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
+
 package oauth
 
 import (
