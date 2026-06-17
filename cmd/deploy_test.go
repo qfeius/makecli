@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runDeploy / pushCurrentHead / gitPushFunc / initGitRepo / stageAndCommit（包内白盒）、enterAppDir(写 apps/dsl/app.yaml + chdir)、gitCommitAll(init+commit 当前目录)，encoding/json、errors、fmt、net/http、net/http/httptest、os、path/filepath、strings、testing、github.com/go-git/go-git/v5（及 plumbing/object 子包）
- * [OUTPUT]: 覆盖 deploy 子命令核心逻辑的单元测试（runDeploy 编排：本地真仓库门控 + gitPushFunc 桩隔离推送；pushCurrentHead 真 go-git 推到本地裸仓库；fail-fast 脏/无仓库/无提交报错且不触网）
- * [POS]: cmd 模块 deploy.go 的配套测试，用 httptest 隔离网络、gitPushFunc 打桩隔离推送、临时裸仓库做本地 remote 验证真实 go-git 行为
+ * [OUTPUT]: 覆盖 deploy 子命令核心逻辑的单元测试（runDeploy 编排：本地真仓库门控 + Meta 注册门控（GetApp）+ gitPushFunc 桩隔离推送；app 未注册/校验错误均短路在触达仓库服务之前且不 push；pushCurrentHead 真 go-git 推到本地裸仓库；fail-fast 脏/无仓库/无提交报错且不触网）
+ * [POS]: cmd 模块 deploy.go 的配套测试，用 httptest 隔离网络（newAppExistsMeta 放行注册门控、stubMetaServer 临时指向 Meta、newMockRepoServer 答仓库地址、noNetRepoServer 证短路不触网）、gitPushFunc 打桩隔离推送、临时裸仓库做本地 remote 验证真实 go-git 行为
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -94,6 +94,29 @@ func newMockRepoServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
+// newAppExistsMeta 启动一个把 GetResource 都答成「app 已注册」的 Meta Server mock
+// （data.key 非空 → GetApp 不返回 ErrNotFound），放行 deploy 的注册门控。
+func newAppExistsMeta(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code": 200, "msg": "ok",
+			"data": map[string]any{"key": "app", "name": "app", "type": "Make.App"},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// stubMetaServer 测试期间把 Meta Server 指向给定 URL，结束自动还原
+func stubMetaServer(t *testing.T, url string) {
+	t.Helper()
+	old := MetaServerURL
+	MetaServerURL = url
+	t.Cleanup(func() { MetaServerURL = old })
+}
+
 // noNetRepoServer 启动一个被调用即令测试失败的仓库服务——证明 fail-fast 在网络之前短路。
 func noNetRepoServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -111,6 +134,7 @@ func setupDeployEnv(t *testing.T) *pushCall {
 	t.Setenv("HOME", t.TempDir())
 	saveDefaultToken(t)
 	gitCommitAll(t)
+	stubMetaServer(t, newAppExistsMeta(t).URL)
 	RepoServerURL = newMockRepoServer(t).URL
 	t.Cleanup(func() { RepoServerURL = "" })
 	p := &pushCall{}
@@ -167,6 +191,7 @@ func TestRunDeploy(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		gitCommitAll(t)
+		stubMetaServer(t, newAppExistsMeta(t).URL)
 		RepoServerURL = newMockRepoServer(t).URL
 		t.Cleanup(func() { RepoServerURL = "" })
 		p := &pushCall{}
@@ -296,11 +321,62 @@ func TestRunDeploy(t *testing.T) {
 		}
 	})
 
+	t.Run("fails when app is not registered", func(t *testing.T) {
+		enterAppDir(t, "myapp")
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		gitCommitAll(t) // 本地门控通过，才走到 app 注册门控
+		meta := newMockMeta(t, 200, "ok")
+		t.Cleanup(meta.Close)
+		stubMetaServer(t, meta.URL) // data 为空 → GetApp 返回 ErrNotFound
+		RepoServerURL = noNetRepoServer(t).URL
+		t.Cleanup(func() { RepoServerURL = "" })
+		p := &pushCall{}
+		p.install(t)
+
+		err := runDeploy("preview", false)
+		if err == nil {
+			t.Fatal("expected error when app is not registered")
+		}
+		if !strings.Contains(err.Error(), "app create") {
+			t.Errorf("error should guide to `app create`, got: %v", err)
+		}
+		if p.called {
+			t.Error("push must not run for an unregistered app")
+		}
+	})
+
+	t.Run("fails when registration check errors", func(t *testing.T) {
+		enterAppDir(t, "myapp")
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		gitCommitAll(t)
+		meta := newMockMeta(t, 500, "meta exploded")
+		t.Cleanup(meta.Close)
+		stubMetaServer(t, meta.URL) // 非 not-found 错误 → 不放行，且不当作「不存在」
+		RepoServerURL = noNetRepoServer(t).URL
+		t.Cleanup(func() { RepoServerURL = "" })
+		p := &pushCall{}
+		p.install(t)
+
+		err := runDeploy("preview", false)
+		if err == nil {
+			t.Fatal("expected error when registration check fails")
+		}
+		if strings.Contains(err.Error(), "app create") {
+			t.Errorf("transport/server error must not be reported as not-registered, got: %v", err)
+		}
+		if p.called {
+			t.Error("push must not run when registration check errors")
+		}
+	})
+
 	t.Run("fails on repository API error", func(t *testing.T) {
 		enterAppDir(t, "myapp")
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		gitCommitAll(t)
+		stubMetaServer(t, newAppExistsMeta(t).URL)
 		srv := newMockMeta(t, 500, "repository could not be prepared")
 		t.Cleanup(srv.Close)
 		RepoServerURL = srv.URL
@@ -317,6 +393,7 @@ func TestRunDeploy(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		gitCommitAll(t)
+		stubMetaServer(t, newAppExistsMeta(t).URL)
 		srv := newMockMeta(t, 200, "ok") // data 为空 → 无 cloneUrl
 		t.Cleanup(srv.Close)
 		RepoServerURL = srv.URL

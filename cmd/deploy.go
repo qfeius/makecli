@@ -1,9 +1,10 @@
 /**
- * [INPUT]: 依赖 cmd/client（newRepoClientFromProfile）、cmd/app（loadAppManifestFromFile/validResourceKey）、cmd/app_create（appDSLPath）、cmd/git（openRepo/assertDeployable）、errors、fmt、os、slices、strings、github.com/go-git/go-git/v5（及 config/plumbing/transport/http 子包）、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newDeployCmd 函数；包级 gitPushFunc 可打桩变量（测试替换推送，参照 update.go applyFunc 模式）
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile/newRepoClientFromProfile）、cmd/app（loadAppManifestFromFile/validResourceKey）、cmd/app_create（appDSLPath）、cmd/git（openRepo/assertDeployable）、internal/api（ErrNotFound 哨兵）、errors、fmt、os、slices、strings、github.com/go-git/go-git/v5（及 config/plumbing/transport/http 子包）、github.com/spf13/cobra
+ * [OUTPUT]: 对外提供 newDeployCmd 函数；包内 assertAppRegistered（push 前 Meta 注册门控）；包级 gitPushFunc 可打桩变量（测试替换推送，参照 update.go applyFunc 模式）
  * [POS]: cmd 模块 app 命令组的 deploy 子命令——「纯 push 已提交状态」。从 apps/dsl/app.yaml 读 app key，
  *        本地先行门控（openRepo 要求已 init、assertDeployable 要求有 commit 且工作树干净，脏/无仓库/无提交即报错，
- *        全在网络调用之前 fail-fast），再幂等准备 preview/production 仓库（MakeService.CreateResource）取 cloneUrl，
+ *        全在网络调用之前 fail-fast），再经 assertAppRegistered 用 Meta GetApp 把关 app 已注册（不存在即指引 app create -f，
+ *        避免「有仓库、无 app」孤儿状态；在建仓库/推送之前短路），再幂等准备 preview/production 仓库（MakeService.CreateResource）取 cloneUrl，
  *        用 go-git（纯 Go，不 shell-out）把当前 HEAD 推到固定分支（deployBranch，webhook 约定）；token 走 HTTP BasicAuth(make:<token>)。
  *        提交时机交还用户——deploy 不再自动 add/commit（建仓+ignore 由 `makecli app init` 负责）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -22,6 +23,7 @@ import (
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/qfeius/makecli/internal/api"
 	"github.com/spf13/cobra"
 )
 
@@ -83,6 +85,13 @@ func runDeploy(env string, force bool) error {
 		return err
 	}
 
+	// app 身份真相在 Meta Server——push 之前确认已注册，否则只 init 过的本地工程也能
+	// 推成功，留下「有仓库、无 app」的孤儿状态（app list 看不到）。网络门控，但刻意在
+	// 建仓库/推送之前：既不为不存在的 app 建孤儿仓库，也不白推一趟。
+	if err := assertAppRegistered(appKey); err != nil {
+		return err
+	}
+
 	client, token, err := newRepoClientFromProfile()
 	if err != nil {
 		return err
@@ -127,6 +136,26 @@ func appKeyFromDSL() (string, error) {
 		return "", fmt.Errorf("invalid app key in %s: %w", appDSLPath, err)
 	}
 	return manifest.Key, nil
+}
+
+// assertAppRegistered 确认 appKey 已在 Meta Server 注册为 App。
+// deploy 推的是代码仓库，但 app 身份的真相在 Meta Server——跳过此关，
+// 一个只 `app init` 过、从未 `app create` 的 key 也能 push 成功，留下「有仓库、无 app」
+// 的孤儿状态。故 push 之前先 GetApp 把关：不存在给可操作错误指引按 app.yaml 注册远端
+// （-f 形式取 app.yaml 里的精确 key，不像裸 key 会误建子目录），其余错误（网络/服务端）
+// 原样上抛、绝不放行。
+func assertAppRegistered(appKey string) error {
+	client, err := newClientFromProfile()
+	if err != nil {
+		return err
+	}
+	if _, err := client.GetApp(appKey); err != nil {
+		if errors.Is(err, api.ErrNotFound) {
+			return fmt.Errorf("app '%s' 尚未在 Make 平台注册，请先创建: makecli app create -f %s", appKey, appDSLPath)
+		}
+		return fmt.Errorf("校验 app 是否存在失败: %w", err)
+	}
+	return nil
 }
 
 // pushCurrentHead 把仓库当前 HEAD 推送到部署分支。
