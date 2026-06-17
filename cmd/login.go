@@ -126,12 +126,16 @@ func runLogin(timeout time.Duration, noOpenBrowser bool) error {
 		return err
 	}
 
-	if noOpenBrowser {
-		fmt.Printf("Open this URL and finish authorization:\n%s\n", authURL)
-	} else if err := openBrowserFunc(authURL); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to open browser: %v\n", err)
-		fmt.Printf("Open this URL manually:\n%s\n", authURL)
+	// 始终展示授权链接（单一打印点）：无论浏览器自动打开成功、失败还是
+	// --no-open-browser，用户都能看到并手动复制——消除「按浏览器成败决定是否打印」的特殊分支。
+	fmt.Printf("\n在浏览器中打开以下链接进行认证:\n\n  %s\n\n", authURL)
+	if !noOpenBrowser {
+		if err := openBrowserFunc(authURL); err != nil {
+			fmt.Fprintf(os.Stderr, "警告: 自动打开浏览器失败，请手动复制上面的链接: %v\n", err)
+		}
 	}
+
+	fmt.Println("等待用户授权...")
 
 	waitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -139,6 +143,8 @@ func runLogin(timeout time.Duration, noOpenBrowser bool) error {
 	if err != nil {
 		return err
 	}
+
+	fmt.Println("已收到授权确认，正在校验并换取访问令牌...")
 
 	token, err := oauth.ExchangeAuthorizationCode(ctx, httpClient, oauth.TokenExchangeRequest{
 		TokenEndpoint: meta.TokenEndpoint,
