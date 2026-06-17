@@ -19,21 +19,76 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// ---------------------------------- sample 模板 ----------------------------------
+
+// sampleConfig 是 `configure --sample` 输出的带注释 INI 参考模板，展示全部可配置项。
+// profile 覆盖键以占位值平铺展示（非注释），当参考卡用——直写需替换占位主机名或删行回退
+// 环境 preset。新增可配置键须同步此处，configure_test.go 的完整性测试守护其不漏键、活跃值
+// 经真实 loader 校验。
+const sampleConfig = `# MakeCLI configuration reference - every available key with placeholder values.
+# Location: ~/.make/config   (override the directory with $MAKE_CLI_CONFIG_DIR)
+#
+# Redirect to create a config, then edit the placeholder values:
+#     makecli configure --sample > ~/.make/config
+# Or set keys one by one:
+#     makecli configure set <key> <value>
+#
+# Access tokens are NOT here - they live in ~/.make/credentials
+# (set one with: makecli configure token   or: makecli login).
+
+# ===== Global settings (shared by every profile) =====
+[settings]
+# Active backend environment. One of: dev, test, production
+environment = dev
+# Auto-update notifier. true | false
+check-for-updates = true
+
+# ===== Profile: default (select another with --profile <name>) =====
+# These override the environment preset and are optional - replace the
+# placeholders, or delete a line to fall back to the preset for that host.
+[default]
+# Meta Server host (the gateway prefix /api/make is added automatically)
+meta-server-url = meta.dev.example.com
+# Code Repository Server host
+repo-server-url = repo.dev.example.com
+# OAuth identity server base (used by the login command)
+auth-server-url = myaccount.dev.example.com
+# Tenant / operator headers injected on every outbound request
+X-Tenant-ID = your-tenant-id
+X-Operator-ID = your-operator-id
+`
+
 // ---------------------------------- 命令组 ----------------------------------
 
 func newConfigureCmd() *cobra.Command {
+	var sample bool
 	cmd := &cobra.Command{
-		Use:          "configure",
-		Short:        "Configure MakeCLI credentials and settings",
+		Use:   "configure",
+		Short: "Configure MakeCLI credentials and settings",
+		Example: `  # interactive access-token setup (default action)
+  makecli configure
+
+  # print a sample config showing every available key
+  makecli configure --sample
+
+  # non-interactively set / read a single value
+  makecli configure set environment test
+  makecli configure get environment`,
 		SilenceUsage: true,
 		// 所有 configure 子命令统一前置校验 profile 名（settings 为保留段名，不可作 profile）
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			return config.ValidateProfileName(Profile)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if sample {
+				fmt.Print(sampleConfig)
+				return nil
+			}
 			return runConfigureToken()
 		},
 	}
+
+	cmd.Flags().BoolVar(&sample, "sample", false, "print a sample ~/.make/config to stdout and exit")
 
 	cmd.AddCommand(newConfigureTokenCmd())
 	cmd.AddCommand(newConfigureConfigCmd())
@@ -184,8 +239,23 @@ func setEnvironment(value string) error {
 
 func newConfigureSetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:          "set <key> <value>",
-		Short:        "Set a config value (writes to ~/.make/config)",
+		Use:   "set <key> <value>",
+		Short: "Set a config value (writes to ~/.make/config)",
+		Long: fmt.Sprintf(`Set a single config value as "<key> <value>" — exactly two args, no section name.
+
+Most keys write to the current --profile section: %s
+The special key "environment" instead writes to the global [settings] section
+(shared by every profile) and only accepts: %s`,
+			strings.Join(validConfigKeys, ", "),
+			strings.Join(config.EnvironmentNames(), ", ")),
+		Example: `  # switch backend environment (global, affects every profile)
+  makecli configure set environment test
+
+  # point the current profile at a custom meta server host
+  makecli configure set meta-server-url meta.dev.example.com
+
+  # set the tenant header for a specific profile
+  makecli --profile staging configure set X-Tenant-ID 1024`,
 		Args:         cobra.ExactArgs(2),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -226,8 +296,18 @@ func runConfigureSet(key, value string) error {
 
 func newConfigureGetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:          "get <key>",
-		Short:        "Get a config value from ~/.make/config",
+		Use:   "get <key>",
+		Short: "Get a config value from ~/.make/config",
+		Long: fmt.Sprintf(`Read a single config value by key.
+
+Profile keys: %s
+The special key "environment" reads the global [settings] section.`,
+			strings.Join(validConfigKeys, ", ")),
+		Example: `  # read the active backend environment (global)
+  makecli configure get environment
+
+  # read a profile config value
+  makecli configure get meta-server-url`,
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
