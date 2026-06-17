@@ -1,10 +1,11 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile/newRepoClientFromProfile）、cmd/app（loadAppManifestFromFile、validResourceKey、defaultName）、cmd/apply（ResourceManifest）、agents（embed 模板）、bytes、fmt、os、path/filepath、gopkg.in/yaml.v3、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newAppCreateCmd 函数；包内 runAppCreate / assertScaffoldClear / writeScaffold / renderAppDSL / newAppManifest / deriveAppKey
- * [POS]: cmd/app 的 create 子命令——合并了原 app init：一条命令完成 本地脚手架 + 远端 App + 代码仓库。
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile/newRepoClientFromProfile）、cmd/app（loadAppManifestFromFile、validResourceKey、defaultName）、cmd/apply（ResourceManifest）、cmd/git（initGitRepo/ensureGitignore/stageAndCommit）、agents（embed 模板）、bytes、fmt、os、path/filepath、github.com/go-git/go-git/v5、gopkg.in/yaml.v3、github.com/spf13/cobra
+ * [OUTPUT]: 对外提供 newAppCreateCmd 函数；包内 runAppCreate / assertScaffoldClear / writeScaffold / scaffoldGit / renderAppDSL / newAppManifest / deriveAppKey
+ * [POS]: cmd/app 的 create 子命令——一条命令完成 本地脚手架 + 远端 App + git 仓库 + 代码仓库。
  *        位置参数 <appKey> 同时是「目录名 + key」（filepath.Base(filepath.Abs(arg)) 推导，`.`/`..` 隐藏便利），
- *        validResourceKey 把关；写 CLAUDE.md/AGENTS.md/.gitignore（embed 模板，scaffoldFile 映射 embed→out 名）+ apps/dsl/app.yaml（ResourceManifest 序列化，与 apply/diff 同结构往返）；.gitignore 让 deploy 的 git add -A 不吞 node_modules；
- *        执行序「远端先行」：存在性预检(assertScaffoldClear,只读)→CreateApp→writeScaffold，远端失败时本地零残留，重跑干净；本地/远端冲突即拒绝（提示删除重建）；
+ *        validResourceKey 把关；写 CLAUDE.md/AGENTS.md（embed 模板，scaffoldFile 映射 embed→out 名）+ apps/dsl/app.yaml（ResourceManifest 序列化，与 apply/diff 同结构往返）；
+ *        执行序「远端先行」：存在性预检(assertScaffoldClear,只读)→CreateApp→writeScaffold→scaffoldGit(init+.gitignore+initial commit)→prepareCodeRepos，远端失败时本地零残留，重跑干净；本地/远端冲突即拒绝（提示删除重建）；
+ *        scaffoldGit 复用 app init 内核再加一次 initial commit，使 create 产物即干净可 deploy；git 失败降级 stderr 警告（不阻断已成功的远端创建）；
  *        prepareCodeRepos 成功静默（仅 deploy 关心仓库地址），失败降级为 stderr 警告；-f 文件模式仅建远端不脚手架
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -17,21 +18,20 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/qfeius/makecli/agents"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
 
-// scaffoldFile 把 embed 模板名映射到写出文件名——多数同名去 .tmpl，
-// .gitignore 是例外（embed 名不能带前导点，故用 gitignore.tmpl 显式映射）。
+// scaffoldFile 把 embed 模板名映射到写出文件名（同名去 .tmpl 后缀）。
 type scaffoldFile struct{ embed, out string }
 
-// scaffoldTemplates 是脚手架从 embed 写出的引导文件。
-// .gitignore 让 deploy 的 git add -A 不会吞掉 node_modules / 构建产物 / 密钥。
+// scaffoldTemplates 是脚手架从 embed 写出的引导文档。
+// .gitignore 不在此列——它由 scaffoldGit 经 ensureGitignore 幂等管理（与 app init 同一真相源）。
 var scaffoldTemplates = []scaffoldFile{
 	{"CLAUDE.md.tmpl", "CLAUDE.md"},
 	{"AGENTS.md.tmpl", "AGENTS.md"},
-	{"gitignore.tmpl", ".gitignore"},
 }
 
 // appDSLPath 是 App DSL 种子在工程内的相对路径（对齐 preflight 骨架）
@@ -98,9 +98,39 @@ func runAppCreate(folder, displayName, description string) error {
 		return err
 	}
 
+	scaffoldGit(folder, appKey)
+
 	fmt.Printf("App '%s' created successfully\n", appKey)
 	prepareCodeRepos(appKey)
 	return nil
+}
+
+// scaffoldGit 把脚手架目录变成可立即部署的 git 仓库：init（幂等）+ .gitignore + 一次 initial commit。
+// 与 app init 共享内核（initGitRepo / ensureGitignore），但额外做 commit——使 create 产物即干净、可直接 deploy。
+// 失败仅降级为 stderr 警告（同 prepareCodeRepos 档）：远端 App 与本地脚手架均已就绪，
+// git 没起来属可单独补救（重跑 `makecli app init` + 手动 commit），不该让已成功的 create 报全败。
+// 全程不写 stdout——保持成功输出仅 `App 'X' created successfully` 一行。
+func scaffoldGit(folder, appKey string) {
+	if _, err := initGitRepo(folder); err != nil {
+		warnGit(err)
+		return
+	}
+	if _, err := ensureGitignore(folder); err != nil {
+		warnGit(err)
+		return
+	}
+	repo, err := git.PlainOpen(folder)
+	if err != nil {
+		warnGit(err)
+		return
+	}
+	if _, err := stageAndCommit(repo, fmt.Sprintf("Initial scaffold for %s", appKey)); err != nil {
+		warnGit(err)
+	}
+}
+
+func warnGit(err error) {
+	fmt.Fprintf(os.Stderr, "warning: git not initialized: %v (run 'makecli app init')\n", err)
 }
 
 // deriveAppKey 从目录参数推导 appKey：取绝对路径的 basename，统一覆盖 `shop` / `.` / `..`。
@@ -149,8 +179,8 @@ func assertScaffoldClear(folder string) error {
 	return nil
 }
 
-// writeScaffold 写出本地工程骨架：CLAUDE.md / AGENTS.md / .gitignore（embed 模板）+ apps/dsl/app.yaml（DSL 种子）。
-// 假定目标已由 assertScaffoldClear 确认为空；仅在远端 App 创建成功后调用。
+// writeScaffold 写出本地工程骨架：CLAUDE.md / AGENTS.md（embed 模板）+ apps/dsl/app.yaml（DSL 种子）。
+// .gitignore 不在此——由 scaffoldGit 经 ensureGitignore 管理。假定目标已由 assertScaffoldClear 确认为空；仅在远端 App 创建成功后调用。
 func writeScaffold(folder string, manifest ResourceManifest) error {
 	if err := os.MkdirAll(folder, 0755); err != nil {
 		return fmt.Errorf("create '%s': %w", folder, err)

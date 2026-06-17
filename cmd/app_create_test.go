@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/qfeius/makecli/internal/config"
 )
 
@@ -68,7 +69,8 @@ func TestRenderAppDSL(t *testing.T) {
 // ---------------------------------- 本地脚手架 ----------------------------------
 
 func TestWriteScaffold(t *testing.T) {
-	scaffoldFiles := []string{"CLAUDE.md", "AGENTS.md", ".gitignore", filepath.Join("apps", "dsl", "app.yaml")}
+	// .gitignore 不再由 writeScaffold 写出（移交 scaffoldGit/ensureGitignore）
+	scaffoldFiles := []string{"CLAUDE.md", "AGENTS.md", filepath.Join("apps", "dsl", "app.yaml")}
 
 	t.Run("creates agent files and app.yaml", func(t *testing.T) {
 		dir := t.TempDir()
@@ -106,20 +108,6 @@ func TestWriteScaffold(t *testing.T) {
 		}
 	})
 
-	t.Run(".gitignore excludes node_modules so deploy won't commit it", func(t *testing.T) {
-		dir := t.TempDir()
-		if err := writeScaffold(dir, newAppManifest("shop", "shop", "")); err != nil {
-			t.Fatalf("writeScaffold: %v", err)
-		}
-		data, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
-		if err != nil {
-			t.Fatalf("read .gitignore: %v", err)
-		}
-		if !strings.Contains(string(data), "node_modules") {
-			t.Errorf(".gitignore must ignore node_modules, got: %q", data)
-		}
-	})
-
 	t.Run("AGENTS.md includes runtime build contract", func(t *testing.T) {
 		dir := t.TempDir()
 		if err := writeScaffold(dir, newAppManifest("shop", "shop", "")); err != nil {
@@ -150,7 +138,8 @@ func TestAssertScaffoldClear(t *testing.T) {
 	})
 
 	t.Run("refuses when a scaffold file already exists", func(t *testing.T) {
-		for _, existing := range []string{"CLAUDE.md", "AGENTS.md", ".gitignore", filepath.Join("apps", "dsl", "app.yaml")} {
+		// .gitignore 不在预检之列——init 幂等增量管理，不做「存在即拒绝」
+		for _, existing := range []string{"CLAUDE.md", "AGENTS.md", filepath.Join("apps", "dsl", "app.yaml")} {
 			dir := t.TempDir()
 			target := filepath.Join(dir, existing)
 			_ = os.MkdirAll(filepath.Dir(target), 0755)
@@ -184,6 +173,41 @@ func TestRunAppCreate(t *testing.T) {
 		}
 		if m.Key != "shop" {
 			t.Errorf("appKey from folder name = %q, want shop", m.Key)
+		}
+	})
+
+	t.Run("scaffolds a clean git repo with an initial commit", func(t *testing.T) {
+		srv := newMockMeta(t, 200, "create app success")
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		MetaServerURL = srv.URL
+		stubRepoServer(t, srv.URL)
+
+		folder := filepath.Join(t.TempDir(), "shop")
+		if err := runAppCreate(folder, "", ""); err != nil {
+			t.Fatalf("runAppCreate: %v", err)
+		}
+
+		// .gitignore 由 scaffoldGit 写出并 ignore node_modules
+		data, err := os.ReadFile(filepath.Join(folder, ".gitignore"))
+		if err != nil {
+			t.Fatalf("read .gitignore: %v", err)
+		}
+		if !strings.Contains(string(data), "node_modules") {
+			t.Errorf(".gitignore must ignore node_modules, got: %q", data)
+		}
+
+		// 是一个有 HEAD（初始提交）且工作树干净的仓库——可立即 deploy
+		repo, err := git.PlainOpen(folder)
+		if err != nil {
+			t.Fatalf("create should leave a git repo: %v", err)
+		}
+		if _, err := repo.Head(); err != nil {
+			t.Errorf("expected an initial commit (HEAD): %v", err)
+		}
+		if err := assertDeployable(repo); err != nil {
+			t.Errorf("scaffolded repo should be immediately deployable: %v", err)
 		}
 	})
 

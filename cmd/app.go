@@ -34,6 +34,7 @@ func newAppCmd() *cobra.Command {
 		Short: "Manage apps",
 	}
 	cmd.AddCommand(newAppCreateCmd())
+	cmd.AddCommand(newAppInitCmd())
 	cmd.AddCommand(newAppListCmd())
 	cmd.AddCommand(newAppDeleteCmd())
 	cmd.AddCommand(newDeployCmd())

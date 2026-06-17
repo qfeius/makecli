@@ -1,9 +1,11 @@
 /**
- * [INPUT]: 依赖 cmd/client（newRepoClientFromProfile）、cmd/app（loadAppManifestFromFile/validResourceKey）、cmd/app_create（appDSLPath）、errors、fmt、os、slices、strings、time、github.com/go-git/go-git/v5（及 config/plumbing/object/transport/http 子包）、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newDeployCmd 函数；包级 gitDeployFunc 可打桩变量（测试替换，参照 update.go applyFunc 模式）
- * [POS]: cmd 模块 app 命令组的 deploy 子命令：从 apps/dsl/app.yaml（app 身份单一真相源）读取 app key，调用代码仓库服务幂等准备
- *        preview/production 双环境仓库（MakeService.CreateResource），按 --env 选取 cloneUrl 后用 go-git（纯 Go，不再 shell-out git）
- *        把当前工作树快照(必要时 git init + commit)推送到固定分支（deployBranch，webhook 约定）触发构建；token 走 HTTP BasicAuth(make:<token>)
+ * [INPUT]: 依赖 cmd/client（newRepoClientFromProfile）、cmd/app（loadAppManifestFromFile/validResourceKey）、cmd/app_create（appDSLPath）、cmd/git（openRepo/assertDeployable）、errors、fmt、os、slices、strings、github.com/go-git/go-git/v5（及 config/plumbing/transport/http 子包）、github.com/spf13/cobra
+ * [OUTPUT]: 对外提供 newDeployCmd 函数；包级 gitPushFunc 可打桩变量（测试替换推送，参照 update.go applyFunc 模式）
+ * [POS]: cmd 模块 app 命令组的 deploy 子命令——「纯 push 已提交状态」。从 apps/dsl/app.yaml 读 app key，
+ *        本地先行门控（openRepo 要求已 init、assertDeployable 要求有 commit 且工作树干净，脏/无仓库/无提交即报错，
+ *        全在网络调用之前 fail-fast），再幂等准备 preview/production 仓库（MakeService.CreateResource）取 cloneUrl，
+ *        用 go-git（纯 Go，不 shell-out）把当前 HEAD 推到固定分支（deployBranch，webhook 约定）；token 走 HTTP BasicAuth(make:<token>)。
+ *        提交时机交还用户——deploy 不再自动 add/commit（建仓+ignore 由 `makecli app init` 负责）。
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -15,12 +17,10 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/spf13/cobra"
 )
@@ -36,8 +36,8 @@ const deployBranch = "dev"
 // 仅存在于内存、不写进 .git/config，用完即弃——cloneUrl 每次部署才解析，不该污染用户仓库配置。
 const anonymousRemote = "anonymous"
 
-// gitDeployFunc 为包级可打桩变量，单测替换以隔离真实文件系统与网络推送
-var gitDeployFunc = gitDeploy
+// gitPushFunc 为包级可打桩变量，单测替换以隔离真实网络推送（本地仓库门控不打桩，跑真 go-git）
+var gitPushFunc = pushCurrentHead
 
 func newDeployCmd() *cobra.Command {
 	var env string
@@ -61,6 +61,9 @@ func newDeployCmd() *cobra.Command {
 	return cmd
 }
 
+// runDeploy 编排「纯 push 部署」：env 校验 → 读 app key → 本地 git 门控（fail-fast）→ 备仓库 → 推 HEAD。
+// 本地门控刻意在网络调用之前：脏工作树 / 无仓库 / 无提交都不该先白跑一趟仓库准备，
+// 提示用户先 commit 即可，零网络往返。
 func runDeploy(env string, force bool) error {
 	if !slices.Contains(deployEnvs, env) {
 		return fmt.Errorf("invalid --env %q: must be one of %s", env, strings.Join(deployEnvs, " | "))
@@ -71,18 +74,27 @@ func runDeploy(env string, force bool) error {
 		return err
 	}
 
+	// 本地先行门控：仓库须已 init、有提交、工作树干净——否则报错让用户先 commit（网络之前）
+	repo, err := openRepo()
+	if err != nil {
+		return err
+	}
+	if err := assertDeployable(repo); err != nil {
+		return err
+	}
+
 	client, token, err := newRepoClientFromProfile()
 	if err != nil {
 		return err
 	}
 
 	// CreateResource 幂等：组织/仓库不存在则创建，存在则复用，成功即可推送
-	repo, err := client.CreateRepository(appKey)
+	repoInfo, err := client.CreateRepository(appKey)
 	if err != nil {
 		return fmt.Errorf("准备代码仓库失败: %w", err)
 	}
 
-	cloneURL := repo.CloneURLFor(env)
+	cloneURL := repoInfo.CloneURLFor(env)
 	if cloneURL == "" {
 		return fmt.Errorf("服务端未返回 %s 环境的仓库地址", env)
 	}
@@ -91,7 +103,7 @@ func runDeploy(env string, force bool) error {
 	fmt.Printf("%-12s %s\n", "Environment:", env)
 	fmt.Printf("%-12s %s\n", "Repository:", cloneURL)
 
-	if err := gitDeployFunc(cloneURL, token, env, force); err != nil {
+	if err := gitPushFunc(repo, cloneURL, token, force); err != nil {
 		return err
 	}
 
@@ -117,81 +129,15 @@ func appKeyFromDSL() (string, error) {
 	return manifest.Key, nil
 }
 
-// gitDeploy 用 go-git（纯 Go）把当前工作树快照并推送到 cloneURL 的部署分支。
-// 语义是「快照即部署」：打开/初始化仓库 → 暂存全部改动（尊重 .gitignore）→ 有变更就自动提交 → 推送。
-// 每次都提交，确保 deploy 推的永远是当前工作树，而非停在旧 HEAD（否则二次 deploy 会悄悄推旧代码）。
-func gitDeploy(cloneURL, token, env string, force bool) error {
-	repo, err := openOrInitRepo()
-	if err != nil {
-		return err
-	}
-
-	if err := snapshotWorktree(repo, env); err != nil {
-		return err
-	}
-
+// pushCurrentHead 把仓库当前 HEAD 推送到部署分支。
+// 调用前 assertDeployable 已确认 HEAD 存在且工作树干净，故此处 Head() 失败属防御性错误。
+func pushCurrentHead(repo *git.Repository, cloneURL, token string, force bool) error {
 	head, err := repo.Head()
 	if err != nil {
 		return fmt.Errorf("仓库无可推送的提交: %w", err)
 	}
-
 	fmt.Printf("Pushing %s -> %s ...\n", head.Hash().String()[:7], deployBranch)
 	return pushHead(repo, head, cloneURL, token, force)
-}
-
-// openOrInitRepo 打开当前目录所属的 git 仓库；不存在则就地初始化。
-// DetectDotGit 让子目录里执行 deploy 也能找到仓库根（对齐 git 命令行的向上探测）。
-func openOrInitRepo() (*git.Repository, error) {
-	repo, err := git.PlainOpenWithOptions(".", &git.PlainOpenOptions{DetectDotGit: true})
-	if err == nil {
-		return repo, nil
-	}
-	if errors.Is(err, git.ErrRepositoryNotExists) {
-		return git.PlainInit(".", false)
-	}
-	return nil, fmt.Errorf("打开 git 仓库失败: %w", err)
-}
-
-// snapshotWorktree 暂存全部改动并在有变更时提交。
-// AddWithOptions{All} 等价 git add -A（含新增/删除，且尊重 .gitignore）；
-// 工作树干净时跳过提交，直接复用现有 HEAD——避免空提交。
-func snapshotWorktree(repo *git.Repository, env string) error {
-	w, err := repo.Worktree()
-	if err != nil {
-		return fmt.Errorf("读取工作树失败: %w", err)
-	}
-	if err := w.AddWithOptions(&git.AddOptions{All: true}); err != nil {
-		return fmt.Errorf("暂存改动失败: %w", err)
-	}
-
-	status, err := w.Status()
-	if err != nil {
-		return fmt.Errorf("读取工作树状态失败: %w", err)
-	}
-	if status.IsClean() {
-		return nil
-	}
-
-	msg := fmt.Sprintf("Deploy to %s", env)
-	if _, err := w.Commit(msg, &git.CommitOptions{Author: gitSignature(repo)}); err != nil {
-		return fmt.Errorf("提交失败: %w", err)
-	}
-	return nil
-}
-
-// gitSignature 解析提交署名：优先用用户 git 配置(user.name/email，含全局)，
-// 缺失则回退 makecli 身份——deploy 不该因为用户没配 git 身份就失败。
-func gitSignature(repo *git.Repository) *object.Signature {
-	name, email := "makecli", "makecli@make.local"
-	if cfg, err := repo.ConfigScoped(config.SystemScope); err == nil {
-		if cfg.User.Name != "" {
-			name = cfg.User.Name
-		}
-		if cfg.User.Email != "" {
-			email = cfg.User.Email
-		}
-	}
-	return &object.Signature{Name: name, Email: email, When: time.Now()}
 }
 
 // pushHead 把 head 指向的提交推送到临时 remote 的固定部署分支。

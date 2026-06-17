@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd 包内的 runDeploy / gitDeploy / gitDeployFunc（包内白盒）、enterAppDir(写 apps/dsl/app.yaml + chdir)，encoding/json、errors、fmt、net/http、net/http/httptest、os、path/filepath、strings、testing、github.com/go-git/go-git/v5（及 plumbing/object 子包）
- * [OUTPUT]: 覆盖 deploy 子命令核心逻辑的单元测试（runDeploy 编排：stub 隔离 git；gitDeploy 真 go-git：init+commit+gitignore+push 到本地裸仓库）
- * [POS]: cmd 模块 deploy.go 的配套测试，用 httptest 隔离网络、gitDeployFunc 打桩隔离文件系统/推送、临时裸仓库做本地 remote 验证真实 go-git 行为
+ * [INPUT]: 依赖 cmd 包内的 runDeploy / pushCurrentHead / gitPushFunc / initGitRepo / stageAndCommit（包内白盒）、enterAppDir(写 apps/dsl/app.yaml + chdir)、gitCommitAll(init+commit 当前目录)，encoding/json、errors、fmt、net/http、net/http/httptest、os、path/filepath、strings、testing、github.com/go-git/go-git/v5（及 plumbing/object 子包）
+ * [OUTPUT]: 覆盖 deploy 子命令核心逻辑的单元测试（runDeploy 编排：本地真仓库门控 + gitPushFunc 桩隔离推送；pushCurrentHead 真 go-git 推到本地裸仓库；fail-fast 脏/无仓库/无提交报错且不触网）
+ * [POS]: cmd 模块 deploy.go 的配套测试，用 httptest 隔离网络、gitPushFunc 打桩隔离推送、临时裸仓库做本地 remote 验证真实 go-git 行为
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -23,25 +23,24 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-// deployCall 打桩 gitDeployFunc：记录 runDeploy 传入的参数，按 err 返回。
-type deployCall struct {
+// pushCall 打桩 gitPushFunc：记录 runDeploy 传入的推送参数，按 err 返回。
+type pushCall struct {
 	cloneURL string
 	token    string
-	env      string
 	force    bool
 	called   bool
 	err      error
 }
 
-func (d *deployCall) install(t *testing.T) {
+func (p *pushCall) install(t *testing.T) {
 	t.Helper()
-	old := gitDeployFunc
-	gitDeployFunc = func(cloneURL, token, env string, force bool) error {
-		d.called = true
-		d.cloneURL, d.token, d.env, d.force = cloneURL, token, env, force
-		return d.err
+	old := gitPushFunc
+	gitPushFunc = func(_ *git.Repository, cloneURL, token string, force bool) error {
+		p.called = true
+		p.cloneURL, p.token, p.force = cloneURL, token, force
+		return p.err
 	}
-	t.Cleanup(func() { gitDeployFunc = old })
+	t.Cleanup(func() { gitPushFunc = old })
 }
 
 // enterAppDir 切到一个含 apps/dsl/app.yaml（key=<key>）的临时工程根目录。
@@ -56,6 +55,21 @@ func enterAppDir(t *testing.T, key string) {
 	}
 	content := fmt.Sprintf("key: %s\nname: %s\ntype: Make.App\nmeta:\n  version: 1.0.0\nproperties: {}\n", key, key)
 	writeTestFile(t, filepath.Join(dslDir, "app.yaml"), []byte(content))
+}
+
+// gitCommitAll 在 cwd 就地 init 仓库并提交全部文件，留下一个有 HEAD、工作树干净的可部署仓库。
+func gitCommitAll(t *testing.T) {
+	t.Helper()
+	if _, err := initGitRepo("."); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := git.PlainOpen(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stageAndCommit(repo, "test commit"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // newMockRepoServer 启动返回双环境仓库响应的代码仓库服务 mock
@@ -80,24 +94,35 @@ func newMockRepoServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// setupDeployEnv 准备工程目录(app.yaml key=myapp) + 凭证 + repo server 指向，返回安装好的 gitDeploy 桩
-func setupDeployEnv(t *testing.T) *deployCall {
+// noNetRepoServer 启动一个被调用即令测试失败的仓库服务——证明 fail-fast 在网络之前短路。
+func noNetRepoServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("repository service must not be called when local git gate fails")
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// setupDeployEnv 准备工程目录(app.yaml key=myapp，已 init+commit 干净) + 凭证 + repo server 指向，返回安装好的 push 桩
+func setupDeployEnv(t *testing.T) *pushCall {
 	t.Helper()
 	enterAppDir(t, "myapp")
 	t.Setenv("HOME", t.TempDir())
 	saveDefaultToken(t)
+	gitCommitAll(t)
 	RepoServerURL = newMockRepoServer(t).URL
 	t.Cleanup(func() { RepoServerURL = "" })
-	d := &deployCall{}
-	d.install(t)
-	return d
+	p := &pushCall{}
+	p.install(t)
+	return p
 }
 
-// ---------------------------------- runDeploy 编排（stub 隔离 git） ----------------------------------
+// ---------------------------------- runDeploy 编排（真仓库门控 + 推送桩） ----------------------------------
 
 func TestRunDeploy(t *testing.T) {
 	t.Run("deploys to preview", func(t *testing.T) {
-		d := setupDeployEnv(t)
+		p := setupDeployEnv(t)
 
 		out := captureStdout(t, func() {
 			if err := runDeploy("preview", false); err != nil {
@@ -105,13 +130,13 @@ func TestRunDeploy(t *testing.T) {
 			}
 		})
 
-		if d.cloneURL != "https://repo.example/org/myapp-preview.git" {
-			t.Errorf("clone url = %q, want preview repo", d.cloneURL)
+		if p.cloneURL != "https://repo.example/org/myapp-preview.git" {
+			t.Errorf("clone url = %q, want preview repo", p.cloneURL)
 		}
-		if d.env != "preview" || d.force {
-			t.Errorf("env=%q force=%v, want preview/false", d.env, d.force)
+		if p.force {
+			t.Errorf("force=%v, want false", p.force)
 		}
-		if d.token == "" {
+		if p.token == "" {
 			t.Error("token should not be empty")
 		}
 		if !strings.Contains(out, "Deployed 'myapp' to preview") {
@@ -120,7 +145,7 @@ func TestRunDeploy(t *testing.T) {
 	})
 
 	t.Run("passes production env and force", func(t *testing.T) {
-		d := setupDeployEnv(t)
+		p := setupDeployEnv(t)
 
 		_ = captureStdout(t, func() {
 			if err := runDeploy("production", true); err != nil {
@@ -128,11 +153,11 @@ func TestRunDeploy(t *testing.T) {
 			}
 		})
 
-		if d.cloneURL != "https://repo.example/org/myapp-production.git" {
-			t.Errorf("clone url = %q, want production repo", d.cloneURL)
+		if p.cloneURL != "https://repo.example/org/myapp-production.git" {
+			t.Errorf("clone url = %q, want production repo", p.cloneURL)
 		}
-		if d.env != "production" || !d.force {
-			t.Errorf("env=%q force=%v, want production/true", d.env, d.force)
+		if !p.force {
+			t.Errorf("force=%v, want true", p.force)
 		}
 	})
 
@@ -141,10 +166,11 @@ func TestRunDeploy(t *testing.T) {
 		enterAppDir(t, "fromdsl")
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
+		gitCommitAll(t)
 		RepoServerURL = newMockRepoServer(t).URL
 		t.Cleanup(func() { RepoServerURL = "" })
-		d := &deployCall{}
-		d.install(t)
+		p := &pushCall{}
+		p.install(t)
 
 		out := captureStdout(t, func() {
 			if err := runDeploy("preview", false); err != nil {
@@ -152,8 +178,8 @@ func TestRunDeploy(t *testing.T) {
 			}
 		})
 
-		if !d.called {
-			t.Error("expected gitDeploy to be called")
+		if !p.called {
+			t.Error("expected push to be called")
 		}
 		if !strings.Contains(out, "Deployed 'fromdsl' to preview") {
 			t.Errorf("expected app key from app.yaml in output, got: %q", out)
@@ -161,13 +187,13 @@ func TestRunDeploy(t *testing.T) {
 	})
 
 	t.Run("rejects invalid env", func(t *testing.T) {
-		d := setupDeployEnv(t)
+		p := setupDeployEnv(t)
 
 		if err := runDeploy("staging", false); err == nil {
 			t.Fatal("expected error for invalid env")
 		}
-		if d.called {
-			t.Error("gitDeploy should not run on invalid env")
+		if p.called {
+			t.Error("push should not run on invalid env")
 		}
 	})
 
@@ -187,17 +213,86 @@ func TestRunDeploy(t *testing.T) {
 		}
 	})
 
+	t.Run("fails fast when no git repository", func(t *testing.T) {
+		enterAppDir(t, "myapp") // 未 init
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		RepoServerURL = noNetRepoServer(t).URL
+		t.Cleanup(func() { RepoServerURL = "" })
+		p := &pushCall{}
+		p.install(t)
+
+		err := runDeploy("preview", false)
+		if err == nil {
+			t.Fatal("expected error when no git repository")
+		}
+		if !strings.Contains(err.Error(), "app init") {
+			t.Errorf("error should guide to `app init`, got: %v", err)
+		}
+		if p.called {
+			t.Error("push must not run without a repository")
+		}
+	})
+
+	t.Run("fails fast when nothing committed", func(t *testing.T) {
+		enterAppDir(t, "myapp")
+		if _, err := initGitRepo("."); err != nil { // init 但不 commit
+			t.Fatal(err)
+		}
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		RepoServerURL = noNetRepoServer(t).URL
+		t.Cleanup(func() { RepoServerURL = "" })
+		p := &pushCall{}
+		p.install(t)
+
+		err := runDeploy("preview", false)
+		if err == nil {
+			t.Fatal("expected error when nothing committed")
+		}
+		if !strings.Contains(err.Error(), "commit") {
+			t.Errorf("error should ask to commit, got: %v", err)
+		}
+		if p.called {
+			t.Error("push must not run with no commits")
+		}
+	})
+
+	t.Run("fails fast when working tree is dirty", func(t *testing.T) {
+		enterAppDir(t, "myapp")
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		gitCommitAll(t)
+		writeTestFile(t, "uncommitted.txt", []byte("dirty")) // 提交后再造未跟踪改动
+		RepoServerURL = noNetRepoServer(t).URL
+		t.Cleanup(func() { RepoServerURL = "" })
+		p := &pushCall{}
+		p.install(t)
+
+		err := runDeploy("preview", false)
+		if err == nil {
+			t.Fatal("expected error when working tree is dirty")
+		}
+		if !strings.Contains(err.Error(), "uncommitted") {
+			t.Errorf("error should mention uncommitted changes, got: %v", err)
+		}
+		if p.called {
+			t.Error("push must not run with a dirty tree")
+		}
+	})
+
 	t.Run("fails without credentials", func(t *testing.T) {
 		enterAppDir(t, "myapp")
 		t.Setenv("HOME", t.TempDir())
-		d := &deployCall{}
-		d.install(t)
+		gitCommitAll(t) // 本地门控通过，才走到凭证检查
+		p := &pushCall{}
+		p.install(t)
 
 		if err := runDeploy("preview", false); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
-		if d.called {
-			t.Error("gitDeploy should not run without credentials")
+		if p.called {
+			t.Error("push should not run without credentials")
 		}
 	})
 
@@ -205,11 +300,12 @@ func TestRunDeploy(t *testing.T) {
 		enterAppDir(t, "myapp")
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
+		gitCommitAll(t)
 		srv := newMockMeta(t, 500, "repository could not be prepared")
 		t.Cleanup(srv.Close)
 		RepoServerURL = srv.URL
 		t.Cleanup(func() { RepoServerURL = "" })
-		(&deployCall{}).install(t)
+		(&pushCall{}).install(t)
 
 		if err := runDeploy("preview", false); err == nil {
 			t.Fatal("expected error on API failure")
@@ -220,40 +316,47 @@ func TestRunDeploy(t *testing.T) {
 		enterAppDir(t, "myapp")
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
+		gitCommitAll(t)
 		srv := newMockMeta(t, 200, "ok") // data 为空 → 无 cloneUrl
 		t.Cleanup(srv.Close)
 		RepoServerURL = srv.URL
 		t.Cleanup(func() { RepoServerURL = "" })
-		(&deployCall{}).install(t)
+		(&pushCall{}).install(t)
 
 		if err := runDeploy("preview", false); err == nil {
 			t.Fatal("expected error when clone url missing")
 		}
 	})
 
-	t.Run("propagates git deploy error", func(t *testing.T) {
-		d := setupDeployEnv(t)
-		d.err = errors.New("push rejected")
+	t.Run("propagates push error", func(t *testing.T) {
+		p := setupDeployEnv(t)
+		p.err = errors.New("push rejected")
 
 		var err error
 		_ = captureStdout(t, func() { err = runDeploy("preview", false) })
 		if err == nil {
-			t.Fatal("expected gitDeploy error to propagate")
+			t.Fatal("expected push error to propagate")
 		}
 	})
 }
 
-// ---------------------------------- gitDeploy 真实 go-git（本地裸仓库做 remote） ----------------------------------
+// ---------------------------------- pushCurrentHead 真实 go-git（本地裸仓库做 remote） ----------------------------------
 
-func TestGitDeploy(t *testing.T) {
-	t.Run("inits, commits and pushes to dev branch", func(t *testing.T) {
+func TestPushCurrentHead(t *testing.T) {
+	t.Run("pushes committed HEAD to dev branch", func(t *testing.T) {
 		work := t.TempDir()
 		chdir(t, work)
+		t.Setenv("HOME", t.TempDir())
 		writeTestFile(t, filepath.Join(work, "code.txt"), []byte("v1"))
+		gitCommitAll(t)
 		bare := newBareRemote(t)
 
-		if err := gitDeploy(bare, "", "preview", false); err != nil {
-			t.Fatalf("gitDeploy: %v", err)
+		repo, err := git.PlainOpen(work)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := pushCurrentHead(repo, bare, "", false); err != nil {
+			t.Fatalf("pushCurrentHead: %v", err)
 		}
 
 		tree := devTree(t, bare)
@@ -262,47 +365,49 @@ func TestGitDeploy(t *testing.T) {
 		}
 	})
 
-	t.Run("respects .gitignore", func(t *testing.T) {
+	t.Run("clean redeploy is an up-to-date no-op", func(t *testing.T) {
 		work := t.TempDir()
 		chdir(t, work)
-		writeTestFile(t, filepath.Join(work, ".gitignore"), []byte("secret.txt\nnode_modules/\n"))
-		writeTestFile(t, filepath.Join(work, "keep.txt"), []byte("keep"))
-		writeTestFile(t, filepath.Join(work, "secret.txt"), []byte("token=abc"))
-		if err := os.MkdirAll(filepath.Join(work, "node_modules", "pkg"), 0755); err != nil {
+		t.Setenv("HOME", t.TempDir())
+		writeTestFile(t, filepath.Join(work, "code.txt"), []byte("v1"))
+		gitCommitAll(t)
+		bare := newBareRemote(t)
+		repo, err := git.PlainOpen(work)
+		if err != nil {
 			t.Fatal(err)
 		}
-		writeTestFile(t, filepath.Join(work, "node_modules", "pkg", "index.js"), []byte("junk"))
-		bare := newBareRemote(t)
 
-		if err := gitDeploy(bare, "", "preview", false); err != nil {
-			t.Fatalf("gitDeploy: %v", err)
+		if err := pushCurrentHead(repo, bare, "", false); err != nil {
+			t.Fatalf("first push: %v", err)
 		}
-
-		tree := devTree(t, bare)
-		if _, err := tree.File("keep.txt"); err != nil {
-			t.Errorf("keep.txt should be pushed: %v", err)
-		}
-		if _, err := tree.File("secret.txt"); !errors.Is(err, object.ErrFileNotFound) {
-			t.Errorf("secret.txt should be gitignored, got err=%v", err)
-		}
-		if _, err := tree.File("node_modules/pkg/index.js"); !errors.Is(err, object.ErrFileNotFound) {
-			t.Errorf("node_modules should be gitignored, got err=%v", err)
+		// 无任何新提交，再次推送应成功（远端已是该提交 → up-to-date）
+		if err := pushCurrentHead(repo, bare, "", false); err != nil {
+			t.Errorf("clean redeploy should succeed, got: %v", err)
 		}
 	})
 
-	t.Run("redeploy pushes the new working-tree state", func(t *testing.T) {
+	t.Run("push after a new commit updates dev", func(t *testing.T) {
 		work := t.TempDir()
 		chdir(t, work)
+		t.Setenv("HOME", t.TempDir())
 		codePath := filepath.Join(work, "code.txt")
 		writeTestFile(t, codePath, []byte("v1"))
+		gitCommitAll(t)
 		bare := newBareRemote(t)
-
-		if err := gitDeploy(bare, "", "preview", false); err != nil {
-			t.Fatalf("first gitDeploy: %v", err)
+		repo, err := git.PlainOpen(work)
+		if err != nil {
+			t.Fatal(err)
 		}
-		writeTestFile(t, codePath, []byte("v2")) // 编辑后重新部署
-		if err := gitDeploy(bare, "", "preview", false); err != nil {
-			t.Fatalf("second gitDeploy: %v", err)
+
+		if err := pushCurrentHead(repo, bare, "", false); err != nil {
+			t.Fatalf("first push: %v", err)
+		}
+		writeTestFile(t, codePath, []byte("v2")) // 用户改并提交，再推
+		if _, err := stageAndCommit(repo, "v2"); err != nil {
+			t.Fatal(err)
+		}
+		if err := pushCurrentHead(repo, bare, "", false); err != nil {
+			t.Fatalf("second push: %v", err)
 		}
 
 		f, err := devTree(t, bare).File("code.txt")
@@ -314,22 +419,7 @@ func TestGitDeploy(t *testing.T) {
 			t.Fatal(err)
 		}
 		if content != "v2" {
-			t.Errorf("dev has %q, want v2 (redeploy must push current tree, not stale HEAD)", content)
-		}
-	})
-
-	t.Run("clean redeploy is a no-op success", func(t *testing.T) {
-		work := t.TempDir()
-		chdir(t, work)
-		writeTestFile(t, filepath.Join(work, "code.txt"), []byte("v1"))
-		bare := newBareRemote(t)
-
-		if err := gitDeploy(bare, "", "preview", false); err != nil {
-			t.Fatalf("first gitDeploy: %v", err)
-		}
-		// 无任何改动，再次部署应成功（远端已是该提交 → up-to-date）
-		if err := gitDeploy(bare, "", "preview", false); err != nil {
-			t.Errorf("clean redeploy should succeed, got: %v", err)
+			t.Errorf("dev has %q, want v2", content)
 		}
 	})
 }

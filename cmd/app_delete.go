@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（loadAppManifestFromFile）、errors、fmt、os、charm.land/huh/v2（交互确认表单）、github.com/mattn/go-isatty（TTY 检测）、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newAppDeleteCmd 函数；包级 confirmDeleteFunc 可打桩变量（测试替换，参照 deploy.go gitDeployFunc 模式）
+ * [OUTPUT]: 对外提供 newAppDeleteCmd 函数；包级 confirmDeleteFunc 可打桩变量（测试替换，参照 deploy.go gitPushFunc 模式）
  * [POS]: cmd/app 的 delete 子命令，删除前要求输入 app key 确认（gh repo delete 同款，huh 表单实现），--yes 跳过；支持 -f 文件模式
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
