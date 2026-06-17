@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.5] - 2026-06-17
+
+### Features
+
+- **deploy**: `--env` now defaults to `preview` (no longer required); `production` must be opted into explicitly and prompts for a continue/abort confirmation before pushing — `--yes`/`-y` skips it, and non-interactive shells are refused with guidance to pass `--yes`. The internal repository clone URL is no longer printed
+- **deploy**: Verify the app is registered on the Make platform before pushing. A project that was only `app init`'d (never `app create`'d) is now refused with guidance to run `makecli app create -f apps/dsl/app.yaml`, instead of silently pushing code for an unregistered app and leaving a repo-without-app orphan state
+- **configure**: Add `--sample` to print a commented INI reference template, plus richer command examples so config keys are discoverable
+
 ## [v0.4.4] - 2026-06-17
 
 ### ⚠ Breaking Changes
@@ -129,7 +137,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.4.5...HEAD
+[v0.4.5]: https://github.com/qfeius/makecli/releases/tag/v0.4.5
 [v0.4.4]: https://github.com/qfeius/makecli/releases/tag/v0.4.4
 [v0.4.3]: https://github.com/qfeius/makecli/releases/tag/v0.4.3
 [v0.4.2]: https://github.com/qfeius/makecli/releases/tag/v0.4.2
