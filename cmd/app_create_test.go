@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runAppCreate/runAppCreateFromFile/writeScaffold/renderAppDSL/newAppManifest/assertDeployable（包内白盒），internal/config、github.com/go-git/go-git/v5、encoding/json、net/http、net/http/httptest、os、path/filepath
- * [OUTPUT]: 覆盖 app create 子命令核心逻辑的单元测试（脚手架 + 远端创建合并；成功静默 / 失败警告；含 -f 文件模式）
+ * [OUTPUT]: 覆盖 app create 子命令核心逻辑的单元测试（脚手架 + 远端创建合并；成功静默 / 失败警告；含 -f 文件模式；含 --dry-run：X-Dry-Run 头到达线缆 + 跳过本地副作用 + would-be 输出 + 失败透传）
  * [POS]: cmd 模块 app_create.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证、t.TempDir 隔离文件系统
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -168,7 +168,7 @@ func TestRunAppCreate(t *testing.T) {
 		stubRepoServer(t, srv.URL)
 
 		folder := filepath.Join(t.TempDir(), "shop")
-		if err := runAppCreate(folder, "", ""); err != nil {
+		if err := runAppCreate(folder, "", "", false); err != nil {
 			t.Fatalf("runAppCreate: %v", err)
 		}
 		// 本地脚手架已落地
@@ -190,7 +190,7 @@ func TestRunAppCreate(t *testing.T) {
 		stubRepoServer(t, srv.URL)
 
 		folder := filepath.Join(t.TempDir(), "shop")
-		if err := runAppCreate(folder, "", ""); err != nil {
+		if err := runAppCreate(folder, "", "", false); err != nil {
 			t.Fatalf("runAppCreate: %v", err)
 		}
 
@@ -230,7 +230,7 @@ func TestRunAppCreate(t *testing.T) {
 		}
 		chdir(t, work)
 
-		if err := runAppCreate(".", "", ""); err != nil {
+		if err := runAppCreate(".", "", "", false); err != nil {
 			t.Fatalf("runAppCreate '.': %v", err)
 		}
 		m, err := loadAppManifestFromFile(filepath.Join("apps", "dsl", "app.yaml"))
@@ -253,7 +253,7 @@ func TestRunAppCreate(t *testing.T) {
 
 		folder := filepath.Join(t.TempDir(), "myapp")
 		out := captureStdout(t, func() {
-			if err := runAppCreate(folder, "", ""); err != nil {
+			if err := runAppCreate(folder, "", "", false); err != nil {
 				t.Errorf("runAppCreate: %v", err)
 			}
 		})
@@ -278,7 +278,7 @@ func TestRunAppCreate(t *testing.T) {
 		folder := filepath.Join(t.TempDir(), "myapp")
 		var runErr error
 		errOut := captureStderr(t, func() {
-			runErr = runAppCreate(folder, "", "")
+			runErr = runAppCreate(folder, "", "", false)
 		})
 		if runErr != nil {
 			t.Fatalf("repo failure should not fail app create: %v", runErr)
@@ -297,7 +297,7 @@ func TestRunAppCreate(t *testing.T) {
 		stubRepoServer(t, srv.URL)
 
 		folder := filepath.Join(t.TempDir(), "myapp")
-		if err := runAppCreate(folder, "My App", "awesome"); err != nil {
+		if err := runAppCreate(folder, "My App", "awesome", false); err != nil {
 			t.Fatalf("runAppCreate with description: %v", err)
 		}
 		data, err := os.ReadFile(filepath.Join(folder, "apps", "dsl", "app.yaml"))
@@ -312,7 +312,7 @@ func TestRunAppCreate(t *testing.T) {
 	t.Run("rejects invalid directory name as app key", func(t *testing.T) {
 		cases := []string{"my-app", "my app", "my.app", "我的app", "a_very_long_name_that_is"}
 		for _, folder := range cases {
-			if err := runAppCreate(folder, "", ""); err == nil {
+			if err := runAppCreate(folder, "", "", false); err == nil {
 				t.Errorf("expected error for invalid folder name %q", folder)
 			}
 		}
@@ -322,7 +322,7 @@ func TestRunAppCreate(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		MetaServerURL = "http://unused"
 		folder := filepath.Join(t.TempDir(), "myapp")
-		if err := runAppCreate(folder, "", ""); err == nil {
+		if err := runAppCreate(folder, "", "", false); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
 		// 无 token 应在脚手架前失败，不留下任何文件
@@ -339,7 +339,7 @@ func TestRunAppCreate(t *testing.T) {
 		MetaServerURL = srv.URL
 
 		folder := filepath.Join(t.TempDir(), "myapp")
-		if err := runAppCreate(folder, "", ""); err == nil {
+		if err := runAppCreate(folder, "", "", false); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 		// 远端先行：CreateApp 失败时本地尚未落任何文件，保证换 profile 重跑干净
@@ -365,7 +365,7 @@ func TestRunAppCreate(t *testing.T) {
 		writeTestFile(t, edited, []byte("MY EDITS"))
 
 		// create 不再硬拒已存在文件：补远端 + commit，且保留用户编辑
-		if err := runAppCreate(folder, "", ""); err != nil {
+		if err := runAppCreate(folder, "", "", false); err != nil {
 			t.Fatalf("create should compose with a pre-existing scaffold: %v", err)
 		}
 		if data, _ := os.ReadFile(edited); string(data) != "MY EDITS" {
@@ -387,8 +387,62 @@ func TestRunAppCreate(t *testing.T) {
 		setProfile(t, "nonexistent")
 
 		folder := filepath.Join(t.TempDir(), "myapp")
-		if err := runAppCreate(folder, "", ""); err == nil {
+		if err := runAppCreate(folder, "", "", false); err == nil {
 			t.Fatal("expected error for unknown profile")
+		}
+	})
+
+	t.Run("dry-run sends X-Dry-Run, skips scaffold/git/repo, prints would-be line", func(t *testing.T) {
+		var gotDryRun string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotDryRun = r.Header.Get("X-Dry-Run")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "create app success", "data": map[string]any{}})
+		}))
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		MetaServerURL = srv.URL
+		// 仓库服务指向一个不可用地址——dry-run 必须根本不触达它
+		stubRepoServer(t, "http://127.0.0.1:0")
+
+		folder := filepath.Join(t.TempDir(), "shop")
+		out := captureStdout(t, func() {
+			if err := runAppCreate(folder, "", "", true); err != nil {
+				t.Fatalf("runAppCreate dry-run: %v", err)
+			}
+		})
+
+		// 1. X-Dry-Run 头穿过 cmd→client→api 全链路到达线缆
+		if gotDryRun != "true" {
+			t.Errorf("X-Dry-Run header = %q, want %q", gotDryRun, "true")
+		}
+		// 2. 无任何本地副作用：目录都不该被创建
+		if _, err := os.Stat(folder); err == nil {
+			t.Errorf("dry-run must not scaffold any local files")
+		}
+		// 3. 输出是 would-be 语义（"would be created"），不是真实创建（"App 'shop' created successfully"）
+		if !strings.Contains(out, "Dry run") || !strings.Contains(out, "would be created") || !strings.Contains(out, "shop") {
+			t.Errorf("dry-run output = %q, want a 'Dry run ... shop ... would be created' line", out)
+		}
+		if strings.Contains(out, "App 'shop' created successfully") {
+			t.Errorf("dry-run must not claim real creation, got: %q", out)
+		}
+	})
+
+	t.Run("dry-run propagates API failure (e.g. key conflict)", func(t *testing.T) {
+		srv := newMockMeta(t, 400, "app key 'shop' already exists")
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		MetaServerURL = srv.URL
+
+		folder := filepath.Join(t.TempDir(), "shop")
+		if err := runAppCreate(folder, "", "", true); err == nil {
+			t.Fatal("dry-run should surface the would-fail error from the API")
+		}
+		if _, err := os.Stat(folder); err == nil {
+			t.Errorf("dry-run failure must leave no local files")
 		}
 	})
 }
@@ -416,7 +470,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "app.yaml")
 		writeTestFile(t, f, []byte("key: fileapp\nname: 文件应用\ntype: Make.App\nproperties:\n  description: from file\n"))
 
-		if err := runAppCreateFromFile(f); err != nil {
+		if err := runAppCreateFromFile(f, false); err != nil {
 			t.Fatalf("runAppCreateFromFile: %v", err)
 		}
 	})
@@ -432,7 +486,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "app.yml")
 		writeTestFile(t, f, []byte("key: bareapp\nname: 简易应用\ntype: Make.App\n"))
 
-		if err := runAppCreateFromFile(f); err != nil {
+		if err := runAppCreateFromFile(f, false); err != nil {
 			t.Fatalf("runAppCreateFromFile without props: %v", err)
 		}
 	})
@@ -441,7 +495,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "app.json")
 		writeTestFile(t, f, []byte(`{}`))
 
-		if err := runAppCreateFromFile(f); err == nil {
+		if err := runAppCreateFromFile(f, false); err == nil {
 			t.Fatal("expected error for non-yaml file")
 		}
 	})
@@ -450,7 +504,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "entity.yaml")
 		writeTestFile(t, f, []byte("key: foo\nname: 测试\ntype: Make.Entity\nappKey: bar\n"))
 
-		if err := runAppCreateFromFile(f); err == nil {
+		if err := runAppCreateFromFile(f, false); err == nil {
 			t.Fatal("expected error for missing Make.App")
 		}
 	})
@@ -459,7 +513,7 @@ func TestRunAppCreateFromFile(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "multi.yaml")
 		writeTestFile(t, f, []byte("key: appone\nname: 一号\ntype: Make.App\n---\nkey: apptwo\nname: 二号\ntype: Make.App\n"))
 
-		if err := runAppCreateFromFile(f); err == nil {
+		if err := runAppCreateFromFile(f, false); err == nil {
 			t.Fatal("expected error for multiple Make.App")
 		}
 	})

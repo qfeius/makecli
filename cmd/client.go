@@ -1,7 +1,8 @@
 /**
- * [INPUT]: 依赖 internal/config（Load/LoadConfig/LoadSettings/LookupEnvironment）、internal/api（New/WithDebug/WithHeaders）、fmt、strings；从 root.go 读取全局 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode
- * [OUTPUT]: 对外提供 newClientFromProfile / newRepoClientFromProfile / resolveEnvironment 函数、withGateway helper、apiGatewayPath 常量
+ * [INPUT]: 依赖 internal/config（Load/LoadConfig/LoadSettings/LookupEnvironment）、internal/api（New/Option/WithDebug/WithHeaders）、fmt、strings；从 root.go 读取全局 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode
+ * [OUTPUT]: 对外提供 newClientFromProfile（变参 ...api.Option）/ newRepoClientFromProfile / resolveEnvironment 函数、withGateway helper、apiGatewayPath 常量
  * [POS]: cmd 模块的公共 helper，统一「全局命令行入参 → API 客户端」的构建逻辑——profile / server / env / debug 全部由 root PersistentFlag 注入，子命令零参数调用；
+ *        newClientFromProfile 收 ...api.Option 变参，把每命令横切选项（如 WithDryRun）追加到基础选项之后，写命令按需注入；
  *        resolveProfile 收口凭证与配置解析，resolveEnvironment 收口环境 preset；URL 取值链：flag > profile config > 环境 preset，主机基址再经 withGateway 补网关前缀 /api/make
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -93,8 +94,9 @@ func resolveEnvironment() (config.Environment, error) {
 }
 
 // newClientFromProfile 构建指向 Meta/Data Server 的 API 客户端。
-// 三个全局态都来自 rootCmd 的 PersistentFlag，子命令无需也不应再传参。
-func newClientFromProfile() (*api.Client, error) {
+// profile / server / env / debug 四个全局态都来自 rootCmd 的 PersistentFlag，子命令无需也不应再传 profile。
+// extra 是可选的每命令横切选项（如 WithDryRun）：基础选项之后追加，由具体写命令按需注入。
+func newClientFromProfile(extra ...api.Option) (*api.Client, error) {
 	token, cp, headers, err := resolveProfile()
 	if err != nil {
 		return nil, err
@@ -104,7 +106,8 @@ func newClientFromProfile() (*api.Client, error) {
 		return nil, err
 	}
 	server := withGateway(firstNonEmpty(MetaServerURL, cp.MetaServerURL, env.MetaServerURL))
-	return api.New(server, token, api.WithDebug(DebugMode), api.WithHeaders(headers)), nil
+	opts := append([]api.Option{api.WithDebug(DebugMode), api.WithHeaders(headers)}, extra...)
+	return api.New(server, token, opts...), nil
 }
 
 // newRepoClientFromProfile 构建指向代码仓库服务（make-repo）的 API 客户端。

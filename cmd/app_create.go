@@ -1,12 +1,13 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile/newRepoClientFromProfile）、cmd/app（loadAppManifestFromFile、validResourceKey、defaultName）、cmd/apply（ResourceManifest）、cmd/git（initGitRepo/ensureGitignore/stageAndCommit）、agents（embed 模板）、bytes、fmt、os、path/filepath、github.com/go-git/go-git/v5、gopkg.in/yaml.v3、github.com/spf13/cobra
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile/newRepoClientFromProfile）、cmd/app（loadAppManifestFromFile、validResourceKey、defaultName）、cmd/apply（ResourceManifest）、cmd/git（initGitRepo/ensureGitignore/stageAndCommit）、agents（embed 模板）、internal/api（WithDryRun）、bytes、fmt、os、path/filepath、github.com/go-git/go-git/v5、gopkg.in/yaml.v3、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newAppCreateCmd 函数；包内 runAppCreate / writeScaffold / scaffoldOutputs / fileExists / scaffoldGit / renderAppDSL / newAppManifest / deriveAppKey（writeScaffold/scaffoldOutputs/deriveAppKey/newAppManifest 被 app_init 复用）
  * [POS]: cmd/app 的 create 子命令——= app init 本地脚手架内核 + 远端 App 注册 + initial commit + 代码仓库。
  *        位置参数 <appKey> 同时是「目录名 + key」（filepath.Base(filepath.Abs(arg)) 推导，`.`/`..` 隐藏便利），
  *        validResourceKey 把关；写 CLAUDE.md/AGENTS.md（embed 模板，scaffoldFile 映射 embed→out 名）+ apps/dsl/app.yaml（ResourceManifest 序列化，与 apply/diff 同结构往返）；
  *        执行序「远端先行」：加载凭证→CreateApp→writeScaffold(幂等 skip-if-exists)→scaffoldGit(init+.gitignore+initial commit)→prepareCodeRepos，新目录远端失败时本地零残留、重跑干净；
  *        writeScaffold 幂等故 create 可与 init 组合（先 init 本地、再 create 补远端，不再硬拒已存在文件）；scaffoldGit 复用 init 内核再加 initial commit→create 产物即干净可 deploy；git 失败降级 stderr 警告（不阻断已成功的远端创建）；
- *        prepareCodeRepos 成功静默（仅 deploy 关心仓库地址），失败降级为 stderr 警告；-f 文件模式仅建远端不脚手架
+ *        prepareCodeRepos 成功静默（仅 deploy 关心仓库地址），失败降级为 stderr 警告；-f 文件模式仅建远端不脚手架；
+ *        --dry-run 经 api.WithDryRun 注入 X-Dry-Run 头让远端校验但不落库，校验通过后立即收尾（跳过脚手架/git/仓库准备这些真实副作用），脚手架与文件两模式同款短路
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -20,6 +21,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/qfeius/makecli/agents"
+	"github.com/qfeius/makecli/internal/api"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -41,6 +43,7 @@ func newAppCreateCmd() *cobra.Command {
 	var description string
 	var displayName string
 	var file string
+	var dryRun bool
 
 	cmd := &cobra.Command{
 		Use:   "create <appKey>",
@@ -48,23 +51,25 @@ func newAppCreateCmd() *cobra.Command {
 		Example: `  makecli app create shop
   makecli app create shop --name "我的商城"
   makecli app create shop --name "My Shop" --description "demo shop"
+  makecli app create shop --dry-run
   makecli app create -f apps/dsl/app.yaml`,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if file != "" {
-				return runAppCreateFromFile(file)
+				return runAppCreateFromFile(file, dryRun)
 			}
 			if len(args) == 0 {
 				return fmt.Errorf("requires <appKey> (or '.') or -f flag")
 			}
-			return runAppCreate(args[0], displayName, description)
+			return runAppCreate(args[0], displayName, description, dryRun)
 		},
 	}
 
 	cmd.Flags().StringVar(&description, "description", "", "app description")
 	cmd.Flags().StringVar(&displayName, "name", "", "app display name (defaults to appKey)")
 	cmd.Flags().StringVarP(&file, "file", "f", "", "path to YAML file containing Make.App resource (remote only, no scaffold)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate creation on Make without persisting (no scaffold, no git, no repo)")
 	return cmd
 }
 
@@ -74,14 +79,14 @@ func newAppCreateCmd() *cobra.Command {
 // 顺序刻意「远端先行」：token 失效 / 冲突 / 网络故障都在写任何本地文件之前报错，
 // 这样换 profile 或修复 token 后重跑是干净的，不会被上一次的半成品工程拦住。
 // 本地脚手架走幂等 skip-if-exists（与 app init 同一内核），故可与 init 组合：先 init 本地、再 create 补远端。
-func runAppCreate(folder, displayName, description string) error {
+func runAppCreate(folder, displayName, description string, dryRun bool) error {
 	appKey, err := deriveAppKey(folder)
 	if err != nil {
 		return err
 	}
 	manifest := newAppManifest(appKey, defaultName(displayName, appKey), description)
 
-	client, err := newClientFromProfile()
+	client, err := newClientFromProfile(api.WithDryRun(dryRun))
 	if err != nil {
 		return err
 	}
@@ -90,6 +95,13 @@ func runAppCreate(folder, displayName, description string) error {
 	// 新目录失败时零残留、重跑干净；写本地走幂等 skip-if-exists，与 app init 同一脚手架内核。
 	if apiErr := client.CreateApp(manifest.Key, manifest.Name, manifest.Properties); apiErr != nil {
 		return apiErr
+	}
+
+	// dry-run 在远端校验通过后立即收尾：脚手架 / git init / 仓库准备都是真实副作用，
+	// 而 dry-run 只回答「这次创建会不会成功」，故一律跳过，不在本地留任何痕迹。
+	if dryRun {
+		fmt.Printf("Dry run: app '%s' would be created successfully (no changes made)\n", appKey)
+		return nil
 	}
 
 	if _, err := writeScaffold(folder, manifest); err != nil {
@@ -231,7 +243,7 @@ func renderAppDSL(manifest ResourceManifest) ([]byte, error) {
 
 // ---------------------------------- 文件模式：仅远端 ----------------------------------
 
-func runAppCreateFromFile(path string) error {
+func runAppCreateFromFile(path string, dryRun bool) error {
 	manifest, err := loadAppManifestFromFile(path)
 	if err != nil {
 		return err
@@ -241,7 +253,7 @@ func runAppCreateFromFile(path string) error {
 		return err
 	}
 
-	client, err := newClientFromProfile()
+	client, err := newClientFromProfile(api.WithDryRun(dryRun))
 	if err != nil {
 		return err
 	}
@@ -256,6 +268,11 @@ func runAppCreateFromFile(path string) error {
 
 	if apiErr := client.CreateApp(manifest.Key, displayName, props); apiErr != nil {
 		return apiErr
+	}
+
+	if dryRun {
+		fmt.Printf("Dry run: app '%s' would be created successfully (no changes made)\n", manifest.Key)
+		return nil
 	}
 
 	fmt.Printf("App '%s' created successfully\n", manifest.Key)

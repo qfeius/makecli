@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 bytes、encoding/json、errors、fmt、net/http、os、time，依赖 internal/trace 的 TraceID/Traceparent
- * [OUTPUT]: 对外提供 Client 类型、ErrNotFound 哨兵错误、Option / WithDebug / WithHeaders 功能选项、New 构造函数、App / Field / Entity / EntityProperties / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp(key, name, properties) / ListApps(page, size, filter) / DeleteApp(key) / GetApp(key) / CreateEntity(key, name, appKey, fields) / ListEntities(appKey, page, size, filter) / GetEntity(appKey, key) / UpdateEntity / DeleteEntity / CreateRelation(key, name, appKey, props) / UpdateRelation / ListRelations(appKey, ...) / GetRelation(appKey, key) / DeleteRelation / GetSchema(appKey) 方法。资源以 Key 为唯一标识符（英数下划线），Name 为用户可见展示名（支持中文）。Get* 方法在资源确实不存在时返回 ErrNotFound（可用 errors.Is 判定），其余错误（传输/非 not-found 业务码/解码）原样返回
+ * [OUTPUT]: 对外提供 Client 类型、ErrNotFound 哨兵错误、Option / WithDebug / WithHeaders / WithDryRun 功能选项、New 构造函数、App / Field / Entity / EntityProperties / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp(key, name, properties) / ListApps(page, size, filter) / DeleteApp(key) / GetApp(key) / CreateEntity(key, name, appKey, fields) / ListEntities(appKey, page, size, filter) / GetEntity(appKey, key) / UpdateEntity / DeleteEntity / CreateRelation(key, name, appKey, props) / UpdateRelation / ListRelations(appKey, ...) / GetRelation(appKey, key) / DeleteRelation / GetSchema(appKey) 方法。资源以 Key 为唯一标识符（英数下划线），Name 为用户可见展示名（支持中文）。Get* 方法在资源确实不存在时返回 ErrNotFound（可用 errors.Is 判定），其余错误（传输/非 not-found 业务码/解码）原样返回
  * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -38,6 +38,7 @@ type Client struct {
 	token      string
 	httpClient *http.Client
 	debug      bool
+	dryRun     bool
 	headers    map[string]string
 }
 
@@ -52,6 +53,13 @@ func WithDebug(on bool) Option {
 // WithHeaders 设置额外请求头（如 X-Tenant-ID、X-Operator-ID）
 func WithHeaders(h map[string]string) Option {
 	return func(c *Client) { c.headers = h }
+}
+
+// WithDryRun 开启 dry-run 模式：每个写请求带上横切信号 X-Dry-Run: true，
+// 服务端跑真实业务流程但以 ROLLBACK 替换 COMMIT（不落库）。响应结构与真实请求一字不差，
+// 调用方仍按 code 判定成功/失败——CLI 自知发的是 dry-run，无需从响应里区分。
+func WithDryRun(on bool) Option {
+	return func(c *Client) { c.dryRun = on }
 }
 
 // New 创建新的 API 客户端，30s 超时
@@ -435,6 +443,9 @@ func (c *Client) do(target, path string, body, result any) error {
 		fmt.Fprintf(os.Stderr, "  -H 'X-Make-Target: %s' \\\n", target)
 		fmt.Fprintf(os.Stderr, "  -H 'Traceparent: %s' \\\n", traceparent)
 		fmt.Fprintf(os.Stderr, "  -H 'X-Log-Id: %s' \\\n", logID)
+		if c.dryRun {
+			fmt.Fprintf(os.Stderr, "  -H 'X-Dry-Run: true' \\\n")
+		}
 		for k, v := range c.headers {
 			fmt.Fprintf(os.Stderr, "  -H '%s: %s' \\\n", k, v)
 		}
@@ -451,6 +462,9 @@ func (c *Client) do(target, path string, body, result any) error {
 	req.Header.Set("X-Make-Target", target)
 	req.Header.Set("Traceparent", traceparent)
 	req.Header.Set("X-Log-Id", logID)
+	if c.dryRun {
+		req.Header.Set("X-Dry-Run", "true")
+	}
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
 	}

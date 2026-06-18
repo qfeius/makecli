@@ -4,7 +4,7 @@ Go 1.25.8 + github.com/spf13/cobra + github.com/go-git/go-git/v5（app init/crea
 <directory>
 agents/          - 脚手架模板文件（CLAUDE.md.tmpl / AGENTS.md.tmpl 由 app create 写出；gitignore.tmpl 是 .gitignore 期望清单单一真相源，由 cmd/git ensureGitignore 增量补齐），.tmpl 后缀避开 GEB L2 撞名，通过 embed.FS 编译进二进制
 cmd/            - Cobra 子命令层（root、version、configure[token/config/set/get/verify]、app[create/init/list/delete/deploy]、entity、relation、record、apply、diff、update、schema、integration[ocr]、preflight、login）；git.go 收口共享 go-git 原语
-internal/api/    - Make Meta/Data/Integration Service HTTP 客户端（Client + functional options，X-Make-Target 路由 + 自定义 headers 注入 + 每请求注入 W3C Traceparent/X-Log-Id；Meta 操作走 /meta/v1/，Record 操作走 /data/v1/，Integration 操作走 /integration/v1/，代码仓库操作走独立 host 的 /code/v1/repository）
+internal/api/    - Make Meta/Data/Integration Service HTTP 客户端（Client + functional options，X-Make-Target 路由 + 自定义 headers 注入 + 每请求注入 W3C Traceparent/X-Log-Id + WithDryRun 时注入 X-Dry-Run（CreateResource 全族写命令 --dry-run 共用：远端跑真实流程但 ROLLBACK 不落库）；Meta 操作走 /meta/v1/，Record 操作走 /data/v1/，Integration 操作走 /integration/v1/，代码仓库操作走独立 host 的 /code/v1/repository）
 internal/trace/ - W3C Trace Context 出站头生成（零依赖手写 traceparent v00；进程级 trace-id 单一真相源——每次 CLI 调用一个、全程稳定，X-Log-Id=trace-id 段，parent-id 每请求新生成），被 internal/api 请求咽喉点消费
 internal/oauth/ - 浏览器 OAuth 登陆原语（PKCE + 单跳 discovery + RFC 7591 动态注册 + 授权URL/换token + 动态端口回调 server），从 contract-cli 移植，被 cmd/login 编排
 internal/build/ - 构建元数据（Version/Date，由 ldflags 注入）

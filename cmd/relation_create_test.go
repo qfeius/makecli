@@ -27,7 +27,7 @@ func TestRunRelationCreate(t *testing.T) {
 			"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 		})
 
-		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile); err != nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile, false); err != nil {
 			t.Fatalf("runRelationCreate: %v", err)
 		}
 	})
@@ -41,7 +41,7 @@ func TestRunRelationCreate(t *testing.T) {
 			"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 		})
 
-		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile); err == nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile, false); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
 	})
@@ -58,7 +58,7 @@ func TestRunRelationCreate(t *testing.T) {
 			"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 		})
 
-		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile); err == nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile, false); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 	})
@@ -74,7 +74,7 @@ func TestRunRelationCreate(t *testing.T) {
 			"to":   map[string]any{"entityKey": "task", "cardinality": "one"},
 		})
 
-		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile); err == nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", jsonFile, false); err == nil {
 			t.Fatal("expected error for unknown profile")
 		}
 	})
@@ -87,7 +87,7 @@ func TestRunRelationCreate(t *testing.T) {
 		bad := filepath.Join(t.TempDir(), "bad.json")
 		_ = os.WriteFile(bad, []byte("not json"), 0644)
 
-		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", bad); err == nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", bad, false); err == nil {
 			t.Fatal("expected error for invalid JSON")
 		}
 	})
@@ -97,7 +97,7 @@ func TestRunRelationCreate(t *testing.T) {
 		saveDefaultToken(t)
 		MetaServerURL = "http://unused"
 
-		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", "/nonexistent.json"); err == nil {
+		if err := runRelationCreate("project_has_tasks", "项目任务关联", "TODO", "/nonexistent.json", false); err == nil {
 			t.Fatal("expected error for nonexistent file")
 		}
 	})

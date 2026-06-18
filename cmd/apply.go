@@ -32,8 +32,7 @@ func newApplyCmd() *cobra.Command {
 		Long: `Apply resources defined in YAML files or directories.
 Supports creating App, Entity, and Relation resources.`,
 		Example: `  makecli apply -f app.yaml
-  makecli apply -f ./configs/
-  makecli apply --dry-run -f app.yaml`,
+  makecli apply -f ./configs/`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

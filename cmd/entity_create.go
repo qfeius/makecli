@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（validResourceKey）、internal/api（Field）、encoding/json、fmt、os、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newEntityCreateCmd 函数
- * [POS]: cmd/entity 的 create 子命令，位置参数为 Entity key，--name 为展示名，--json 加载 fields；校验 field key 格式后调用 Meta Server API 创建 Entity
+ * [POS]: cmd/entity 的 create 子命令，位置参数为 Entity key，--name 为展示名，--json 加载 fields；校验 field key 格式后调用 Meta Server API 创建 Entity；--dry-run 经 api.WithDryRun 注入 X-Dry-Run 让远端校验不落库，成功打印 would-be 行
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -19,6 +19,7 @@ import (
 func newEntityCreateCmd() *cobra.Command {
 	var jsonFile string
 	var displayName string
+	var dryRun bool
 
 	cmd := &cobra.Command{
 		Use:          "create <key>",
@@ -27,21 +28,22 @@ func newEntityCreateCmd() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			appKey, _ := cmd.Parent().Flags().GetString("app")
-			return runEntityCreate(args[0], displayName, appKey, jsonFile)
+			return runEntityCreate(args[0], displayName, appKey, jsonFile, dryRun)
 		},
 	}
 
 	cmd.Flags().StringVar(&displayName, "name", "", "entity display name (defaults to key)")
 	cmd.Flags().StringVar(&jsonFile, "json", "", "path to JSON file containing fields array")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate creation on Make without persisting")
 	return cmd
 }
 
-func runEntityCreate(key, displayName, appKey, jsonFile string) error {
+func runEntityCreate(key, displayName, appKey, jsonFile string, dryRun bool) error {
 	if err := validResourceKey(key); err != nil {
 		return err
 	}
 
-	client, err := newClientFromProfile()
+	client, err := newClientFromProfile(api.WithDryRun(dryRun))
 	if err != nil {
 		return err
 	}
@@ -61,6 +63,11 @@ func runEntityCreate(key, displayName, appKey, jsonFile string) error {
 
 	if err := client.CreateEntity(key, displayName, appKey, fields); err != nil {
 		return err
+	}
+
+	if dryRun {
+		fmt.Printf("Dry run: entity '%s' would be created successfully in app '%s' (no changes made)\n", key, appKey)
+		return nil
 	}
 
 	fmt.Printf("Entity '%s' created successfully in app '%s'\n", key, appKey)

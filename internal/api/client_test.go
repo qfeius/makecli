@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 internal/api 包内的 Client（包内白盒），encoding/json、errors、net/http、net/http/httptest、testing
- * [OUTPUT]: 覆盖 Client.CreateApp / ListApps / DeleteApp / WithHeaders / WithDebug / GetApp / GetEntity / GetRelation（含 ErrNotFound 语义）/ Traceparent+X-Log-Id 出站头 的单元测试
+ * [OUTPUT]: 覆盖 Client.CreateApp / ListApps / DeleteApp / WithHeaders / WithDebug / WithDryRun（X-Dry-Run 注入/缺席）/ GetApp / GetEntity / GetRelation（含 ErrNotFound 语义）/ Traceparent+X-Log-Id 出站头 的单元测试
  * [POS]: internal/api client.go 的配套测试，用 httptest 隔离网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -173,6 +173,42 @@ func TestWithHeaders(t *testing.T) {
 	if err := client.CreateApp("test", "测试", nil); err != nil {
 		t.Fatalf("CreateApp with headers: %v", err)
 	}
+}
+
+// TestWithDryRun 验证 dry-run 横切信号的注入：开启时写请求带 X-Dry-Run: true，
+// 关闭（默认）时该头缺席——服务端据此决定 ROLLBACK 还是 COMMIT。
+func TestWithDryRun(t *testing.T) {
+	t.Run("injects X-Dry-Run: true when enabled", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if got := r.Header.Get("X-Dry-Run"); got != "true" {
+				t.Errorf("X-Dry-Run = %q, want %q", got, "true")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "ok"})
+		}))
+		defer srv.Close()
+
+		if err := New(srv.URL, "test-token", WithDryRun(true)).CreateApp("test", "测试", nil); err != nil {
+			t.Fatalf("CreateApp dry-run: %v", err)
+		}
+	})
+
+	t.Run("omits X-Dry-Run by default", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if got := r.Header.Get("X-Dry-Run"); got != "" {
+				t.Errorf("X-Dry-Run should be absent, got %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "ok"})
+		}))
+		defer srv.Close()
+
+		if err := New(srv.URL, "test-token").CreateApp("test", "测试", nil); err != nil {
+			t.Fatalf("CreateApp: %v", err)
+		}
+		// WithDryRun(false) 与不传等价：仍不应注入该头
+		if err := New(srv.URL, "test-token", WithDryRun(false)).CreateApp("test", "测试", nil); err != nil {
+			t.Fatalf("CreateApp WithDryRun(false): %v", err)
+		}
+	})
 }
 
 // TestTraceHeaders 验证每个出站请求都带 W3C traceparent 与 X-Log-Id，

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（validResourceKey）、internal/api（RelationProperties/RelationEnd）、encoding/json、fmt、os、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newRelationCreateCmd 函数
- * [POS]: cmd/relation 的 create 子命令，位置参数为 Relation key，--name 为展示名，--json 加载 from/to 配置（entityKey 引用），调用 Meta Server API 创建 Relation
+ * [POS]: cmd/relation 的 create 子命令，位置参数为 Relation key，--name 为展示名，--json 加载 from/to 配置（entityKey 引用），调用 Meta Server API 创建 Relation；--dry-run 经 api.WithDryRun 注入 X-Dry-Run 让远端校验不落库，成功打印 would-be 行
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -19,6 +19,7 @@ import (
 func newRelationCreateCmd() *cobra.Command {
 	var jsonFile string
 	var displayName string
+	var dryRun bool
 
 	cmd := &cobra.Command{
 		Use:          "create <key>",
@@ -27,22 +28,23 @@ func newRelationCreateCmd() *cobra.Command {
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			appKey, _ := cmd.Parent().Flags().GetString("app")
-			return runRelationCreate(args[0], displayName, appKey, jsonFile)
+			return runRelationCreate(args[0], displayName, appKey, jsonFile, dryRun)
 		},
 	}
 
 	cmd.Flags().StringVar(&displayName, "name", "", "relation display name (defaults to key)")
 	cmd.Flags().StringVar(&jsonFile, "json", "", "path to JSON file containing relation properties (required)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate creation on Make without persisting")
 	_ = cmd.MarkFlagRequired("json")
 	return cmd
 }
 
-func runRelationCreate(key, displayName, appKey, jsonFile string) error {
+func runRelationCreate(key, displayName, appKey, jsonFile string, dryRun bool) error {
 	if err := validResourceKey(key); err != nil {
 		return err
 	}
 
-	client, err := newClientFromProfile()
+	client, err := newClientFromProfile(api.WithDryRun(dryRun))
 	if err != nil {
 		return err
 	}
@@ -56,6 +58,11 @@ func runRelationCreate(key, displayName, appKey, jsonFile string) error {
 
 	if err := client.CreateRelation(key, displayName, appKey, props); err != nil {
 		return err
+	}
+
+	if dryRun {
+		fmt.Printf("Dry run: relation '%s' would be created successfully in app '%s' (no changes made)\n", key, appKey)
+		return nil
 	}
 
 	fmt.Printf("Relation '%s' created successfully in app '%s'\n", key, appKey)
