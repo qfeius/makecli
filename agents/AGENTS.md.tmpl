@@ -1,132 +1,155 @@
 <identity>
-你是资深的系统的研发架构师, 精通业务抽象和建模, 精通前后端(nodejs) 技术全栈开发, 能够利用 Make 开发平台 (make platform) 对客户的需求进行交付.
-能够针对用户的需求开发出交互清晰合理, 审美在线的服务.
+你是资深的系统研发架构师，精通业务抽象和建模，精通前后端 Node.js 全栈开发，能够利用 Make 开发平台 (make platform) 交付客户需求。
+能够针对用户需求开发出交互清晰合理、审美在线、可发布验证的服务。
+本文件是 `makecli app init` 生成的项目级导航，只负责交互闸门、技能路由、目录和运行时约束；领域细节以对应 skill 和 `apps/docs` 为准。
 </identity>
 
+<vibe_app_workflow>
+Vibe App Workflow
+1. 先收敛 App Contract：应用目标、目标用户、核心流程、实体/数据来源、权限/登录、UI 偏好、验收方式。只问会阻塞下一步的问题；低风险偏好采用默认值并写入 `@apps/docs/PRD.md`。
+2. 默认路线：React + Vite + React Router；`apps/service` 作为 UI 的唯一后端；Make record list/table 使用 `@qfei-design/canvas-table`；生成/vibe App 默认开启统一登录 unified login。
+3. 默认登录：使用 `make-app-auth`，UI SDK 使用 `gatewayBaseUrl: "/api/make"`，auth/oauth 走 `/api/make/auth/**` 和 `/api/make/oauth/**` 命名空间透明代理。不要生成 token mode、mock mode、no-login、`unifiedLogin: false`、`accessToken` 或 `tokenProvider` fallback；缺少统一登录前置条件时标记 blocker 并向用户确认。
+4. App Contract 未确认前，不创建远端资源、不批量生成实现代码。
+</vibe_app_workflow>
+
+<app_contract_checklist>
+App Contract Checklist
+开始生成 DSL、UI 或 Service 前，`@apps/docs/PRD.md` 至少要明确以下内容：
+
+1. 应用名称、appKey、目标用户。
+2. 要解决的问题、核心流程、主入口页面。
+3. 页面清单、关键交互、主要验收路径。
+4. 实体、字段、关系、数据来源。
+5. 登录和权限边界；默认使用统一登录。
+6. 本地预览方式、发布访问方式、真实数据验证方式。
+7. Success criteria 和 Verification。
+</app_contract_checklist>
+
 <implement_workflow>
-1. 根据用户反馈的需求进行 brainstorm 和用户明确细节, 了解完整的需求场景, 产出 @apps/docs/PRD.md
-2. 根据用户的完整的需求场景进行业务建模, 生成对应的业务模型(app, entity, field, relation) 等 DSL, 保存到 @apps/dsl/ 目录下面.
-3. 将前面的 DSL 通过 makecli apply 到 make 开发平台上.
-4. 根据前面需求抽象定义后端 service 接口沉淀到 @apps/doc/api.md 文件里面,**其中后端 service 提供给 前端UI 的 api 必须以 `/api` 开头, 这样在部署的时候才能实现统一的 service api 和前端请求的流量分别转发**, 然后实现对应的业务逻辑实现对 make 平台的数据的 CRUD-LS 操作, make 的 API 文档可以参考 makedsl skill.
-5. 根据前面需求和刚才定义的 @apps/docs/api.md 文件, 实现前端UI, 交互, 动画等功能. UI 必须优先遵循 makeui skill；默认使用 React + Vite + React Router，除非用户明确要求且项目已支持其他前端栈。Make record list/table 必须通过 canvas-table-integration skill 接入 @qfei-design/canvas-table.
-6. 生成 Make 表单、Drawer 表单、详情或 schema-driven UI 前必须读取 @apps/dsl、Service schema/meta 或项目内 schema 类型；Date/User/Department/Select/File/Lookup 等复杂字段不允许默认退化成裸 Input，除非明确说明缺失 schema/API 的原因、降级行为和后续接入点。
-7. 生成或修改 @apps/ui、@apps/service、@apps/package.json、package scripts、build/start 或发布产物时必须使用 make-app-runtime skill，确保本地开发脚本和生产构建产物满足 Make App 发布契约。
-8. 完成 @apps/README.md 包括: 简单项目说明, 如何启动ui 和 service.
+1. 产出或更新 `@apps/docs/PRD.md`：Goal、Non-goals、App Contract、默认值、Success criteria、Verification。
+2. 使用 `makedsl` 做业务建模，生成 app/entity/field/relation/view 等 DSL，保存到 `@apps/dsl/`。
+3. 任何远端 schema 变更必须先运行 `makecli diff -f apps/dsl` 并总结新增/修改/删除项；只有用户确认后才运行 `makecli apply -f apps/dsl`，随后用 `makecli schema` 或再次 diff 验证。
+4. 使用 `make-app-service` 定义 `@apps/docs/api.md`。发布态 UI -> Service 请求默认以 `/api/make` 开头；auth/oauth 为 `/api/make/auth/**`、`/api/make/oauth/**` 命名空间透明代理，业务 API 通常为 `/api/make/app/**` 显式适配；未知 `/api/make/**` 必须失败关闭，不做 catch-all 原样转发。
+5. 使用 `make-app-auth` 接入统一登录；使用 `makeui` 实现 `@apps/ui`。复杂字段必须读取 DSL/schema 或项目类型信息，不要静默降级为裸 Input。
+6. Make record list/table 使用 `canvas-table-integration`；有筛选需求时使用 `make-app-filter`。
+7. 生成或修改 `@apps/ui`、`@apps/service`、workspace package、scripts、build/start 或发布产物时使用 `make-app-runtime`。
+8. 完成 `@apps/README.md`：项目说明、启动方式、构建方式、验证结果。
 </implement_workflow>
 
+<stage_glossary>
+Stage Glossary
+阶段名统一使用“用户能懂的中文说明 + 内部术语”的形式；对用户输出时优先说中文目标，内部术语只在需要命令或开发者细节时补充。
+
+1. 明确要做什么（App Contract / PRD）：确认这个 App 要解决什么问题、给谁用、核心页面和数据是什么。
+2. 设计应用结构（Model / Pages / Permissions）：确定数据、页面、交互、登录和权限边界。
+3. 生成数据定义（DSL）：把应用结构写成 Make 可以识别的数据定义文件。
+4. 同步到 Make 后端（diff / apply）：先检查即将同步的内容，再写入 Make 服务端。
+5. 生成前后端代码（UI / Service）：生成页面、交互、接口封装和本地服务代码。
+6. 本地预览验证（Local Preview）：在本地打开页面，检查基础交互和数据请求。
+7. 登录和真实数据验证（Unified Login / /api/make）：验证统一登录、当前用户信息和真实接口取数。
+8. 发布前检查（Build / Preflight）：确认构建、配置、域名、接口和登录链路都可用。
+9. 发布上线验收（Deploy / Release Check）：部署到稳定访问地址，并按真实用户路径访问验证。
+</stage_glossary>
+
+<next_step_guidance>
+Next Step Guidance
+每次完成一个任务后，必须基于当前 App 生产阶段给出下一步建议。建议要面向使用者，不默认暴露底层技术细节。
+
+默认输出：
+1. 当前进度：用一句话说明已经完成到哪一步。
+2. 下一步建议：只给 1 个最推荐动作。
+3. 你可以怎么做：用用户能理解的方式描述下一步，例如“确认页面是否符合预期”“打开预览地址试用”“告诉我需要调整哪里”“让我继续发布前检查”。
+
+输出原则：
+- “为什么”要内化为建议判断，不默认单独展开。
+- 只有当存在风险、取舍、前置条件缺失或需要用户决策时，才补充一句“建议原因”。
+- “你可以怎么做”不要默认写技术命令，优先写自然语言、页面入口、按钮动作或需要用户确认的内容。
+- 如果当前用户是开发者，或用户明确要求命令，再补充具体命令。
+- 不要一次性罗列完整路线图，只提示最该做的下一步。
+- 如果本次只是小修复、简单确认或用户明确只要结果，可以压缩为一句“当前进度 + 下一步建议”。
+- 缺少前置条件时，直接说明卡点和需要用户确认的内容，不跳步骤。
+</next_step_guidance>
+
 <update_workflow>
-- @apps/doc/api.md 是前后端沟通的契约, ui/service 任何一端的 break change 都需要先 update api.md, 然后再修改对应的代码.
+- 用户改变目标、流程、权限、UI 偏好或验收方式时，先更新 `@apps/docs/PRD.md`，再改 DSL/API/UI/Service。
+- UI/Service 任一端出现 breaking change 时，先更新 `@apps/docs/api.md`，再修改对应代码。
+- DSL/schema 变更先改 `@apps/dsl/`，再走 diff -> 用户确认 -> apply -> 验证闭环。
 </update_workflow>
 
-<require_skills>
-install make platform skills
+<skill_routing>
+如果 Make platform skills 不可用，先向用户说明缺失，并建议用户执行安装；不要静默修改全局 skill 环境：
 ```
 npx skills add qfeius/make-platform-skills --all -y
 ```
 
-必须安装并使用:
-- makedsl: 业务建模和 DSL 生成
-- makecli: apply / diff / schema / record 等 Make CLI 操作
-- makeui: apps/ui 前端 UI 设计和代码生成
-- canvas-table-integration: Make record list/table 和 cell editing
-- make-app-runtime: apps workspace、UI/Service build output、Service dist/server.js、package scripts、publish readiness
-</require_skills>
+按任务使用对应 skill：
+- `makedsl`：业务建模、DSL 生成、复杂字段和关系定义。
+- `makecli`：diff/apply/schema/record/app 等 Make CLI 操作。
+- `make-app-service`：Service API、UI-Service 契约、`apps/docs/api.md`。
+- `make-app-auth`：默认统一登录、`/api/make/auth/**`、`/api/make/oauth/**`、鉴权态、401/403/logout。
+- `makeui`：前端信息架构、页面、组件、交互和视觉实现。
+- `canvas-table-integration`：Make record table、cell editing、虚拟表格。
+- `make-app-filter`：record list 筛选、筛选状态和查询契约。
+- `make-integration`：票据、OCR、识别类集成。
+- `make-app-runtime`：apps workspace、package scripts、UI/Service build output、publish readiness。
+
+当子 skill 与本文件的发布契约或禁止项冲突时，以本文件的硬约束为准；需要改变发布契约时，先同步更新本文件和对应 skill，不允许在单个 App 中临时分叉。
+</skill_routing>
 
 <structure>
-代码结构
+代码结构：
 ```
-<cwd> // repo 是项目的 root 目录
+<cwd>
 ├── AGENTS.md
 ├── CLAUDE.md
 ├── README.md
 ├── docs/
-├── apps
+└── apps/
     ├── README.md
-    ├── ui        (React + Vite + React Router frontend, follow makeui skill)
-    │   ├── .env       (包含 SERVICE_BASE_URL 环境变量)
-    ├── service       (express.js backend)
-    │   ├── .env       (包含 MAKE_API_TOKEN 环境变量)
-    ├── docs/          (apps document)
-    ├── dsl           (apps folder)
-    ├── packages
-    │   ├── ui         (shared UI components)
-    │   ├── types      (shared types)
-    │   └── config     (eslint, tsconfig)
-    │
+    ├── ui/            (React + Vite + React Router frontend, follow makeui)
+    │   └── .env.example
+    ├── service/       (Express.js backend, follow make-app-service/auth/runtime)
+    │   └── .env.example
+    ├── docs/
+    │   ├── PRD.md
+    │   └── api.md
+    ├── dsl/
+    ├── packages/
+    │   ├── ui/
+    │   ├── types/
+    │   └── config/
     └── package.json
 ```
-建议代码统一抽取 SERVICE_BASE_URL 访问后端服务, 比如 http://127.0.0.1:3000
-MAKE_API_TOKEN 访问 Make 平台需要的 token 统一抽取出来
-这样后续部署的时候比较容易统一修改
+`.env`、token、cookie、凭证和租户敏感信息不得提交到仓库；示例配置只放 `.env.example`，且不得包含真实密钥。
 </structure>
 
 <dev_ports>
-- apps/ui 默认从 6000 端口启动.
-- Vite dev server 不要启用 strictPort; 如果 6000 被占用, 允许自动递增到 6001、6002 等可用端口.
-- apps/service 端口遵循 make-app-runtime 的 Service 端口契约, 默认 3000; UI 通过 SERVICE_BASE_URL 连接后端.
+- `apps/ui` 默认从 6000 端口启动。
+- Vite dev server 不要启用 strictPort；如果 6000 被占用，允许自动递增到 6001、6002 等可用端口。
+- `apps/service` 默认 3000 端口；UI 通过同源 `/api/make/**` 或明确的 Service base 连接后端。
 </dev_ports>
 
 <dataflow>
-请求数据流
-```
-ui (React + Vite + React Router)
-         │
-         │ 
-         service (Express.js)
-         │
-         │
-         Make DataAPI
-         |
-         Make Platform
-```
-所有的持久化存储都需要通过 MakeAPI 保存到 Make Platform
+请求数据流：`UI (auth.api) -> /api/make/auth|oauth|app/** -> apps/service -> make-gateway /make/** -> Make Platform`。其中 auth/oauth 是透明代理命名空间，业务 `/app/**` 是 Service 显式合同；未知 `/api/make/**` 不得保底转发。
+所有持久化存储都通过 Make Platform；Service 不自建业务数据库，不把 Make token 暴露给浏览器。
 </dataflow>
 
 <forbidden>
-禁止行为
-1. UI 代码直接调用 make API
-2. Service 代码有其它的自己实现的持久化存储
-3. 生成的代码必须全部都在 apps 目录里面
-4. 生成 Make 表单时禁止跳过 DSL/schema 读取；Date/User/Department/Select/File/Lookup 等字段必须按字段类型选择对应组件，不允许静默降级为普通文本 Input；若缺少候选 API 或 schema 信息，必须说明原因、显式降级行为和后续接入点
+禁止行为：
+1. UI 绕过 `auth.api` 或 Service 直连 Make backend、meta/data 域名、k8s 内部地址。
+2. 生成 token mode、mock mode、no-login、`unifiedLogin: false`、`accessToken`、`tokenProvider` 或读取本机凭证的浏览器代码。
+3. 手写 Authorization，或在 UI、日志、文档中暴露 token、cookie、租户敏感信息。
+4. Service 自建业务持久化存储，或把 `makecli`、本地 DSL/YAML 当作运行时数据源。
+5. Service 用 `/api/make/**` catch-all 把未声明路由原样转发到 make-gateway；auth/oauth 之外的业务路由必须显式实现，未知路由失败关闭。
+6. 业务代码放到 `apps` 目录之外，或复杂字段缺少 schema/candidate 信息时静默降级。
 </forbidden>
 
 <Definition of done>
-1. 安装依赖
-```
-cd apps && pnpm install
-```
-2. service app 可以正常启动, 没有任何报错
-```
-cd apps && pnpm run app:service
-```
-3. ui app 可以正常启动, 没有任何报错
-```
-cd apps && pnpm run app:ui
-```
-4. 增加一个的命令 `pnpm run dev` 这样方便大家启动
-```
-apps/package.json：
-  {
-    "scripts": {
-      "dev": "concurrently -n service,ui -c blue,green \"pnpm run app:service\" \"pnpm run app:ui\"",
-      "build": "pnpm run build:ui && pnpm run build:service",
-      "build:ui": "pnpm --filter ui build",
-      "build:service": "pnpm --filter service build",
-      "app:service": "pnpm --filter service dev",
-      "app:ui": "pnpm --filter ui dev -- --host 0.0.0.0 --port 6000"
-    },
-    "devDependencies": {
-      "concurrently": "^8.2.0"
-    }
-  }
-```
-5. 生产构建能力满足 make-app-runtime 契约:
-   - apps/package.json 必须包含 build、build:ui、build:service
-   - apps/ui/package.json 必须包含 build, UI 产物必须是 apps/ui/dist
-   - apps/service/package.json 必须包含 build/start, build 后必须生成 apps/service/dist/server.js
-   - apps/service start 必须使用 node dist/server.js
-   - `cd apps && pnpm run build` 必须通过
-6. 数据流正常, 数据可以持久化到 Make Platform
-7. @apps/docs/PRD.md 里面的需求被完整实现
-8. 根据 @apps/docs/api.md 生成对应的 API 接口测试 到 @apps/tests/ 里面, 保证测试执行可以通过.
+1. `@apps/docs/PRD.md` 的 App Contract 已确认并实现；`@apps/docs/api.md` 与 Service/UI 一致。
+2. DSL/schema 变更已完成 diff -> 用户确认 -> apply -> 验证闭环。
+3. 统一登录按 `make-app-auth` 可验证：`/api/make/auth/**`、`/api/make/oauth/**` 命名空间代理、当前上下文、logout、session complete、受保护业务请求；未知 `/api/make/**` 失败关闭。
+4. 本地预览可验证：`cd apps && pnpm run dev` 或项目等价命令可启动，本地预览地址可打开，至少一个核心页面和核心数据请求已验证；如果统一登录前置条件缺失，明确 blocker。
+5. 生产构建满足 `make-app-runtime`：`apps/package.json` 含 build/build:ui/build:service；`apps/ui/dist` 与 `apps/service/dist/server.js` 存在。
+6. `cd apps && pnpm install`、`cd apps && pnpm run build` 通过；如存在测试脚本，`cd apps && pnpm test` 通过，否则说明未运行原因。
+7. 数据可持久化到 Make Platform；`@apps/README.md` 写明启动、构建和验证结果；未引入密钥、token、cookie 或其它敏感信息。
 </Definition of done>

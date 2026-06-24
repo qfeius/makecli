@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runAppCreate/runAppCreateFromFile/writeScaffold/renderAppDSL/newAppManifest/assertDeployable（包内白盒），internal/config、github.com/go-git/go-git/v5、encoding/json、net/http、net/http/httptest、os、path/filepath
- * [OUTPUT]: 覆盖 app create 子命令核心逻辑的单元测试（脚手架 + 远端创建合并；成功静默 / 失败警告；含 -f 文件模式；含 --dry-run：X-Dry-Run 头到达线缆 + 跳过本地副作用 + would-be 输出 + 失败透传）
+ * [OUTPUT]: 覆盖 app create 子命令核心逻辑的单元测试（脚手架 + 远端创建合并；生成 AGENTS.md 导航契约；成功静默 / 失败警告；含 -f 文件模式；含 --dry-run：X-Dry-Run 头到达线缆 + 跳过本地副作用 + would-be 输出 + 失败透传）
  * [POS]: cmd 模块 app_create.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证、t.TempDir 隔离文件系统
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -134,7 +134,7 @@ func TestWriteScaffold(t *testing.T) {
 		}
 	})
 
-	t.Run("AGENTS.md includes runtime build contract", func(t *testing.T) {
+	t.Run("AGENTS.md includes vibe guidance, auth, and runtime contracts", func(t *testing.T) {
 		dir := t.TempDir()
 		if _, err := writeScaffold(dir, newAppManifest("shop", "shop", "")); err != nil {
 			t.Fatalf("writeScaffold: %v", err)
@@ -145,9 +145,16 @@ func TestWriteScaffold(t *testing.T) {
 		}
 		content := string(data)
 		for _, want := range []string{
+			"Vibe App Workflow", "App Contract", "apps/docs/PRD.md", "apps/docs/api.md",
+			"App Contract Checklist", "目标用户", "Success criteria", "Verification",
+			"Stage Glossary", "明确要做什么", "Next Step Guidance", "当前进度", "下一步建议", "你可以怎么做",
+			"不要静默修改全局 skill 环境", "以本文件的硬约束为准",
+			"make-app-auth", "unified login", "no-login", "unifiedLogin: false",
+			"gatewayBaseUrl: \"/api/make\"", "/api/make/auth/**", "/api/make/oauth/**",
+			"未知 `/api/make/**`", "catch-all",
+			"makecli diff -f apps/dsl", "make-app-service", "make-app-filter",
 			"make-app-runtime", "apps/ui/dist", "apps/service/dist/server.js",
-			"apps/ui/package.json", "apps/service/package.json", "build/start",
-			"apps/package.json", "pnpm run build",
+			"build/start", "apps/package.json", "pnpm run dev", "pnpm run build",
 		} {
 			if !strings.Contains(content, want) {
 				t.Errorf("AGENTS.md missing %q", want)

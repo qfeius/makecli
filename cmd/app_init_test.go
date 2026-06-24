@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runAppInit（包内白盒）、captureStdout/writeTestFile/chdir 辅助、loadAppManifestFromFile，os、path/filepath、strings、testing
- * [OUTPUT]: 覆盖 app init 子命令的单元测试（完整本地脚手架 + git + .gitignore + 幂等 + 不 commit + appKey 推导/默认 cwd）
+ * [OUTPUT]: 覆盖 app init 子命令的单元测试（完整本地脚手架 + 生成 AGENTS.md 导航契约 + git + .gitignore + 幂等 + 不 commit + appKey 推导/默认 cwd）
  * [POS]: cmd 模块 app_init.go 的配套测试，用 t.TempDir 隔离文件系统、captureStdout 验证状态行
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -26,6 +26,24 @@ func TestRunAppInit(t *testing.T) {
 		for _, name := range []string{"CLAUDE.md", "AGENTS.md", filepath.Join("apps", "dsl", "app.yaml"), ".gitignore", ".git"} {
 			if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 				t.Errorf("%s should exist after init: %v", name, err)
+			}
+		}
+		agents, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+		if err != nil {
+			t.Fatalf("read AGENTS.md: %v", err)
+		}
+		for _, want := range []string{
+			"Vibe App Workflow", "App Contract Checklist",
+			"Stage Glossary", "Next Step Guidance",
+			"当前进度", "下一步建议", "你可以怎么做",
+			"不要静默修改全局 skill 环境", "以本文件的硬约束为准",
+			"pnpm run dev", "本地预览地址可打开",
+			"App Contract", "make-app-auth", "unified login",
+			"gatewayBaseUrl: \"/api/make\"", "/api/make/auth/**",
+			"未知 `/api/make/**`", "catch-all",
+		} {
+			if !strings.Contains(string(agents), want) {
+				t.Errorf("AGENTS.md should include %q", want)
 			}
 		}
 		// app.yaml 的 key 取自目录名
