@@ -32,20 +32,7 @@ func TestRunAppInit(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read AGENTS.md: %v", err)
 		}
-		for _, want := range []string{
-			"Vibe App Workflow", "App Contract Checklist",
-			"Stage Glossary", "Next Step Guidance",
-			"当前进度", "下一步建议", "你可以怎么做",
-			"不要静默修改全局 skill 环境", "以本文件的硬约束为准",
-			"pnpm run dev", "本地预览地址可打开",
-			"App Contract", "make-app-auth", "unified login",
-			"gatewayBaseUrl: \"/api/make\"", "/api/make/auth/**",
-			"未知 `/api/make/**`", "catch-all",
-		} {
-			if !strings.Contains(string(agents), want) {
-				t.Errorf("AGENTS.md should include %q", want)
-			}
-		}
+		assertGeneratedAgentsContract(t, string(agents))
 		// app.yaml 的 key 取自目录名
 		m, err := loadAppManifestFromFile(filepath.Join(dir, "apps", "dsl", "app.yaml"))
 		if err != nil {

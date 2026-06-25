@@ -143,23 +143,7 @@ func TestWriteScaffold(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read AGENTS.md: %v", err)
 		}
-		content := string(data)
-		for _, want := range []string{
-			"Vibe App Workflow", "App Contract", "apps/docs/PRD.md", "apps/docs/api.md",
-			"App Contract Checklist", "目标用户", "Success criteria", "Verification",
-			"Stage Glossary", "明确要做什么", "Next Step Guidance", "当前进度", "下一步建议", "你可以怎么做",
-			"不要静默修改全局 skill 环境", "以本文件的硬约束为准",
-			"make-app-auth", "unified login", "no-login", "unifiedLogin: false",
-			"gatewayBaseUrl: \"/api/make\"", "/api/make/auth/**", "/api/make/oauth/**",
-			"未知 `/api/make/**`", "catch-all",
-			"makecli diff -f apps/dsl", "make-app-service", "make-app-filter",
-			"make-app-runtime", "apps/ui/dist", "apps/service/dist/server.js",
-			"build/start", "apps/package.json", "pnpm run dev", "pnpm run build",
-		} {
-			if !strings.Contains(content, want) {
-				t.Errorf("AGENTS.md missing %q", want)
-			}
-		}
+		assertGeneratedAgentsContract(t, string(data))
 	})
 }
 
