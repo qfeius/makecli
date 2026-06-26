@@ -22,14 +22,14 @@ func setEnvFlag(t *testing.T, name string) {
 }
 
 func TestResolveEnvironment(t *testing.T) {
-	t.Run("default dev when nothing set", func(t *testing.T) {
+	t.Run("default production when nothing set", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		setEnvFlag(t, "")
 		env, err := resolveEnvironment()
 		if err != nil {
 			t.Fatalf("resolveEnvironment: %v", err)
 		}
-		if env.MetaServerURL != "https://dev-make.qtech.cn" {
+		if env.MetaServerURL != "https://make.qtech.cn" {
 			t.Errorf("default MetaServerURL = %q", env.MetaServerURL)
 		}
 	})

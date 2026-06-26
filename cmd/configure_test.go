@@ -193,11 +193,11 @@ func TestSampleConfig(t *testing.T) {
 }
 
 func TestConfigureGetEnvironment(t *testing.T) {
-	t.Run("default dev when unset", func(t *testing.T) {
+	t.Run("default production when unset", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		out := captureStdout(t, func() { _ = runConfigureGet("environment") })
-		if strings.TrimSpace(out) != "dev" {
-			t.Errorf("get environment = %q, want dev", strings.TrimSpace(out))
+		if strings.TrimSpace(out) != "production" {
+			t.Errorf("get environment = %q, want production", strings.TrimSpace(out))
 		}
 	})
 
