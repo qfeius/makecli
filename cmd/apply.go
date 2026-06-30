@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（validResourceKey）、internal/api（Client/ErrNotFound/CreateApp/CreateEntity/GetApp/GetEntity/UpdateEntity/GetRelation/CreateRelation/UpdateRelation/Field/RelationProperties/RelationEnd）、errors、fmt、os、path/filepath、strings、gopkg.in/yaml.v3、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newApplyCmd 函数、ResourceManifest 类型（Key/Name/Type/AppKey/Meta/Properties）
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（validResourceKey）、internal/api（Client/ErrNotFound/CreateApp/CreateEntity/GetApp/GetEntity/UpdateEntity/GetRelation/CreateRelation/UpdateRelation/Field/EntityProperties/UniqueConstraint/RelationProperties/RelationEnd）、errors、fmt、os、path/filepath、strings、gopkg.in/yaml.v3、github.com/spf13/cobra
+ * [OUTPUT]: 对外提供 newApplyCmd 函数、ResourceManifest 类型（Key/Name/Type/AppKey/Meta/Properties）、extractUniqueConstraints helper
  * [POS]: cmd 模块的顶层 apply 命令，从 YAML 文件/目录批量应用资源（create-or-update 语义），按 Key 标识资源，Name 仅为展示名；存在性判定依赖 api.ErrNotFound，瞬时/传输错误不会被误判为"不存在"
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -269,17 +269,57 @@ func applyEntity(manifest ResourceManifest, client *api.Client) (string, error) 
 		}
 	}
 
+	constraints, err := extractUniqueConstraints(manifest.Properties)
+	if err != nil {
+		return "", err
+	}
+
+	props := api.EntityProperties{Fields: fields, UniqueConstraints: constraints}
 	displayName := defaultName(manifest.Name, manifest.Key)
 
-	_, err := client.GetEntity(manifest.AppKey, manifest.Key)
+	_, err = client.GetEntity(manifest.AppKey, manifest.Key)
 	if err == nil {
-		return "updated", client.UpdateEntity(manifest.Key, displayName, manifest.AppKey, fields)
+		return "updated", client.UpdateEntity(manifest.Key, displayName, manifest.AppKey, props)
 	}
 	if !errors.Is(err, api.ErrNotFound) {
 		return "", err // 瞬时/传输/非 not-found 业务错误，上抛不创建（避免把 update 降级成 create）
 	}
 
-	return "created", client.CreateEntity(manifest.Key, displayName, manifest.AppKey, fields)
+	return "created", client.CreateEntity(manifest.Key, displayName, manifest.AppKey, props)
+}
+
+// extractUniqueConstraints 从 YAML properties.uniqueConstraints 解析唯一性约束列表。
+// 纯结构性透传（不校验字段存在/类型白名单），合法性由服务端裁决，与 fields 的处理一致。
+func extractUniqueConstraints(properties map[string]any) ([]api.UniqueConstraint, error) {
+	raw, ok := properties["uniqueConstraints"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("uniqueConstraints 必须为数组")
+	}
+
+	constraints := make([]api.UniqueConstraint, 0, len(list))
+	for i, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("uniqueConstraints[%d] 必须为对象", i)
+		}
+		name, _ := m["name"].(string)
+		fieldsRaw, ok := m["fields"].([]any)
+		if !ok {
+			return nil, fmt.Errorf("uniqueConstraints[%d].fields 必须为数组", i)
+		}
+		fields := make([]string, 0, len(fieldsRaw))
+		for _, f := range fieldsRaw {
+			if fk, ok := f.(string); ok {
+				fields = append(fields, fk)
+			}
+		}
+		constraints = append(constraints, api.UniqueConstraint{Name: name, Fields: fields})
+	}
+	return constraints, nil
 }
 
 // applyRelation 从清单应用 Relation：不存在则创建，已存在则更新

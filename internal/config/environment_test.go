@@ -13,12 +13,12 @@ import (
 )
 
 func TestLookupEnvironment(t *testing.T) {
-	t.Run("empty falls back to default dev", func(t *testing.T) {
+	t.Run("empty falls back to default production", func(t *testing.T) {
 		env, ok := LookupEnvironment("")
 		if !ok {
 			t.Fatal("empty name should map to DefaultEnvironment")
 		}
-		if env.MetaServerURL != "https://dev-make.qtech.cn" {
+		if env.MetaServerURL != "https://make.qtech.cn" {
 			t.Errorf("default MetaServerURL = %q", env.MetaServerURL)
 		}
 	})
@@ -70,7 +70,7 @@ func TestEnvironmentNames(t *testing.T) {
 	if !slices.IsSorted(names) {
 		t.Errorf("EnvironmentNames not sorted: %v", names)
 	}
-	if DefaultEnvironment != "dev" {
-		t.Errorf("DefaultEnvironment = %q, want dev", DefaultEnvironment)
+	if DefaultEnvironment != "production" {
+		t.Errorf("DefaultEnvironment = %q, want production", DefaultEnvironment)
 	}
 }

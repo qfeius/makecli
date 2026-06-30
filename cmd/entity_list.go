@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client）、fmt、os、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助、cmd/app_list（parseFilter）
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client/UniqueConstraint）、fmt、os、strings、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助、cmd/app_list（parseFilter）
  * [OUTPUT]: 对外提供 newEntityListCmd 函数
- * [POS]: cmd/entity 的 list 子命令，按 appKey 分页列出 entity（KEY/NAME/VERSION），位置参数为 entity key 时显示单个 entity 详情；支持 --filter / table|json
+ * [POS]: cmd/entity 的 list 子命令，按 appKey 分页列出 entity（KEY/NAME/VERSION），位置参数为 entity key 时显示单个 entity 详情（Fields 表 + Unique constraints 表）；支持 --filter / table|json
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -10,6 +10,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/qfeius/makecli/internal/api"
@@ -129,17 +130,34 @@ func showEntity(client *api.Client, appKey, key, output string) error {
 
 	if len(entity.Properties.Fields) == 0 {
 		fmt.Println("\nNo fields.")
-		return nil
+	} else {
+		fmt.Println("\nFields:")
+		rows := make([][]string, len(entity.Properties.Fields))
+		for i, f := range entity.Properties.Fields {
+			rows[i] = []string{f.Key, f.Name, f.Type}
+		}
+		table := tablewriter.NewTable(os.Stdout)
+		table.Header("KEY", "NAME", "TYPE")
+		_ = table.Bulk(rows)
+		_ = table.Render()
 	}
 
-	fmt.Println("\nFields:")
-	rows := make([][]string, len(entity.Properties.Fields))
-	for i, f := range entity.Properties.Fields {
-		rows[i] = []string{f.Key, f.Name, f.Type}
+	renderUniqueConstraints(entity.Properties.UniqueConstraints)
+	return nil
+}
+
+// renderUniqueConstraints 展示 Entity 的唯一性约束表（NAME / FIELDS），无约束则静默
+func renderUniqueConstraints(constraints []api.UniqueConstraint) {
+	if len(constraints) == 0 {
+		return
+	}
+	fmt.Println("\nUnique constraints:")
+	rows := make([][]string, len(constraints))
+	for i, c := range constraints {
+		rows[i] = []string{c.Name, strings.Join(c.Fields, ", ")}
 	}
 	table := tablewriter.NewTable(os.Stdout)
-	table.Header("KEY", "NAME", "TYPE")
+	table.Header("NAME", "FIELDS")
 	_ = table.Bulk(rows)
 	_ = table.Render()
-	return nil
 }

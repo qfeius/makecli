@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client/GetApp/ListEntities/ListRelations/Entity/Relation/RelationProperties/RelationEnd）、cmd/apply（loadManifestsFromFile/Dir/ResourceManifest/getFieldMap）、cmd/output（validateOutputFormat/writeJSON）、encoding/json、errors、fmt、os、reflect、sort、strings
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（Client/GetApp/ListEntities/ListRelations/Entity/Relation/UniqueConstraint/RelationProperties/RelationEnd）、cmd/apply（loadManifestsFromFile/Dir/ResourceManifest/getFieldMap/extractUniqueConstraints）、cmd/output（validateOutputFormat/writeJSON）、encoding/json、errors、fmt、os、reflect、slices、sort、strings
  * [OUTPUT]: 对外提供 newDiffCmd 函数、errDiffFound 哨兵错误
- * [POS]: cmd 模块的顶层 diff 命令，对比远端 Meta Server 上的 App DSL（Entity + Relation）与本地 YAML 文件的差异；按 Key 匹配资源，Field 也按 Key 匹配；有差异时返回 errDiffFound（由 Execute 转译为退出码 1），实现 CI 漂移门禁
+ * [POS]: cmd 模块的顶层 diff 命令，对比远端 Meta Server 上的 App DSL（Entity + Relation + 唯一性约束）与本地 YAML 文件的差异；Entity 按 Key 匹配，Field 按 Key、唯一性约束按 name（字段顺序敏感）匹配；有差异时返回 errDiffFound（由 Execute 转译为退出码 1），实现 CI 漂移门禁
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -65,9 +66,17 @@ type DiffResult struct {
 
 // EntityDiff 单个 Entity 的对比结果（按 Key 标识）
 type EntityDiff struct {
-	Key    string      `json:"key"`
-	Status string      `json:"status"` // added | removed | changed | unchanged
-	Fields []FieldDiff `json:"fields,omitempty"`
+	Key         string           `json:"key"`
+	Status      string           `json:"status"` // added | removed | changed | unchanged
+	Fields      []FieldDiff      `json:"fields,omitempty"`
+	Constraints []ConstraintDiff `json:"constraints,omitempty"`
+}
+
+// ConstraintDiff 单个唯一性约束的对比结果（按 name 标识）
+type ConstraintDiff struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // added | removed | changed
+	Detail string `json:"detail,omitempty"`
 }
 
 // FieldDiff 单个 Field 的对比结果（按 Key 标识）
@@ -290,11 +299,12 @@ func computeDiff(appKey string, local []ResourceManifest, remote []api.Entity) D
 			continue
 		}
 		fieldDiffs := compareFields(m, &re)
+		constraintDiffs := compareConstraints(m, &re)
 		status := diffUnchanged
-		if len(fieldDiffs) > 0 {
+		if len(fieldDiffs) > 0 || len(constraintDiffs) > 0 {
 			status = diffChanged
 		}
-		diffs = append(diffs, EntityDiff{Key: m.Key, Status: status, Fields: fieldDiffs})
+		diffs = append(diffs, EntityDiff{Key: m.Key, Status: status, Fields: fieldDiffs, Constraints: constraintDiffs})
 	}
 
 	// 遍历远端: 找 removed
@@ -473,6 +483,44 @@ func compareFields(local ResourceManifest, remote *api.Entity) []FieldDiff {
 	return diffs
 }
 
+// compareConstraints 对比本地 Manifest 与远端 Entity 的唯一性约束（按 name 匹配，字段顺序敏感）
+func compareConstraints(local ResourceManifest, remote *api.Entity) []ConstraintDiff {
+	localCons, _ := extractUniqueConstraints(local.Properties) // 与 extractLocalFields 同样宽容：结构异常视为无约束，由 apply 兜底报错
+
+	remoteByName := make(map[string]api.UniqueConstraint, len(remote.Properties.UniqueConstraints))
+	for _, c := range remote.Properties.UniqueConstraints {
+		remoteByName[c.Name] = c
+	}
+
+	var diffs []ConstraintDiff
+	visited := make(map[string]bool)
+
+	for _, lc := range localCons {
+		visited[lc.Name] = true
+		rc, exists := remoteByName[lc.Name]
+		if !exists {
+			diffs = append(diffs, ConstraintDiff{Name: lc.Name, Status: diffAdded, Detail: strings.Join(lc.Fields, ", ")})
+			continue
+		}
+		if !slices.Equal(lc.Fields, rc.Fields) {
+			diffs = append(diffs, ConstraintDiff{
+				Name:   lc.Name,
+				Status: diffChanged,
+				Detail: fmt.Sprintf("fields: [%s] → [%s]", strings.Join(rc.Fields, ", "), strings.Join(lc.Fields, ", ")),
+			})
+		}
+	}
+
+	for _, rc := range remote.Properties.UniqueConstraints {
+		if visited[rc.Name] {
+			continue
+		}
+		diffs = append(diffs, ConstraintDiff{Name: rc.Name, Status: diffRemoved, Detail: strings.Join(rc.Fields, ", ")})
+	}
+
+	return diffs
+}
+
 // localField 从 YAML manifest 提取的字段定义
 type localField struct {
 	Key         string
@@ -577,6 +625,16 @@ func renderDiffTable(result *DiffResult) {
 						fmt.Printf("    - %s: %s (only on server)\n", f.Key, f.Detail)
 					case diffChanged:
 						fmt.Printf("    ~ %s: %s\n", f.Key, f.Detail)
+					}
+				}
+				for _, c := range e.Constraints {
+					switch c.Status {
+					case diffAdded:
+						fmt.Printf("    + unique %s: %s (only in local)\n", c.Name, c.Detail)
+					case diffRemoved:
+						fmt.Printf("    - unique %s: %s (only on server)\n", c.Name, c.Detail)
+					case diffChanged:
+						fmt.Printf("    ~ unique %s: %s\n", c.Name, c.Detail)
 					}
 				}
 			case diffAdded:

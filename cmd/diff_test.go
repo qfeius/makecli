@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内函数（包内白盒）、internal/config、internal/api、encoding/json、errors、io、net/http、net/http/httptest、os、path/filepath、strings、testing
- * [OUTPUT]: 覆盖 diff 子命令核心逻辑的单元测试（Entity + Relation + 退出码契约：有差异返回 errDiffFound）
+ * [OUTPUT]: 覆盖 diff 子命令核心逻辑的单元测试（Entity + Relation + 唯一性约束 + 退出码契约：有差异返回 errDiffFound）
  * [POS]: cmd 模块顶层 diff 命令的配套测试，用 httptest 隔离网络、临时文件测试差异对比；自包含 stdout 劫持验证 JSON/表格两种输出模式的退出语义
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -360,6 +360,79 @@ func TestComputeDiff(t *testing.T) {
 			if e.Key != expected[i] {
 				t.Errorf("position %d: expected %s, got %s", i, expected[i], e.Key)
 			}
+		}
+	})
+}
+
+// ---------------------------------- uniqueConstraints diff 测试 ----------------------------------
+
+func TestComputeDiffUniqueConstraints(t *testing.T) {
+	con := func(name string, fields ...string) map[string]any {
+		fs := make([]any, len(fields))
+		for i, f := range fields {
+			fs[i] = f
+		}
+		return map[string]any{"name": name, "fields": fs}
+	}
+	localWith := func(cons ...map[string]any) []ResourceManifest {
+		m := makeLocalEntity("Member", "email", "Make.Field.Text")
+		list := make([]any, len(cons))
+		for i, c := range cons {
+			list[i] = c
+		}
+		m.Properties["uniqueConstraints"] = list
+		return []ResourceManifest{m}
+	}
+	remoteWith := func(cons ...api.UniqueConstraint) []api.Entity {
+		e := makeRemoteEntity("Member", api.Field{Key: "email", Name: "email", Type: "Make.Field.Text"})
+		e.Properties.UniqueConstraints = cons
+		return []api.Entity{e}
+	}
+
+	t.Run("identical constraints → unchanged", func(t *testing.T) {
+		result := computeDiff("myapp",
+			localWith(con("uniq_email", "email")),
+			remoteWith(api.UniqueConstraint{Name: "uniq_email", Fields: []string{"email"}}),
+		)
+		if result.Summary.Unchanged != 1 {
+			t.Fatalf("expected unchanged, got %+v", result.Summary)
+		}
+		if len(result.Entities[0].Constraints) != 0 {
+			t.Errorf("expected no constraint diffs, got %+v", result.Entities[0].Constraints)
+		}
+	})
+
+	t.Run("constraint only in local → added + entity changed", func(t *testing.T) {
+		result := computeDiff("myapp", localWith(con("uniq_email", "email")), remoteWith())
+		if result.Summary.Changed != 1 {
+			t.Fatalf("expected changed, got %+v", result.Summary)
+		}
+		cs := result.Entities[0].Constraints
+		if len(cs) != 1 || cs[0].Name != "uniq_email" || cs[0].Status != diffAdded {
+			t.Errorf("constraint diff = %+v, want uniq_email added", cs)
+		}
+	})
+
+	t.Run("constraint only on server → removed", func(t *testing.T) {
+		result := computeDiff("myapp", localWith(),
+			remoteWith(api.UniqueConstraint{Name: "uniq_email", Fields: []string{"email"}}))
+		cs := result.Entities[0].Constraints
+		if len(cs) != 1 || cs[0].Status != diffRemoved {
+			t.Errorf("constraint diff = %+v, want removed", cs)
+		}
+	})
+
+	t.Run("field order is significant → changed", func(t *testing.T) {
+		result := computeDiff("myapp",
+			localWith(con("uniq_pm", "project_id", "member_id")),
+			remoteWith(api.UniqueConstraint{Name: "uniq_pm", Fields: []string{"member_id", "project_id"}}),
+		)
+		cs := result.Entities[0].Constraints
+		if len(cs) != 1 || cs[0].Status != diffChanged {
+			t.Fatalf("constraint diff = %+v, want changed", cs)
+		}
+		if !strings.Contains(cs[0].Detail, "→") {
+			t.Errorf("detail = %q, want before→after form", cs[0].Detail)
 		}
 	})
 }

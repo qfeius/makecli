@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 fmt，依赖同包 Client.do / Client.post 方法
- * [OUTPUT]: 对外提供 DeleteRecordResult / SortField / ListRecordOpts 类型、CreateRecord / GetRecord / UpdateRecord / UpdateRecordsBatch / DeleteRecords / ListRecords 方法
+ * [INPUT]: 依赖 fmt，依赖同包 Client.do / Client.post 方法、writeStatusErr / conflictData（409 唯一性冲突翻译，收口于 client.go）
+ * [OUTPUT]: 对外提供 DeleteRecordResult / SortField / ListRecordOpts 类型、CreateRecord / GetRecord / UpdateRecord / UpdateRecordsBatch / DeleteRecords / ListRecords 方法（写方法违反唯一性约束时返回 UniqueConstraintError）
  * [POS]: internal/api 的 Data Service 层，封装 Record CRUD 操作，与 client.go 的 Meta Service 层平级
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -48,14 +48,15 @@ func (c *Client) CreateRecord(appKey, entityKey string, data map[string]any) (st
 		Code    int    `json:"code"`
 		Message string `json:"msg"`
 		Data    struct {
-			RecordID string `json:"recordID"`
+			RecordID     string `json:"recordID"`
+			conflictData        // 409 时携带 constraint/fields；成功响应无此键，零值忽略
 		} `json:"data"`
 	}
 	if err := c.do("MakeService.CreateResource", "/data/v1/record", reqBody, &result); err != nil {
 		return "", err
 	}
 	if result.Code != 200 {
-		return "", fmt.Errorf("API 错误 [%d]: %s", result.Code, result.Message)
+		return "", writeStatusErr(result.Code, result.Message, result.Data.conflictData)
 	}
 	return result.Data.RecordID, nil
 }

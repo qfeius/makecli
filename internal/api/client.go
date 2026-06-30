@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 bytes、encoding/json、errors、fmt、net/http、os、time，依赖 internal/trace 的 TraceID/Traceparent
- * [OUTPUT]: 对外提供 Client 类型、ErrNotFound / ErrAuthFailed 哨兵错误、Option / WithDebug / WithHeaders / WithDryRun 功能选项、New 构造函数、App / Field / Entity / EntityProperties / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp(key, name, properties) / ListApps(page, size, filter) / DeleteApp(key) / GetApp(key) / CreateEntity(key, name, appKey, fields) / ListEntities(appKey, page, size, filter) / GetEntity(appKey, key) / UpdateEntity / DeleteEntity / CreateRelation(key, name, appKey, props) / UpdateRelation / ListRelations(appKey, ...) / GetRelation(appKey, key) / DeleteRelation / GetSchema(appKey) 方法。资源以 Key 为唯一标识符（英数下划线），Name 为用户可见展示名（支持中文）。Get* 方法在资源确实不存在时返回 ErrNotFound（可用 errors.Is 判定），其余错误（传输/非 not-found 业务码/解码）原样返回
+ * [INPUT]: 依赖 bytes、encoding/json、errors、fmt、net/http、os、strings、time，依赖 internal/trace 的 TraceID/Traceparent
+ * [OUTPUT]: 对外提供 Client 类型、ErrNotFound / ErrAuthFailed 哨兵错误、UniqueConstraintError 类型化错误（409 唯一性冲突，errors.As 判定）、Option / WithDebug / WithHeaders / WithDryRun 功能选项、New 构造函数、App / Field / Entity / EntityProperties / UniqueConstraint / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp(key, name, properties) / ListApps(page, size, filter) / DeleteApp(key) / GetApp(key) / CreateEntity(key, name, appKey, props) / ListEntities(appKey, page, size, filter) / GetEntity(appKey, key) / UpdateEntity(key, name, appKey, props) / DeleteEntity / CreateRelation(key, name, appKey, props) / UpdateRelation / ListRelations(appKey, ...) / GetRelation(appKey, key) / DeleteRelation / GetSchema(appKey) 方法。资源以 Key 为唯一标识符（英数下划线），Name 为用户可见展示名（支持中文）。Get* 方法在资源确实不存在时返回 ErrNotFound（可用 errors.Is 判定），其余错误（传输/非 not-found 业务码/解码）原样返回
  * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/qfeius/makecli/internal/trace"
@@ -44,6 +45,44 @@ const authFailedCode = 990300403
 // authFailedErr 是 ErrAuthFailed 的单一构造点：以 %w 包裹哨兵并保留原始 code/msg 供上层展示。
 func authFailedErr(code int, message string) error {
 	return fmt.Errorf("%w [%d]: %s", ErrAuthFailed, code, message)
+}
+
+// conflictCode 是写入违反唯一性约束时后端返回的业务码（见 DataAPIDesign 唯一性约束冲突）。
+const conflictCode = 409
+
+// UniqueConstraintError 表示写入（创建/更新/批量更新 Record）违反了 Entity 的唯一性约束。
+// 与 ErrNotFound / ErrAuthFailed 同为 api 层「只报事实、不管呈现」的分层边界：
+// api 携带冲突的约束名 Constraint 与参与字段 Fields，cmd 层直接展示其自解释的 Error() 串。
+// 用 errors.As(err, &api.UniqueConstraintError{}) 判定。
+type UniqueConstraintError struct {
+	Constraint string   // 冲突的唯一约束名
+	Fields     []string // 参与该约束的字段 key
+	Message    string   // 后端原始 msg（约束名/字段缺失时的兜底）
+}
+
+func (e *UniqueConstraintError) Error() string {
+	if e.Constraint != "" && len(e.Fields) > 0 {
+		return fmt.Sprintf("唯一性约束冲突 [%s]：字段 (%s) 已存在相同值", e.Constraint, strings.Join(e.Fields, ", "))
+	}
+	if e.Message != "" {
+		return "唯一性约束冲突：" + e.Message
+	}
+	return "唯一性约束冲突"
+}
+
+// conflictData 承载 409 唯一性冲突响应的 data 形态（constraint + fields）。
+type conflictData struct {
+	Constraint string   `json:"constraint"`
+	Fields     []string `json:"fields"`
+}
+
+// writeStatusErr 把写操作的非 200 业务码翻译成错误：409 唯一性冲突翻译为 UniqueConstraintError
+// （携带约束名与字段），其余沿用通用「API 错误」。收口原本散落各写方法的非 200 翻译重复。
+func writeStatusErr(code int, msg string, conflict conflictData) error {
+	if code == conflictCode {
+		return &UniqueConstraintError{Constraint: conflict.Constraint, Fields: conflict.Fields, Message: msg}
+	}
+	return fmt.Errorf("API 错误 [%d]: %s", code, msg)
 }
 
 // ---------------------------------- 客户端 ----------------------------------
@@ -184,9 +223,20 @@ type Entity struct {
 	Properties EntityProperties `json:"properties"`
 }
 
-// EntityProperties 封装 Entity 的 fields 列表
+// EntityProperties 封装 Entity 的 fields 列表与可选的唯一性约束
+// UniqueConstraints 为空时经 omitempty 省略，序列化与「只发 fields」逐字节一致
 type EntityProperties struct {
-	Fields []Field `json:"fields"`
+	Fields            []Field            `json:"fields"`
+	UniqueConstraints []UniqueConstraint `json:"uniqueConstraints,omitempty"`
+}
+
+// UniqueConstraint 描述 Entity 级唯一性约束（底层 = TiDB 唯一索引，跨记录约束）。
+// Name 是约束名（Entity 内唯一，作为写入冲突报错与 migration 的稳定锚）。
+// Fields 是参与约束的字段 key 列表（单字段唯一即 n=1，复合唯一为 2≤n≤3）。
+// 元组中任一字段为空则该行不参与唯一判定（对齐 SQL NULL ≠ NULL）。
+type UniqueConstraint struct {
+	Name   string   `json:"name"`
+	Fields []string `json:"fields"`
 }
 
 // ---------------------------------- Relation 操作 ----------------------------------
@@ -234,9 +284,10 @@ func (c *Client) writeResource(action, resType, path, key, name, appKey string, 
 
 // CreateEntity 调用 MakeService.CreateResource 在指定 App 下创建 Entity
 // key 是 Entity 标识符（英数下划线），name 是展示名（必填）；appKey 引用所属 App
-func (c *Client) CreateEntity(key, name, appKey string, fields []Field) error {
+// props 经 json tag fields/uniqueConstraints 直接序列化，与 CreateRelation 收 RelationProperties 对称
+func (c *Client) CreateEntity(key, name, appKey string, props EntityProperties) error {
 	return c.writeResource("MakeService.CreateResource", "Make.Entity", "/meta/v1/entity",
-		key, name, appKey, map[string]any{"fields": fields})
+		key, name, appKey, props)
 }
 
 // ListEntities 调用 MakeService.ListResources 获取指定 App 下全部 Entity
@@ -305,9 +356,9 @@ func (c *Client) GetApp(key string) (*App, error) {
 }
 
 // UpdateEntity 调用 MakeService.UpdateResource 更新指定 Entity（按 key 定位）
-func (c *Client) UpdateEntity(key, name, appKey string, fields []Field) error {
+func (c *Client) UpdateEntity(key, name, appKey string, props EntityProperties) error {
 	return c.writeResource("MakeService.UpdateResource", "Make.Entity", "/meta/v1/entity",
-		key, name, appKey, map[string]any{"fields": fields})
+		key, name, appKey, props)
 }
 
 // DeleteEntity 调用 MakeService.DeleteResource 删除指定 Entity（按 key 定位）
@@ -510,17 +561,20 @@ func (c *Client) do(target, path string, body, result any) error {
 	return nil
 }
 
-// post 是 do 的便捷包装，用于只需检查 code == 200 的写操作
+// post 是 do 的便捷包装，用于只需检查 code == 200 的写操作。
+// data 顺带解码 409 唯一性冲突形态（constraint/fields），非冲突响应忽略；
+// 非 200 经 writeStatusErr 翻译——409 → UniqueConstraintError，其余 → 通用错误。
 func (c *Client) post(target, path string, body any) error {
 	var result struct {
-		Code    int    `json:"code"`
-		Message string `json:"msg"`
+		Code    int          `json:"code"`
+		Message string       `json:"msg"`
+		Data    conflictData `json:"data"`
 	}
 	if err := c.do(target, path, body, &result); err != nil {
 		return err
 	}
 	if result.Code != 200 {
-		return fmt.Errorf("API 错误 [%d]: %s", result.Code, result.Message)
+		return writeStatusErr(result.Code, result.Message, result.Data)
 	}
 	return nil
 }

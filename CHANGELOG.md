@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.0] - 2026-06-26
+
+### Features
+
+- **config**: The backend environment now defaults to `production` (previously had no default), so a freshly configured CLI talks to the production platform out of the box. Override per-call with `--env dev|test|production` or persist it via `[settings] environment`
+- **entity**: Support Entity-level unique constraints (`properties.uniqueConstraints`), matching the AgenticDSL update. The `entity create --json` file now carries the whole entity `properties` (`fields` + `uniqueConstraints`) — the same shape as the DSL YAML and `entity list -o json`'s `data.properties`, so the three round-trip. `apply` round-trips constraints from YAML; `diff` detects drift by constraint name with order-sensitive field comparison; `entity list <key>` renders a unique-constraints table in the detail view. The whitelist of constraint-eligible field types, the per-entity quota, and existing-duplicate rejection are enforced server-side
+- **record**: Writes (`record create` / `record update`) that violate a unique constraint now surface a friendly `UniqueConstraintError` naming the conflicting constraint and fields, instead of the raw backend message
+- **errors**: Authentication failures are now upgraded to an actionable message that guides you to run `makecli login`, echoing the active profile and environment
+
 ## [v0.4.6] - 2026-06-18
 
 ### Features
@@ -147,7 +156,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.4.6...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.0...HEAD
+[v0.5.0]: https://github.com/qfeius/makecli/releases/tag/v0.5.0
 [v0.4.6]: https://github.com/qfeius/makecli/releases/tag/v0.4.6
 [v0.4.5]: https://github.com/qfeius/makecli/releases/tag/v0.4.5
 [v0.4.4]: https://github.com/qfeius/makecli/releases/tag/v0.4.4

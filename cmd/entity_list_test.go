@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runEntityList（包内白盒），internal/config、encoding/json、net/http、net/http/httptest
- * [OUTPUT]: 覆盖 entity list 子命令核心逻辑的单元测试（列表/空列表/具体entity/无凭证/API错误/未知profile）
+ * [OUTPUT]: 覆盖 entity list 子命令核心逻辑的单元测试（列表/空列表/具体entity/唯一性约束表/无凭证/API错误/未知profile）
  * [POS]: cmd 模块 entity_list.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -165,6 +165,44 @@ func TestRunEntityList(t *testing.T) {
 
 		if err := runEntityList("TODO", "project", 1, 20, outputTable, ""); err != nil {
 			t.Fatalf("runEntityList with name: %v", err)
+		}
+	})
+
+	t.Run("shows unique constraints table in detail view", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200, "msg": "success",
+				"data": map[string]any{
+					"key": "pm", "name": "项目成员", "type": "Make.Entity", "appKey": "TODO",
+					"meta": map[string]any{"version": "1.0.0"},
+					"properties": map[string]any{
+						"fields": []map[string]any{
+							{"key": "project_id", "name": "项目", "type": "Make.Field.Text", "meta": map[string]any{"version": "1.0.0"}, "properties": nil},
+							{"key": "member_id", "name": "成员", "type": "Make.Field.Text", "meta": map[string]any{"version": "1.0.0"}, "properties": nil},
+						},
+						"uniqueConstraints": []map[string]any{
+							{"name": "uniq_pm", "fields": []string{"project_id", "member_id"}},
+						},
+					},
+				},
+			})
+		}))
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		MetaServerURL = srv.URL
+
+		output := captureStdout(t, func() {
+			if err := runEntityList("TODO", "pm", 1, 20, outputTable, ""); err != nil {
+				t.Fatalf("runEntityList with constraints: %v", err)
+			}
+		})
+
+		if !strings.Contains(output, "Unique constraints:") {
+			t.Fatalf("expected unique constraints section, got %q", output)
+		}
+		if !strings.Contains(output, "uniq_pm") || !strings.Contains(output, "project_id, member_id") {
+			t.Errorf("expected constraint name and joined fields, got %q", output)
 		}
 	})
 

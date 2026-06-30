@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 internal/api 包内的 Client（包内白盒），encoding/json、net/http、net/http/httptest
- * [OUTPUT]: 覆盖 CreateRecord / GetRecord / UpdateRecord / UpdateRecordsBatch / DeleteRecords / ListRecords 的单元测试
+ * [INPUT]: 依赖 internal/api 包内的 Client（包内白盒），encoding/json、errors、net/http、net/http/httptest、strings
+ * [OUTPUT]: 覆盖 CreateRecord / GetRecord / UpdateRecord / UpdateRecordsBatch / DeleteRecords / ListRecords 的单元测试（含 409 唯一性冲突 → UniqueConstraintError）
  * [POS]: internal/api record.go 的配套测试，用 httptest 隔离网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -9,8 +9,10 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -54,6 +56,28 @@ func TestRecordCreate(t *testing.T) {
 
 		if _, err := New(srv.URL, "test-token").CreateRecord("myapp", "bad", nil); err == nil {
 			t.Fatal("expected error on API failure")
+		}
+	})
+
+	t.Run("409 surfaces UniqueConstraintError with constraint and fields", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 409, "msg": "Unique constraint violated",
+				"data": map[string]any{"constraint": "uniq_email", "fields": []string{"email"}},
+			})
+		}))
+		defer srv.Close()
+
+		_, err := New(srv.URL, "test-token").CreateRecord("myapp", "user", map[string]any{"email": "a@b.com"})
+		var uce *UniqueConstraintError
+		if !errors.As(err, &uce) {
+			t.Fatalf("expected *UniqueConstraintError, got %T: %v", err, err)
+		}
+		if uce.Constraint != "uniq_email" || len(uce.Fields) != 1 || uce.Fields[0] != "email" {
+			t.Errorf("UniqueConstraintError = %+v, want constraint=uniq_email fields=[email]", uce)
+		}
+		if !strings.Contains(uce.Error(), "uniq_email") || !strings.Contains(uce.Error(), "email") {
+			t.Errorf("Error() = %q, want it to name the constraint and field", uce.Error())
 		}
 	})
 }
@@ -131,6 +155,25 @@ func TestRecordUpdate(t *testing.T) {
 
 		if err := New(srv.URL, "test-token").UpdateRecord("myapp", "user", "rec-001", nil); err == nil {
 			t.Fatal("expected error on API failure")
+		}
+	})
+
+	t.Run("409 surfaces UniqueConstraintError through post path", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 409, "msg": "Unique constraint violated",
+				"data": map[string]any{"constraint": "uniq_pm", "fields": []string{"project_id", "member_id"}},
+			})
+		}))
+		defer srv.Close()
+
+		err := New(srv.URL, "test-token").UpdateRecord("myapp", "pm", "rec-001", map[string]any{"member_id": "u1"})
+		var uce *UniqueConstraintError
+		if !errors.As(err, &uce) {
+			t.Fatalf("expected *UniqueConstraintError, got %T: %v", err, err)
+		}
+		if uce.Constraint != "uniq_pm" || len(uce.Fields) != 2 {
+			t.Errorf("UniqueConstraintError = %+v, want constraint=uniq_pm with 2 fields", uce)
 		}
 	})
 }

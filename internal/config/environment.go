@@ -21,8 +21,8 @@ type Environment struct {
 	AuthServerURL string
 }
 
-// DefaultEnvironment 是未配置 [settings] environment 时的默认环境。
-const DefaultEnvironment = "dev"
+// DefaultEnvironment 是未配置 [settings] environment 时的默认环境（生产已上线，默认收口到 production）。
+const DefaultEnvironment = "production"
 
 // environments 是内建环境 preset 表，主机名遵循 {dev-, test-, ""} 前缀规律。
 var environments = map[string]Environment{

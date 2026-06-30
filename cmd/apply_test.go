@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内函数（包内白盒）、internal/config、encoding/json、net/http、net/http/httptest、os、path/filepath、strconv、strings、testing
- * [OUTPUT]: 覆盖 apply 子命令核心逻辑的单元测试（App/Entity/Relation，含 ErrNotFound 幂等性：瞬时错误不创建/not-found 创建/已存在更新）
+ * [OUTPUT]: 覆盖 apply 子命令核心逻辑的单元测试（App/Entity/Relation，含 ErrNotFound 幂等性：瞬时错误不创建/not-found 创建/已存在更新；uniqueConstraints 到达线缆 + extractUniqueConstraints 解析/错误）
  * [POS]: cmd 模块顶层 apply 命令的配套测试，用 httptest 隔离网络、临时文件测试 YAML 解析
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -815,6 +815,108 @@ func TestLoadManifestsFromDir(t *testing.T) {
 		want := "error reading [" + testDir + "]: recognized file extensions are [.yaml .yml]"
 		if err.Error() != want {
 			t.Fatalf("expected %q, got %q", want, err.Error())
+		}
+	})
+}
+
+// ---------------------------------- uniqueConstraints 测试 ----------------------------------
+
+func TestApplyEntitySendsUniqueConstraints(t *testing.T) {
+	var createBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("X-Make-Target") == "MakeService.GetResource" {
+			_, _ = w.Write([]byte(`{"code":200,"msg":"ok","data":{}}`)) // 空 data → ErrNotFound → 触发 create
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&createBody)
+		_, _ = w.Write([]byte(`{"code":200,"msg":"success","data":{}}`))
+	}))
+	defer srv.Close()
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultTokenForApply(t)
+	MetaServerURL = srv.URL
+	testDir := t.TempDir()
+
+	writeYAMLFileForApply(t, testDir, "entity.yaml", `key: pm
+name: 项目成员
+type: Make.Entity
+appKey: myapp
+meta:
+  version: 1.0.0
+properties:
+  fields:
+    - key: project_id
+      name: 项目
+      type: Make.Field.Text
+      meta:
+        version: 1.0.0
+      properties: {}
+    - key: member_id
+      name: 成员
+      type: Make.Field.Text
+      meta:
+        version: 1.0.0
+      properties: {}
+  uniqueConstraints:
+    - name: uniq_pm
+      fields:
+        - project_id
+        - member_id
+`)
+
+	if err := runAppApply(testDir); err != nil {
+		t.Fatalf("runAppApply: %v", err)
+	}
+
+	props, _ := createBody["properties"].(map[string]any)
+	cons, ok := props["uniqueConstraints"].([]any)
+	if !ok || len(cons) != 1 {
+		t.Fatalf("uniqueConstraints on wire = %v, want 1 entry", props["uniqueConstraints"])
+	}
+	c0, _ := cons[0].(map[string]any)
+	if c0["name"] != "uniq_pm" {
+		t.Errorf("constraint name = %v, want uniq_pm", c0["name"])
+	}
+	if fields, _ := c0["fields"].([]any); len(fields) != 2 || fields[0] != "project_id" {
+		t.Errorf("constraint fields = %v, want [project_id member_id]", c0["fields"])
+	}
+}
+
+func TestExtractUniqueConstraints(t *testing.T) {
+	t.Run("absent → nil", func(t *testing.T) {
+		got, err := extractUniqueConstraints(map[string]any{"fields": []any{}})
+		if err != nil || got != nil {
+			t.Fatalf("got (%v, %v), want (nil, nil)", got, err)
+		}
+	})
+
+	t.Run("parses name and fields", func(t *testing.T) {
+		got, err := extractUniqueConstraints(map[string]any{
+			"uniqueConstraints": []any{
+				map[string]any{"name": "uniq_email", "fields": []any{"email"}},
+			},
+		})
+		if err != nil {
+			t.Fatalf("extractUniqueConstraints: %v", err)
+		}
+		if len(got) != 1 || got[0].Name != "uniq_email" || len(got[0].Fields) != 1 || got[0].Fields[0] != "email" {
+			t.Errorf("got %+v", got)
+		}
+	})
+
+	t.Run("non-array → error", func(t *testing.T) {
+		if _, err := extractUniqueConstraints(map[string]any{"uniqueConstraints": "nope"}); err == nil {
+			t.Fatal("expected error for non-array uniqueConstraints")
+		}
+	})
+
+	t.Run("missing fields key → error", func(t *testing.T) {
+		_, err := extractUniqueConstraints(map[string]any{
+			"uniqueConstraints": []any{map[string]any{"name": "x"}},
+		})
+		if err == nil {
+			t.Fatal("expected error for constraint missing fields")
 		}
 	})
 }
