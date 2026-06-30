@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 testing、strings
  * [OUTPUT]: 提供 assertGeneratedAgentsContract 测试辅助函数，集中校验 makecli 生成的 AGENTS.md 关键合同
- * [POS]: cmd 测试共享断言，避免 app init / app create 重复锁定大量自然语言文案；只验证生成引导必须保留的本地预览、统一登录、Service 代理、运行时和发布前验证边界
+ * [POS]: cmd 测试共享断言，避免 app init / app create 重复锁定大量自然语言文案；只验证生成引导必须保留的本地预览临时进程开关、统一登录、Service 代理、运行时和发布前验证边界
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -29,6 +29,9 @@ func assertGeneratedAgentsContract(t *testing.T, content string) {
 		"make-app-auth",
 		"unified login",
 		"MAKE_APP_LOCAL_PREVIEW=true",
+		"临时注入",
+		"dev:preview",
+		"不得写入本地预览开关",
 		"localPreview=true",
 		"makecli login",
 		"共用这条代码路径",
@@ -63,6 +66,8 @@ func assertGeneratedAgentsContract(t *testing.T, content string) {
 		"makecli app preflight",
 		"make:predeploy",
 		"MAKE_API_TOKEN",
+		".env.local (可选，本地预览开关",
+		"关闭 `MAKE_APP_LOCAL_PREVIEW`",
 	}
 	for _, forbidden := range mustNotContain {
 		if strings.Contains(content, forbidden) {

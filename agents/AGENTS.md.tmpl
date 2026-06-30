@@ -8,9 +8,9 @@
 Vibe App Workflow
 1. 先确定最小 App Contract：要解决的问题、核心用户、主流程、实体/数据来源、主页面和验收方式。只问会阻塞下一步的问题，低风险偏好采用默认值并写入 `@apps/docs/PRD.md`。
 2. 页面优先：先让用户看到可交互页面和真实数据闭环，再补细节。默认路线是 React + Vite + React Router，`apps/service` 作为 UI 的唯一后端。
-3. 从第一天使用发布态主链路：`UI -> auth.api -> /api/make/app/** -> apps/service -> Make backend`。本地预览和正式发布共用这条代码路径。
-4. 本地预览只替换认证来源：Service 在 `MAKE_APP_LOCAL_PREVIEW=true` 时复用 makecli 当前登录态；UI 不读取 token、不写 token mode。
-5. 预览确认后再进入发布准备：关闭本地预览开关，走统一登录 unified login，运行构建和认证合同检查。
+3. 发布态主链路：`UI -> auth.api -> /api/make/app/** -> apps/service -> Make backend`。本地预览和正式发布共用这条代码路径。
+4. 本地预览只替换认证来源：Service 在本地启动命令临时注入 `MAKE_APP_LOCAL_PREVIEW=true` 时复用 makecli 当前登录态；UI 不读取 token、不写 token mode。
+5. 预览确认后再进入发布准备：确认未启用本地预览进程开关，走统一登录 unified login，运行构建和认证合同检查。
 </vibe_app_workflow>
 
 <implement_workflow>
@@ -63,7 +63,7 @@ npx skills add qfeius/make-platform-skills --all -y
     ├── ui        (React + Vite + React Router frontend, follow makeui skill)
     │   ├── .env.local (可选，仅本地 UI 配置；不得包含 Make token)
     ├── service       (express.js backend)
-    │   ├── .env.local (可选，本地预览开关；token 由 Service 读取 makecli profile)
+    │   ├── .env.local (可选，仅非认证本地配置；不得写入本地预览开关或 Make token)
     ├── docs/          (apps document)
     ├── dsl           (apps folder)
     ├── packages
@@ -73,7 +73,7 @@ npx skills add qfeius/make-platform-skills --all -y
     │
     └── package.json
 ```
-`pnpm run dev` 用于本地预览：Service 可设置 `MAKE_APP_LOCAL_PREVIEW=true`，读取 makecli 当前 profile 的 token，在服务端访问 Make 后端。UI 代码不读取 token，不配置 token mode。
+本地预览通过启动命令临时注入 `MAKE_APP_LOCAL_PREVIEW=true`，例如 `MAKE_APP_LOCAL_PREVIEW=true pnpm run dev` 或项目提供的 `pnpm run dev:preview`。Service 读取 makecli 当前 profile 的 token，在服务端访问 Make 后端。UI 代码不读取 token，不配置 token mode；不要把该开关作为持久化配置写入 `.env`、`.env.local`、`.env.example`、README setup/deploy 步骤或部署环境。
 `pnpm run build` 用于发布构建：不得启用本地预览开关，发布后访问域名走 make-gateway 统一登录。
 </structure>
 
@@ -87,7 +87,7 @@ npx skills add qfeius/make-platform-skills --all -y
 数据流：`UI (auth.api) -> /api/make/auth|oauth|app/** -> apps/service -> make-gateway /make/** -> Make Platform`。
 auth/oauth 透明代理，业务 `/app/**` 显式适配；持久化只走 Make Platform；Service 不自建业务库，不向浏览器暴露 Make token。
 
-本地预览数据流：`UI (auth.api) -> /api/make/auth|app/** -> apps/service (MAKE_APP_LOCAL_PREVIEW=true) -> Make gateway`。Service 返回 preview-marked `current-context/runtime-view`，并只在服务端请求 Make 时使用 makecli token；如果 makecli 未登录，提示先运行 `makecli login`。
+本地预览数据流：`UI (auth.api) -> /api/make/auth|app/** -> apps/service (process env MAKE_APP_LOCAL_PREVIEW=true) -> Make gateway`。Service 返回 preview-marked `current-context/runtime-view`，并只在服务端请求 Make 时使用 makecli token；如果 makecli 未登录，提示先运行 `makecli login`。
 </dataflow>
 
 <forbidden>
@@ -103,14 +103,14 @@ auth/oauth 透明代理，业务 `/app/**` 显式适配；持久化只走 Make P
 <definition_of_done>
 1. `@apps/docs/PRD.md` 的目标、核心流程、实体和验收方式已实现；`@apps/docs/api.md` 与 Service/UI 一致。
 2. DSL/schema 变更已完成 diff -> 用户确认 -> apply -> 验证闭环。
-3. 本地预览通过：先 `makecli login`，再 `pnpm run dev`；无需 Org 网页登录即可打开页面，`/api/make/auth/current-context` 返回 `localPreview=true` 的用户上下文，核心页面能读写真实 Make 数据。
+3. 本地预览通过：先 `makecli login`，再通过本地预览启动命令临时注入 `MAKE_APP_LOCAL_PREVIEW=true`；无需 Org 网页登录即可打开页面，`/api/make/auth/current-context` 返回 `localPreview=true` 的用户上下文，核心页面能读写真实 Make 数据。
 4. UI 不包含 Make token、浏览器 token mode、手写 Authorization 或直连 Make backend 的请求。
 5. `@apps/README.md` 写明启动、构建、验证结果。
 </definition_of_done>
 
 <publish_prepare>
 准备发布时再执行以下检查，不要把它们提前变成页面生成阶段的阻塞项：
-1. 关闭 `MAKE_APP_LOCAL_PREVIEW`，确认正式访问走统一登录。
+1. 确认 `.env`、`.env.local`、`.env.example` 和部署环境均未设置 `MAKE_APP_LOCAL_PREVIEW=true`，正式访问走统一登录。
 2. `cd apps && pnpm install && pnpm run build`。
 3. 验证 `apps/ui/dist` 与 `apps/service/dist/server.js` 存在。
 4. 对 Service-fronted App 运行 `audit-auth-contract.mjs <project-root> --mode service-fronted --published`。
