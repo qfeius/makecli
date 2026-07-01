@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v0.5.0] - 2026-06-26
+## [v0.5.1] - 2026-07-01
+
+### Features
+
+- **configure**: Add `configure resolve --target local-preview` — a token-free, offline command that resolves the active profile / environment / overrides into the minimal JSON (`make_api_origin`, `tenant_id`, `operator_id`) the Make platform skills need to wire up a local preview backend, instead of tooling having to re-derive the origin from scattered config (#20)
+- **scaffold**: Sharpen the generated `AGENTS.md` guidance around `make app` local preview — clearer formal-login steps, local-preview auth handling, and environment resolution so a freshly scaffolded app points its preview at the right backend (#20)
 
 ### Features
 
@@ -156,7 +161,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.1...HEAD
+[v0.5.1]: https://github.com/qfeius/makecli/releases/tag/v0.5.1
 [v0.5.0]: https://github.com/qfeius/makecli/releases/tag/v0.5.0
 [v0.4.6]: https://github.com/qfeius/makecli/releases/tag/v0.4.6
 [v0.4.5]: https://github.com/qfeius/makecli/releases/tag/v0.4.5
