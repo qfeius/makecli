@@ -99,8 +99,5 @@ func resolveEnvironmentForConfigureResolve() (string, config.Environment, error)
 
 func normalizeMakeAPIOrigin(url string) string {
 	origin := strings.TrimRight(strings.TrimSpace(url), "/")
-	if strings.HasSuffix(origin, apiGatewayPath) {
-		origin = strings.TrimSuffix(origin, apiGatewayPath)
-	}
-	return origin
+	return strings.TrimSuffix(origin, apiGatewayPath)
 }
