@@ -30,7 +30,7 @@ func TestRunDiff(t *testing.T) {
 		MetaServerURL = "http://unused"
 		dir := writeDiffYAML(t, entityYAML("Task", "myapp", "title", "Make.Field.Text"))
 
-		err := runDiff(dir, outputTable)
+		err := runDiff(dir, outputTable, 2)
 		if err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
@@ -43,7 +43,7 @@ func TestRunDiff(t *testing.T) {
 		setProfile(t, "unknown")
 		dir := writeDiffYAML(t, entityYAML("Task", "myapp", "title", "Make.Field.Text"))
 
-		err := runDiff(dir, outputTable)
+		err := runDiff(dir, outputTable, 2)
 		if err == nil {
 			t.Fatal("expected error for unknown profile")
 		}
@@ -57,7 +57,7 @@ func TestRunDiff(t *testing.T) {
 		MetaServerURL = srv.URL
 		dir := writeDiffYAML(t, entityYAML("Task", "myapp", "title", "Make.Field.Text"))
 
-		err := runDiff(dir, outputTable)
+		err := runDiff(dir, outputTable, 2)
 		if err == nil {
 			t.Fatal("expected error when remote app not found")
 		}
@@ -68,7 +68,7 @@ func TestRunDiff(t *testing.T) {
 		MetaServerURL = "http://unused"
 		dir := writeDiffYAML(t, entityYAML("Task", "myapp", "title", "Make.Field.Text"))
 
-		err := runDiff(dir, "xml")
+		err := runDiff(dir, "xml", 2)
 		if err == nil {
 			t.Fatal("expected error for invalid output format")
 		}
@@ -169,7 +169,7 @@ func captureRunDiffStdout(t *testing.T, path, output string) (string, error) {
 	}
 	os.Stdout = w
 
-	runErr := runDiff(path, output)
+	runErr := runDiff(path, output, 2)
 
 	_ = w.Close()
 	os.Stdout = orig

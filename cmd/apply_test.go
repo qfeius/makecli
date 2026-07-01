@@ -40,7 +40,7 @@ properties:
   description: demo
 `)
 
-		if err := runAppApply(yamlFile); err != nil {
+		if err := runAppApply(yamlFile, 2); err != nil {
 			t.Fatalf("runAppApply: %v", err)
 		}
 	})
@@ -76,7 +76,7 @@ properties:
   description: app2
 `)
 
-		if err := runAppApply(yamlFile); err != nil {
+		if err := runAppApply(yamlFile, 2); err != nil {
 			t.Fatalf("runAppApply multi-doc: %v", err)
 		}
 		// 每个 App: 1x GetApp + 1x CreateApp = 2 calls，2 个 App = 4 calls
@@ -123,7 +123,7 @@ properties:
       properties: {}
 `)
 
-		if err := runAppApply(testDir); err != nil {
+		if err := runAppApply(testDir, 2); err != nil {
 			t.Fatalf("runAppApply dir: %v", err)
 		}
 		// 1x GetApp + 1x CreateApp + 1x GetEntity + 1x CreateEntity = 4 calls
@@ -160,7 +160,7 @@ properties:
     cardinality: many
 `)
 
-		if err := runAppApply(yamlFile); err != nil {
+		if err := runAppApply(yamlFile, 2); err != nil {
 			t.Fatalf("runAppApply relation: %v", err)
 		}
 		// 1x GetRelation + 1x CreateRelation = 2 calls
@@ -202,7 +202,7 @@ properties:
     cardinality: many
 `)
 
-		if err := runAppApply(yamlFile); err != nil {
+		if err := runAppApply(yamlFile, 2); err != nil {
 			t.Fatalf("runAppApply update relation: %v", err)
 		}
 		// 1x GetRelation + 1x UpdateRelation = 2 calls
@@ -233,7 +233,7 @@ properties:
     cardinality: many
 `)
 
-		if err := runAppApply(yamlFile); err == nil {
+		if err := runAppApply(yamlFile, 2); err == nil {
 			t.Fatal("expected error for missing appKey field")
 		}
 	})
@@ -258,7 +258,7 @@ properties:
     cardinality: many
 `)
 
-		if err := runAppApply(yamlFile); err == nil {
+		if err := runAppApply(yamlFile, 2); err == nil {
 			t.Fatal("expected error for missing from field")
 		}
 	})
@@ -314,7 +314,7 @@ properties:
     cardinality: many
 `)
 
-		if err := runAppApply(testDir); err != nil {
+		if err := runAppApply(testDir, 2); err != nil {
 			t.Fatalf("runAppApply dir with relation: %v", err)
 		}
 		// 2(App) + 2(Entity) + 2(Relation) = 6 calls
@@ -338,7 +338,7 @@ properties:
   description: test
 `)
 
-		if err := runAppApply(yamlFile); err == nil {
+		if err := runAppApply(yamlFile, 2); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
 	})
@@ -358,7 +358,7 @@ properties:
   description: test
 `)
 
-		if err := runAppApply(yamlFile); err == nil {
+		if err := runAppApply(yamlFile, 2); err == nil {
 			t.Fatal("expected error for unknown profile")
 		}
 	})
@@ -380,7 +380,7 @@ properties:
   description: test
 `)
 
-		if err := runAppApply(yamlFile); err == nil {
+		if err := runAppApply(yamlFile, 2); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 	})
@@ -402,7 +402,7 @@ properties:
   fields: []
 `)
 
-		if err := runAppApply(yamlFile); err == nil {
+		if err := runAppApply(yamlFile, 2); err == nil {
 			t.Fatal("expected error for missing appKey field")
 		}
 	})
@@ -424,7 +424,7 @@ properties:
   description: todo
 `)
 
-		err := runAppApply(yamlFile)
+		err := runAppApply(yamlFile, 2)
 		if err == nil {
 			t.Fatal("expected error for unknown resource type")
 		}
@@ -443,7 +443,7 @@ properties:
 
 		yamlFile := writeYAMLFileForApply(t, testDir, "empty.yaml", "")
 
-		err := runAppApply(yamlFile)
+		err := runAppApply(yamlFile, 2)
 		if err == nil {
 			t.Fatal("expected error for empty YAML file")
 		}
@@ -461,7 +461,7 @@ properties:
 		bad := filepath.Join(testDir, "bad.yaml")
 		_ = os.WriteFile(bad, []byte("invalid: yaml: ["), 0644)
 
-		if err := runAppApply(bad); err == nil {
+		if err := runAppApply(bad, 2); err == nil {
 			t.Fatal("expected error for invalid YAML")
 		}
 	})
@@ -553,7 +553,7 @@ properties:
 
 			yamlFile := writeYAMLFileForApply(t, testDir, "res.yaml", tc.yaml)
 
-			err := runAppApply(yamlFile)
+			err := runAppApply(yamlFile, 2)
 			if err == nil {
 				t.Fatal("expected error to propagate from transient Get failure")
 			}
@@ -594,7 +594,7 @@ properties:
   description: demo
 `)
 
-	if err := runAppApply(yamlFile); err != nil {
+	if err := runAppApply(yamlFile, 2); err != nil {
 		t.Fatalf("runAppApply on not-found: %v", err)
 	}
 	if createHits != 1 {
@@ -643,7 +643,7 @@ properties:
       properties: {}
 `)
 
-	if err := runAppApply(yamlFile); err != nil {
+	if err := runAppApply(yamlFile, 2); err != nil {
 		t.Fatalf("runAppApply on existing: %v", err)
 	}
 	if updateHits != 1 || createHits != 0 {
@@ -658,7 +658,7 @@ func TestRunAppApplyFailsWithoutRecognizedYAMLFiles(t *testing.T) {
 	testDir := t.TempDir()
 	writeYAMLFileForApply(t, testDir, "app.json", `{"name":"app1"}`)
 
-	err := runAppApply(testDir)
+	err := runAppApply(testDir, 2)
 	if err == nil {
 		t.Fatal("expected error for directory without yaml files")
 	}
@@ -753,20 +753,72 @@ properties:
 // ---------------------------------- loadManifestsFromDir 测试 ----------------------------------
 
 func TestLoadManifestsFromDir(t *testing.T) {
-	t.Run("loads all yaml files one level", func(t *testing.T) {
-		testDir := t.TempDir()
-		writeYAMLFileForApply(t, testDir, "app1.yaml", "key: app1\nname: 应用一\ntype: Make.App\nmeta:\n  version: 1.0.0\nproperties:\n  description: app1")
-		writeYAMLFileForApply(t, testDir, "app2.yml", "key: app2\nname: 应用二\ntype: Make.App\nmeta:\n  version: 1.0.0\nproperties:\n  description: app2")
-		// 创建嵌套目录 - 应被忽略
-		_ = os.Mkdir(filepath.Join(testDir, "nested"), 0755)
-		writeYAMLFileForApply(t, filepath.Join(testDir, "nested"), "ignored.yaml", "key: ignored\nname: 忽略\ntype: Make.App")
+	// mkYAML 在 dir（含缺失的父目录）下写一个单文档 App YAML，每文件恰好 1 manifest
+	mkYAML := func(t *testing.T, dir, key string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		writeYAMLFileForApply(t, dir, key+".yaml", "key: "+key+"\nname: "+key+"\ntype: Make.App")
+	}
 
-		manifests, err := loadManifestsFromDir(testDir)
+	t.Run("depth 1 scans only the top level", func(t *testing.T) {
+		root := t.TempDir()
+		mkYAML(t, root, "a")
+		mkYAML(t, root, "b")
+		mkYAML(t, filepath.Join(root, "sub"), "ignored") // 第 2 层，depth 1 剪掉
+
+		manifests, err := loadManifestsFromDir(root, 1)
 		if err != nil {
 			t.Fatalf("loadManifestsFromDir: %v", err)
 		}
 		if len(manifests) != 2 {
-			t.Fatalf("expected 2 manifests, got %d", len(manifests))
+			t.Fatalf("depth 1 expected 2 manifests (subdir ignored), got %d", len(manifests))
+		}
+	})
+
+	t.Run("depth 2 includes immediate subdirs but cuts grandchildren", func(t *testing.T) {
+		root := t.TempDir()
+		mkYAML(t, root, "a")
+		mkYAML(t, filepath.Join(root, "sub"), "b")           // 第 2 层，纳入
+		mkYAML(t, filepath.Join(root, "sub", "deep"), "cut") // 第 3 层，剪掉
+
+		manifests, err := loadManifestsFromDir(root, 2)
+		if err != nil {
+			t.Fatalf("loadManifestsFromDir: %v", err)
+		}
+		if len(manifests) != 2 {
+			t.Fatalf("depth 2 expected 2 manifests (top + 1 subdir), got %d", len(manifests))
+		}
+	})
+
+	t.Run("depth 0 recurses the entire tree", func(t *testing.T) {
+		root := t.TempDir()
+		mkYAML(t, root, "a")
+		mkYAML(t, filepath.Join(root, "l1"), "b")
+		mkYAML(t, filepath.Join(root, "l1", "l2"), "c")
+		mkYAML(t, filepath.Join(root, "l1", "l2", "l3"), "d")
+
+		manifests, err := loadManifestsFromDir(root, 0)
+		if err != nil {
+			t.Fatalf("loadManifestsFromDir: %v", err)
+		}
+		if len(manifests) != 4 {
+			t.Fatalf("depth 0 expected 4 manifests (full recursion), got %d", len(manifests))
+		}
+	})
+
+	t.Run("hidden subdirectories are never descended even at depth 0", func(t *testing.T) {
+		root := t.TempDir()
+		mkYAML(t, root, "visible")
+		mkYAML(t, filepath.Join(root, ".git"), "buried") // 隐藏目录，即便不限深度也不下钻
+
+		manifests, err := loadManifestsFromDir(root, 0)
+		if err != nil {
+			t.Fatalf("loadManifestsFromDir: %v", err)
+		}
+		if len(manifests) != 1 || manifests[0].Key != "visible" {
+			t.Fatalf("expected only [visible], got %+v", manifests)
 		}
 	})
 
@@ -775,7 +827,7 @@ func TestLoadManifestsFromDir(t *testing.T) {
 		writeYAMLFileForApply(t, testDir, "app.json", `{"name":"app1"}`)
 		writeYAMLFileForApply(t, testDir, "README.txt", "ignored")
 
-		_, err := loadManifestsFromDir(testDir)
+		_, err := loadManifestsFromDir(testDir, 2)
 		if err == nil {
 			t.Fatal("expected error for directory without yaml files")
 		}
@@ -791,7 +843,7 @@ func TestLoadManifestsFromDir(t *testing.T) {
 		writeYAMLFileForApply(t, testDir, ".goreleaser.yml", "key: hidden\nname: 隐藏\ntype: Make.App")
 		writeYAMLFileForApply(t, testDir, "app.yaml", "key: visible\nname: 可见\ntype: Make.App")
 
-		manifests, err := loadManifestsFromDir(testDir)
+		manifests, err := loadManifestsFromDir(testDir, 2)
 		if err != nil {
 			t.Fatalf("loadManifestsFromDir: %v", err)
 		}
@@ -807,7 +859,7 @@ func TestLoadManifestsFromDir(t *testing.T) {
 		testDir := t.TempDir()
 		writeYAMLFileForApply(t, testDir, ".goreleaser.yml", "key: hidden\nname: 隐藏\ntype: Make.App")
 
-		_, err := loadManifestsFromDir(testDir)
+		_, err := loadManifestsFromDir(testDir, 2)
 		if err == nil {
 			t.Fatal("expected error for directory without visible yaml files")
 		}
@@ -817,6 +869,17 @@ func TestLoadManifestsFromDir(t *testing.T) {
 			t.Fatalf("expected %q, got %q", want, err.Error())
 		}
 	})
+}
+
+// TestRunAppApplyRejectsNegativeMaxDepth 锁定负深度在触网/读凭证之前被拒绝。
+func TestRunAppApplyRejectsNegativeMaxDepth(t *testing.T) {
+	err := runAppApply(t.TempDir(), -1)
+	if err == nil {
+		t.Fatal("expected error for negative max-depth")
+	}
+	if !strings.Contains(err.Error(), "max-depth") {
+		t.Fatalf("expected max-depth error, got %q", err.Error())
+	}
 }
 
 // ---------------------------------- uniqueConstraints 测试 ----------------------------------
@@ -865,7 +928,7 @@ properties:
         - member_id
 `)
 
-	if err := runAppApply(testDir); err != nil {
+	if err := runAppApply(testDir, 2); err != nil {
 		t.Fatalf("runAppApply: %v", err)
 	}
 

@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（validResourceKey）、internal/api（Client/ErrNotFound/CreateApp/CreateEntity/GetApp/GetEntity/UpdateEntity/GetRelation/CreateRelation/UpdateRelation/Field/EntityProperties/UniqueConstraint/RelationProperties/RelationEnd）、errors、fmt、os、path/filepath、strings、gopkg.in/yaml.v3、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newApplyCmd 函数、ResourceManifest 类型（Key/Name/Type/AppKey/Meta/Properties）、extractUniqueConstraints helper
- * [POS]: cmd 模块的顶层 apply 命令，从 YAML 文件/目录批量应用资源（create-or-update 语义），按 Key 标识资源，Name 仅为展示名；存在性判定依赖 api.ErrNotFound，瞬时/传输错误不会被误判为"不存在"
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（validResourceKey）、internal/api（Client/ErrNotFound/CreateApp/CreateEntity/GetApp/GetEntity/UpdateEntity/GetRelation/CreateRelation/UpdateRelation/Field/EntityProperties/UniqueConstraint/RelationProperties/RelationEnd）、errors、fmt、io、io/fs、math、os、path/filepath、slices、strings、gopkg.in/yaml.v3、github.com/spf13/cobra
+ * [OUTPUT]: 对外提供 newApplyCmd 函数、ResourceManifest 类型（Key/Name/Type/AppKey/Meta/Properties）、extractUniqueConstraints/loadManifestsFromFile/loadManifestsFromDir/subdirLevel helper
+ * [POS]: cmd 模块的顶层 apply 命令，从 YAML 文件/目录批量应用资源（create-or-update 语义），按 Key 标识资源，Name 仅为展示名；存在性判定依赖 api.ErrNotFound，瞬时/传输错误不会被误判为"不存在"；目录扫描经 filepath.WalkDir 递归，--max-depth 控制层级（1=当前目录/2=含子目录默认/0=不限），隐藏文件与隐藏子目录跳过
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -25,6 +27,7 @@ import (
 
 func newApplyCmd() *cobra.Command {
 	var path string
+	var maxDepth int
 
 	cmd := &cobra.Command{
 		Use:   "apply -f <path>",
@@ -36,18 +39,23 @@ Supports creating App, Entity, and Relation resources.`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAppApply(path)
+			return runAppApply(path, maxDepth)
 		},
 	}
 
 	cmd.Flags().StringVarP(&path, "file", "f", "", "path to YAML file or directory (required)")
+	cmd.Flags().IntVar(&maxDepth, "max-depth", 2, "directory recursion depth (1=top level, 2=+subdirs, 0=unlimited)")
 	_ = cmd.MarkFlagRequired("file")
 	return cmd
 }
 
 // ---------------------------------- 执行函数 ----------------------------------
 
-func runAppApply(path string) error {
+func runAppApply(path string, maxDepth int) error {
+	if maxDepth < 0 {
+		return fmt.Errorf("--max-depth 不能为负数（0=递归全部，1=当前目录，2=含子目录）")
+	}
+
 	client, err := newClientFromProfile()
 	if err != nil {
 		return err
@@ -60,7 +68,7 @@ func runAppApply(path string) error {
 
 	var resources []ResourceManifest
 	if info.IsDir() {
-		resources, err = loadManifestsFromDir(path)
+		resources, err = loadManifestsFromDir(path, maxDepth)
 	} else {
 		resources, err = loadManifestsFromFile(path)
 	}
@@ -124,32 +132,50 @@ func loadManifestsFromFile(path string) ([]ResourceManifest, error) {
 	return manifests, nil
 }
 
-// loadManifestsFromDir 从目录扫描一层加载所有 YAML 文件
-func loadManifestsFromDir(dir string) ([]ResourceManifest, error) {
-	var manifests []ResourceManifest
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("读取目录失败: %w", err)
+// loadManifestsFromDir 递归扫描目录加载 YAML 文件，maxDepth 控制层级：
+// 1=仅当前目录，2=含直接子目录，N=向下 N 层，0=不限深度（递归整棵树）。
+// 隐藏文件与隐藏子目录（.git / .idea 等）一律跳过，不下钻。
+func loadManifestsFromDir(dir string, maxDepth int) ([]ResourceManifest, error) {
+	depthLimit := maxDepth
+	if depthLimit == 0 {
+		depthLimit = math.MaxInt // 0 = 不限深度，一次性折叠成上界，热路径只剩单条比较
 	}
 
+	var manifests []ResourceManifest
 	matchedFiles := 0
-	for _, entry := range entries {
+
+	walkErr := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("读取目录失败: %w", err)
+		}
 		if entry.IsDir() {
-			continue
+			if path == dir {
+				return nil // 根目录恒为第 1 层，永不因隐藏名或深度被剪
+			}
+			if strings.HasPrefix(entry.Name(), ".") {
+				return fs.SkipDir // 不下钻隐藏目录（.git 等）
+			}
+			if subdirLevel(dir, path) > depthLimit {
+				return fs.SkipDir // 超出深度整棵剪掉
+			}
+			return nil
 		}
 		if strings.HasPrefix(entry.Name(), ".") {
-			continue
+			return nil
 		}
-		ext := filepath.Ext(entry.Name())
-		if !slices.Contains(recognizedManifestExtensions, ext) {
-			continue
+		if !slices.Contains(recognizedManifestExtensions, filepath.Ext(entry.Name())) {
+			return nil
 		}
 		matchedFiles++
-		ms, err := loadManifestsFromFile(filepath.Join(dir, entry.Name()))
+		ms, err := loadManifestsFromFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("加载 %s 失败: %w", entry.Name(), err)
+			return fmt.Errorf("加载 %s 失败: %w", path, err)
 		}
 		manifests = append(manifests, ms...)
+		return nil
+	})
+	if walkErr != nil {
+		return nil, walkErr
 	}
 	if matchedFiles == 0 {
 		return nil, fmt.Errorf(
@@ -159,6 +185,13 @@ func loadManifestsFromDir(dir string) ([]ResourceManifest, error) {
 		)
 	}
 	return manifests, nil
+}
+
+// subdirLevel 返回子目录相对根的层级：直接子目录=2，再深一层=3……
+// 根目录（level 1）由调用方短路，不会进入此函数。
+func subdirLevel(root, path string) int {
+	rel, _ := filepath.Rel(root, path)
+	return strings.Count(rel, string(filepath.Separator)) + 2
 }
 
 // ---------------------------------- 资源应用 ----------------------------------
