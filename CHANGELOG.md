@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.2] - 2026-07-01
+
+### Features
+
+- **apply, diff**: Add `--max-depth` to control directory recursion (default `2`): `1` scans only the given directory (the previous behavior), `2` also descends into immediate subdirectories, `0` recurses the entire tree. Directory loading moved from single-level `os.ReadDir` to `filepath.WalkDir`; hidden files and hidden subdirectories (`.git` etc.) are never descended. `diff` shares the same flag so `diff` and `apply` agree on which files constitute an app
+
 ## [v0.5.1] - 2026-07-01
 
 ### Features
@@ -161,7 +167,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.2...HEAD
+[v0.5.2]: https://github.com/qfeius/makecli/releases/tag/v0.5.2
 [v0.5.1]: https://github.com/qfeius/makecli/releases/tag/v0.5.1
 [v0.5.0]: https://github.com/qfeius/makecli/releases/tag/v0.5.0
 [v0.4.6]: https://github.com/qfeius/makecli/releases/tag/v0.4.6
