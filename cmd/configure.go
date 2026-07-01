@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 internal/config，bufio、encoding/base64、fmt、os、strings、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newConfigureCmd 函数（含 token/config/set/get 子命令）
+ * [OUTPUT]: 对外提供 newConfigureCmd 函数（含 token/config/set/get/verify/resolve 子命令）
  * [POS]: cmd 模块的 configure 命令组，交互式或直接写入 ~/.make/credentials 和 ~/.make/config
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -95,6 +95,7 @@ func newConfigureCmd() *cobra.Command {
 	cmd.AddCommand(newConfigureSetCmd())
 	cmd.AddCommand(newConfigureGetCmd())
 	cmd.AddCommand(newConfigureVerifyCmd())
+	cmd.AddCommand(newConfigureResolveCmd())
 
 	return cmd
 }

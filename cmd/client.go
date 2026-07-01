@@ -75,7 +75,7 @@ func withGateway(host string) string {
 	return host + apiGatewayPath
 }
 
-// envName 解析当前后端环境名：--env flag > [settings] environment > 默认 dev。
+// envName 解析当前后端环境名：--env flag > [settings] environment > DefaultEnvironment。
 // 与 resolveEnvironment 同一解析链，但 fail-safe：吞掉 LoadSettings 错误回退默认，
 // 供纯展示场景（如鉴权失败引导回显环境）使用——展示不该因配置读取失败而无名可显。
 func envName() string {

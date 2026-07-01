@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runAppInit（包内白盒）、captureStdout/writeTestFile/chdir 辅助、loadAppManifestFromFile，os、path/filepath、strings、testing
- * [OUTPUT]: 覆盖 app init 子命令的单元测试（完整本地脚手架 + git + .gitignore + 幂等 + 不 commit + appKey 推导/默认 cwd）
+ * [OUTPUT]: 覆盖 app init 子命令的单元测试（完整本地脚手架 + 生成 AGENTS.md 导航契约 + git + .gitignore + 幂等 + 不 commit + appKey 推导/默认 cwd）
  * [POS]: cmd 模块 app_init.go 的配套测试，用 t.TempDir 隔离文件系统、captureStdout 验证状态行
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -28,6 +28,11 @@ func TestRunAppInit(t *testing.T) {
 				t.Errorf("%s should exist after init: %v", name, err)
 			}
 		}
+		agents, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
+		if err != nil {
+			t.Fatalf("read AGENTS.md: %v", err)
+		}
+		assertGeneratedAgentsContract(t, string(agents))
 		// app.yaml 的 key 取自目录名
 		m, err := loadAppManifestFromFile(filepath.Join(dir, "apps", "dsl", "app.yaml"))
 		if err != nil {
