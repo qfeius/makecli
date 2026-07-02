@@ -85,7 +85,7 @@ X-Operator-ID = op_123
 
 ```bash
 # 指定 Meta Server 主机地址（覆盖 config 中的 meta-server-url，/api/make 自动补齐）
-makecli app list --meta-server-url https://make.qtech.cn
+makecli app list --meta-server-url https://make.qfei.cn
 
 # 指定 profile
 makecli app list --profile todo

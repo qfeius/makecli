@@ -29,7 +29,7 @@ func TestResolveEnvironment(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveEnvironment: %v", err)
 		}
-		if env.MetaServerURL != "https://make.qtech.cn" {
+		if env.MetaServerURL != "https://make.qfei.cn" {
 			t.Errorf("default MetaServerURL = %q", env.MetaServerURL)
 		}
 	})
@@ -59,7 +59,7 @@ func TestResolveEnvironment(t *testing.T) {
 		if err != nil {
 			t.Fatalf("resolveEnvironment: %v", err)
 		}
-		if env.MetaServerURL != "https://make.qtech.cn" {
+		if env.MetaServerURL != "https://make.qfei.cn" {
 			t.Errorf("MetaServerURL = %q, want production", env.MetaServerURL)
 		}
 	})

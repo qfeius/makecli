@@ -28,7 +28,7 @@ func TestRunConfigureResolveLocalPreview(t *testing.T) {
 		if result.Environment != "production" {
 			t.Errorf("environment = %q, want production", result.Environment)
 		}
-		if result.MakeAPIOrigin != "https://make.qtech.cn" {
+		if result.MakeAPIOrigin != "https://make.qfei.cn" {
 			t.Errorf("make_api_origin = %q, want production origin", result.MakeAPIOrigin)
 		}
 		if result.TenantID != "" || result.OperatorID != "" {

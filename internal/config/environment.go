@@ -24,7 +24,7 @@ type Environment struct {
 // DefaultEnvironment 是未配置 [settings] environment 时的默认环境（生产已上线，默认收口到 production）。
 const DefaultEnvironment = "production"
 
-// environments 是内建环境 preset 表，主机名遵循 {dev-, test-, ""} 前缀规律。
+// environments 是内建环境 preset 表：dev/test 用 qtech.cn（{dev-,test-} 前缀），production 用 qfei.cn。
 var environments = map[string]Environment{
 	"dev": {
 		MetaServerURL: "https://dev-make.qtech.cn",
@@ -37,9 +37,9 @@ var environments = map[string]Environment{
 		AuthServerURL: "https://test-myaccount.qtech.cn",
 	},
 	"production": {
-		MetaServerURL: "https://make.qtech.cn",
-		RepoServerURL: "https://make-repo.qtech.cn",
-		AuthServerURL: "https://myaccount.qtech.cn",
+		MetaServerURL: "https://make.qfei.cn",
+		RepoServerURL: "https://make-repo.qfei.cn",
+		AuthServerURL: "https://myaccount.qfei.cn",
 	},
 }
 

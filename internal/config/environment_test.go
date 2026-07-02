@@ -18,7 +18,7 @@ func TestLookupEnvironment(t *testing.T) {
 		if !ok {
 			t.Fatal("empty name should map to DefaultEnvironment")
 		}
-		if env.MetaServerURL != "https://make.qtech.cn" {
+		if env.MetaServerURL != "https://make.qfei.cn" {
 			t.Errorf("default MetaServerURL = %q", env.MetaServerURL)
 		}
 	})
@@ -36,9 +36,9 @@ func TestLookupEnvironment(t *testing.T) {
 				AuthServerURL: "https://test-myaccount.qtech.cn",
 			},
 			"production": {
-				MetaServerURL: "https://make.qtech.cn",
-				RepoServerURL: "https://make-repo.qtech.cn",
-				AuthServerURL: "https://myaccount.qtech.cn",
+				MetaServerURL: "https://make.qfei.cn",
+				RepoServerURL: "https://make-repo.qfei.cn",
+				AuthServerURL: "https://myaccount.qfei.cn",
 			},
 		}
 		for name, want := range cases {
