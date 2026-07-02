@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.3] - 2026-07-02
+
+### Bug Fixes
+
+- **config**: Point the `production` environment preset to `qfei.cn` (Meta/Repo/Auth host triplet). The `dev` and `test` presets stay on `qtech.cn`; only production moved. A default-configured CLI now talks to `make.qfei.cn` out of the box
+
 ## [v0.5.2] - 2026-07-01
 
 ### Features
@@ -167,7 +173,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.3...HEAD
+[v0.5.3]: https://github.com/qfeius/makecli/releases/tag/v0.5.3
 [v0.5.2]: https://github.com/qfeius/makecli/releases/tag/v0.5.2
 [v0.5.1]: https://github.com/qfeius/makecli/releases/tag/v0.5.1
 [v0.5.0]: https://github.com/qfeius/makecli/releases/tag/v0.5.0
