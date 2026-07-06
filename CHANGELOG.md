@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.4] - 2026-07-06
+
+### Features
+
+- **whoami**: Add `makecli whoami` to show the user identity for the current access token (id, name, tenant) via the gateway `GET /user/v1/info`. Interaction mirrors `wrangler whoami`: when you are not logged in — or the token has expired — it auto-starts the login flow (at most one login per invocation), then renders a bordered `FIELD`/`VALUE` table; `--output json` is supported for scripting
+
 ## [v0.5.3] - 2026-07-02
 
 ### Bug Fixes
@@ -173,7 +179,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.4...HEAD
+[v0.5.4]: https://github.com/qfeius/makecli/releases/tag/v0.5.4
 [v0.5.3]: https://github.com/qfeius/makecli/releases/tag/v0.5.3
 [v0.5.2]: https://github.com/qfeius/makecli/releases/tag/v0.5.2
 [v0.5.1]: https://github.com/qfeius/makecli/releases/tag/v0.5.1
