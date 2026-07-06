@@ -493,38 +493,60 @@ func (c *Client) GetSchema(appKey string) (*Schema, error) {
 
 // do 执行 POST 请求并将响应体解码到 result
 func (c *Client) do(target, path string, body, result any) error {
-	data, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("序列化请求失败: %w", err)
+	return c.request(http.MethodPost, target, path, body, result)
+}
+
+// request 执行任意 HTTP 方法的请求并将响应体解码到 result。
+// body 为 nil 时不携带请求体与 Content-Type（GET 类只读调用），非 nil 时 JSON 序列化。
+func (c *Client) request(method, target, path string, body, result any) error {
+	var data []byte
+	if body != nil {
+		var err error
+		data, err = json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("序列化请求失败: %w", err)
+		}
 	}
 
 	// trace 头：trace-id 全程稳定（X-Log-Id 与 traceparent 第二段一致），parent-id 每请求新生成
 	traceparent, logID := trace.Traceparent(), trace.TraceID()
 
-	// debug 模式：输出 curl 命令
+	// debug 模式：输出 curl 命令（各段先收集再 join，免无 body 时行尾悬空反斜杠）
 	if c.debug {
-		fmt.Fprintf(os.Stderr, "\n=== DEBUG: HTTP Request ===\n")
-		fmt.Fprintf(os.Stderr, "curl -X POST '%s%s' \\\n", c.baseURL, path)
-		fmt.Fprintf(os.Stderr, "  -H 'Content-Type: application/json' \\\n")
-		fmt.Fprintf(os.Stderr, "  -H 'Authorization: Bearer %s' \\\n", c.token)
-		fmt.Fprintf(os.Stderr, "  -H 'X-Make-Target: %s' \\\n", target)
-		fmt.Fprintf(os.Stderr, "  -H 'Traceparent: %s' \\\n", traceparent)
-		fmt.Fprintf(os.Stderr, "  -H 'X-Log-Id: %s' \\\n", logID)
+		parts := []string{fmt.Sprintf("curl -X %s '%s%s'", method, c.baseURL, path)}
+		if body != nil {
+			parts = append(parts, "-H 'Content-Type: application/json'")
+		}
+		parts = append(parts,
+			fmt.Sprintf("-H 'Authorization: Bearer %s'", c.token),
+			fmt.Sprintf("-H 'X-Make-Target: %s'", target),
+			fmt.Sprintf("-H 'Traceparent: %s'", traceparent),
+			fmt.Sprintf("-H 'X-Log-Id: %s'", logID),
+		)
 		if c.dryRun {
-			fmt.Fprintf(os.Stderr, "  -H 'X-Dry-Run: true' \\\n")
+			parts = append(parts, "-H 'X-Dry-Run: true'")
 		}
 		for k, v := range c.headers {
-			fmt.Fprintf(os.Stderr, "  -H '%s: %s' \\\n", k, v)
+			parts = append(parts, fmt.Sprintf("-H '%s: %s'", k, v))
 		}
-		fmt.Fprintf(os.Stderr, "  -d '%s'\n", string(data))
-		fmt.Fprintf(os.Stderr, "==========================\n\n")
+		if body != nil {
+			parts = append(parts, fmt.Sprintf("-d '%s'", string(data)))
+		}
+		fmt.Fprintf(os.Stderr, "\n=== DEBUG: HTTP Request ===\n%s\n==========================\n\n",
+			strings.Join(parts, " \\\n  "))
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.baseURL+path, bytes.NewReader(data))
+	var payload io.Reader
+	if body != nil {
+		payload = bytes.NewReader(data)
+	}
+	req, err := http.NewRequest(method, c.baseURL+path, payload)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("X-Make-Target", target)
 	req.Header.Set("Traceparent", traceparent)

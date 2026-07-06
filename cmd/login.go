@@ -30,6 +30,9 @@ const (
 
 var authScopes = []string{"make:resources"}
 
+// defaultLoginTimeout 是等待浏览器授权的默认时限，login 的 --timeout 缺省值与 whoami 自动登录共用。
+const defaultLoginTimeout = 3 * time.Minute
+
 // openBrowserFunc 为包级可打桩变量，单测替换以免真浏览器（参照 deploy.go gitPushFunc 模式）。
 var openBrowserFunc = oauth.OpenBrowser
 
@@ -52,7 +55,7 @@ func newLoginCmd() *cobra.Command {
 			return runLogin(timeout, noOpenBrowser)
 		},
 	}
-	cmd.Flags().DurationVar(&timeout, "timeout", 3*time.Minute, "authorization timeout")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultLoginTimeout, "authorization timeout")
 	cmd.Flags().BoolVar(&noOpenBrowser, "no-open-browser", false, "print the authorization URL instead of opening a browser")
 	return cmd
 }
