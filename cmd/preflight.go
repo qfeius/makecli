@@ -1,10 +1,13 @@
 /**
- * [INPUT]: 依赖 errors、fmt、os、path/filepath、github.com/spf13/cobra
+ * [INPUT]: 依赖 encoding/json、errors、fmt、os、path、path/filepath、regexp、strings、
+ *          gopkg.in/yaml.v3、github.com/spf13/cobra、cmd/app（loadAppManifestFromFile）、cmd/app_create（appDSLPath）
  * [OUTPUT]: 对外提供 newPreflightCmd 函数、errPreflightFailed 哨兵错误
- * [POS]: cmd 模块的顶层 preflight 命令，按 --app-type（fullstack/service/ui，默认 fullstack）
- *        校验工作目录是否具备对应形态的 Make app 必需工程骨架——apps/dsl 是身份核心三形态必查，
- *        service / ui 按形态增减；任一缺失返回 errPreflightFailed（由 main.go 转译为退出码 1），
- *        作 CI / deploy 前置门禁
+ * [POS]: cmd 模块的顶层 preflight 命令，以 make-build-service build_spec.md 第 5 节检查
+ *        清单为实现依据（设计定稿 docs/superpowers/specs/2026-07-07-preflight-buildspec-design.md）：
+ *        构建模式 A/B 自动判定、包管理器按 lockfile 优先级判定（buildPreflightContext 一次
+ *        收集事实），preflightChecks 表驱动逐项检查（ERROR/WARN/INFO 三级、条目与 spec 1:1、
+ *        另有 makecli 自有 D1=apps/dsl），失败输出附 How to fix 指引（面向 AI agent 一步收敛）；
+ *        存在 ERROR 返回 errPreflightFailed（main.go 转译退出码 1），作 CI / deploy 前置门禁
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -31,51 +34,27 @@ import (
 // 故 reportExecuteError（单一错误出口）放过它不打印 error: 行。
 var errPreflightFailed = errors.New("preflight: project layout check failed")
 
-// ---------------------------------- 必需骨架 ----------------------------------
-
-// layoutEntry 描述一项必需的工程结构条目：path 相对工程根，dir 区分目录/文件。
-type layoutEntry struct {
-	path string
-	dir  bool
-}
-
-// 三块工程骨架的基本单元：dsl 目录承载 DSL 定义（app.yaml 身份核心驻于此），
-// service / ui 各自是带 package.json 的 Node 子工程。
-var (
-	layoutDSL     = layoutEntry{"apps/dsl", true}
-	layoutService = layoutEntry{"apps/service/package.json", false}
-	layoutUI      = layoutEntry{"apps/ui/package.json", false}
-)
-
-// layoutByType 把工程形态映射到必需骨架——deploy 前置门禁。
-// apps/dsl 是 Make app 身份核心，三形态都必查；service / ui 按形态增减。
-//   fullstack: dsl + service + ui    service: dsl + service    ui: dsl + ui
-var layoutByType = map[string][]layoutEntry{
-	"fullstack": {layoutDSL, layoutService, layoutUI},
-	"service":   {layoutDSL, layoutService},
-	"ui":        {layoutDSL, layoutUI},
-}
-
 // ---------------------------------- 命令定义 ----------------------------------
 
 func newPreflightCmd() *cobra.Command {
-	var projectType string
 	cmd := &cobra.Command{
 		Use:   "preflight [dir]",
-		Short: "Check the directory has a valid Make app project layout",
-		Long: `Preflight verifies the directory contains the required Make app skeleton
-for the chosen project type (--app-type, default fullstack):
+		Short: "Check the directory satisfies the make build service contract",
+		Long: `Preflight validates the project against the make build service build spec
+before pushing, so builds fail here instead of remotely.
 
-  fullstack  apps/dsl/ + apps/service/package.json + apps/ui/package.json
-  service    apps/dsl/ + apps/service/package.json          (backend only)
-  ui         apps/dsl/ + apps/ui/package.json               (frontend only)
+The build mode is auto-detected:
 
-apps/dsl/ holds the DSL definitions and is required in every type.
-Any missing entry fails the check (exit code 1), so it can gate CI or deploy.
-The directory defaults to the current working directory.`,
+  mode A  apps components — apps/ui/package.json or apps/service/package.json
+          exists; the platform provides the Dockerfiles for the components
+  mode B  root Dockerfile — everything else; the repo brings its own Dockerfile
+
+The package manager follows the lockfile (pnpm-lock.yaml > yarn.lock >
+package-lock.json). Findings are reported as ERROR / WARN / INFO with a
+"How to fix" hint each; any ERROR fails the run (exit code 1) so it can gate
+CI or deploy. The directory defaults to the current working directory.`,
 		Example: `  makecli preflight
-  makecli preflight ./my-app
-  makecli preflight --app-type service`,
+  makecli preflight ./my-app`,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -83,59 +62,91 @@ The directory defaults to the current working directory.`,
 			if len(args) == 1 {
 				root = args[0]
 			}
-			return runPreflight(root, projectType)
+			return runPreflight(root)
 		},
 	}
-	cmd.Flags().StringVar(&projectType, "app-type", "fullstack", "project type: fullstack (ui+service), service (service only), ui (ui only)")
 	return cmd
 }
 
-// runPreflight 按 projectType 选定必需骨架，逐项 stat 打印 ✓ / ✗ 清单。
-// 未知形态返回普通错误；任一项缺失或类型不符 → 返回 errPreflightFailed（退出码 1）。
-func runPreflight(root, projectType string) error {
-	layout, ok := layoutByType[projectType]
-	if !ok {
-		return fmt.Errorf("invalid --app-type %q: must be fullstack, service, or ui", projectType)
+// finding 是一条未通过的检查，携带渲染 How to fix 所需的一切。
+type finding struct {
+	id, fix string
+}
+
+// runPreflight 构建上下文后按表求值：ERROR 通过打 ✓、失败打 ✗，WARN/INFO 仅在
+// 命中时打 !/i（通过无话可说）；失败条目汇入 How to fix 块；存在 ERROR 返回
+// errPreflightFailed（退出码 1），仅 WARN/INFO 不拦截。
+func runPreflight(root string) error {
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		return fmt.Errorf("not a directory: %s", root)
 	}
+	ctx := buildPreflightContext(root)
 
 	display := root
 	if abs, err := filepath.Abs(root); err == nil {
 		display = abs
 	}
-	fmt.Printf("%-10s %s\n", "Project:", display)
-	fmt.Printf("%-10s %s\n\n", "Type:", projectType)
+	mode := "B (root Dockerfile)"
+	if ctx.modeA {
+		mode = "A (apps components)"
+	}
+	pm := ctx.pm
+	if len(ctx.lockfiles) == 0 {
+		pm += " (no lockfile)"
+	}
+	fmt.Printf("%-17s %s\n", "Project:", display)
+	fmt.Printf("%-17s %s\n", "Mode:", mode)
+	fmt.Printf("%-17s %s\n\n", "Package manager:", pm)
 
-	failed := 0
-	for _, e := range layout {
-		if err := checkLayoutEntry(root, e); err != nil {
-			fmt.Printf("✗ %-26s %s\n", e.path, err)
-			failed++
-		} else {
-			fmt.Printf("✓ %s\n", e.path)
+	var errs, warns int
+	var findings []finding
+	for _, c := range preflightChecks {
+		if !c.applies(ctx) {
+			continue
+		}
+		res := c.run(ctx)
+		switch {
+		case res.ok:
+			if c.level == levelError { // WARN/INFO 通过无话可说，不打印
+				fmt.Printf("✓ %-3s %s\n", c.id, c.label)
+			}
+		case c.level == levelInfo:
+			fmt.Printf("i %-3s [INFO]  %s\n", c.id, res.msg)
+		case c.level == levelWarn:
+			fmt.Printf("! %-3s [WARN]  %s\n", c.id, res.msg)
+			warns++
+			findings = append(findings, finding{id: c.id, fix: c.fix(ctx)})
+		default:
+			fmt.Printf("✗ %-3s [ERROR] %s\n", c.id, res.msg)
+			errs++
+			findings = append(findings, finding{id: c.id, fix: c.fix(ctx)})
 		}
 	}
 
-	if failed > 0 {
-		fmt.Printf("\nFAIL: %d/%d checks failed — not a valid Make app project\n", failed, len(layout))
-		return errPreflightFailed
+	if len(findings) > 0 {
+		fmt.Printf("\nHow to fix:\n")
+		for _, f := range findings {
+			fmt.Printf("  %-3s %s\n", f.id, f.fix)
+		}
 	}
-	fmt.Printf("\nOK: project layout looks good\n")
+
+	switch {
+	case errs > 0:
+		fmt.Printf("\nFAIL: %s, %s — the build service would reject or fail this build\n", plural(errs, "error"), plural(warns, "warning"))
+		return errPreflightFailed
+	case warns > 0:
+		fmt.Printf("\nOK with %s — the build should succeed, see warnings above\n", plural(warns, "warning"))
+	default:
+		fmt.Printf("\nOK: ready for the make build service\n")
+	}
 	return nil
 }
 
-// checkLayoutEntry 校验单项；通过返回 nil，否则返回失败原因（直接用于输出）。
-func checkLayoutEntry(root string, e layoutEntry) error {
-	info, err := os.Stat(filepath.Join(root, e.path))
-	if err != nil {
-		return errors.New("missing")
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", noun)
 	}
-	if e.dir && !info.IsDir() {
-		return errors.New("expected directory, found file")
-	}
-	if !e.dir && info.IsDir() {
-		return errors.New("expected file, found directory")
-	}
-	return nil
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // ================================ build spec 检查 ================================

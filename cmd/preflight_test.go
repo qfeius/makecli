@@ -1,7 +1,8 @@
 /**
- * [INPUT]: 依赖 cmd 包内 runPreflight / errPreflightFailed（白盒）、errors、os、path/filepath、strings、testing
- * [OUTPUT]: 覆盖 preflight 子命令工程骨架校验的单元测试
- * [POS]: cmd 模块 preflight.go 的配套测试，用 t.TempDir 构造真实目录树隔离文件系统
+ * [INPUT]: 依赖 cmd 包内 preflight 检查表与 runPreflight / errPreflightFailed（白盒）、encoding/json、errors、os、path/filepath、slices、strings、testing
+ * [OUTPUT]: 覆盖 preflight 子命令 build-spec 检查清单的单元测试
+ * [POS]: cmd 模块 preflight.go 的配套测试，用 t.TempDir 构造真实目录树隔离文件系统，
+ *        覆盖文件投影原语、上下文构建、spec 第 5 节检查表（含第 7 节常见失败结构）与输出渲染
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -17,159 +18,76 @@ import (
 	"testing"
 )
 
-// mkValidLayout 在临时目录铺出完整合法骨架，返回工程根
-func mkValidLayout(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "apps", "dsl"), 0o755); err != nil {
-		t.Fatalf("mkdir dsl: %v", err)
-	}
-	for _, sub := range []string{"service", "ui"} {
-		dir := filepath.Join(root, "apps", sub)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatalf("mkdir %s: %v", sub, err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{}"), 0o644); err != nil {
-			t.Fatalf("write %s/package.json: %v", sub, err)
-		}
-	}
-	return root
-}
-
 func TestRunPreflight(t *testing.T) {
-	t.Run("passes on complete layout", func(t *testing.T) {
-		root := mkValidLayout(t)
+	t.Run("clean mode A prints header, marks and OK", func(t *testing.T) {
+		root := pfModeAPnpm(t)
 		out := captureStdout(t, func() {
-			if err := runPreflight(root, "fullstack"); err != nil {
-				t.Errorf("runPreflight: unexpected error %v", err)
+			if err := runPreflight(root); err != nil {
+				t.Errorf("unexpected error: %v", err)
 			}
 		})
-		if !strings.Contains(out, "OK: project layout looks good") {
-			t.Errorf("output missing OK line: %q", out)
+		for _, want := range []string{"Mode:", "A (apps components)", "Package manager:", "pnpm", "✓ D1", "✓ A1", "i G2", "OK: ready for the make build service"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q:\n%s", want, out)
+			}
 		}
-		if strings.Contains(out, "✗") {
-			t.Errorf("clean layout should have no ✗ marks: %q", out)
+		if strings.Contains(out, "How to fix") {
+			t.Errorf("clean run must not print a fix section:\n%s", out)
 		}
 	})
 
-	t.Run("fails when apps/dsl missing", func(t *testing.T) {
-		root := mkValidLayout(t)
-		if err := os.RemoveAll(filepath.Join(root, "apps", "dsl")); err != nil {
-			t.Fatal(err)
-		}
+	t.Run("errors fail with sentinel and How to fix", func(t *testing.T) {
+		root := pfModeAPnpm(t)
+		pfWrite(t, root, "apps/ui/package.json", `{"name":"frontend","scripts":{"build":"vite build"}}`)
 		out := captureStdout(t, func() {
-			if err := runPreflight(root, "fullstack"); !errors.Is(err, errPreflightFailed) {
+			if err := runPreflight(root); !errors.Is(err, errPreflightFailed) {
 				t.Errorf("expected errPreflightFailed, got %v", err)
 			}
 		})
-		if !strings.Contains(out, "✗ apps/dsl") || !strings.Contains(out, "missing") {
-			t.Errorf("output should flag missing dsl: %q", out)
+		for _, want := range []string{"✗ A6", `name is "frontend"`, "How to fix:", `set "name": "ui"`, "FAIL: 1 error"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q:\n%s", want, out)
+			}
 		}
 	})
 
-	t.Run("fails when service package.json missing", func(t *testing.T) {
-		root := mkValidLayout(t)
-		if err := os.Remove(filepath.Join(root, "apps", "service", "package.json")); err != nil {
-			t.Fatal(err)
-		}
-		if err := runPreflight(root, "fullstack"); !errors.Is(err, errPreflightFailed) {
-			t.Errorf("expected errPreflightFailed, got %v", err)
-		}
-	})
-
-	t.Run("fails when ui package.json missing", func(t *testing.T) {
-		root := mkValidLayout(t)
-		if err := os.Remove(filepath.Join(root, "apps", "ui", "package.json")); err != nil {
-			t.Fatal(err)
-		}
-		if err := runPreflight(root, "fullstack"); !errors.Is(err, errPreflightFailed) {
-			t.Errorf("expected errPreflightFailed, got %v", err)
-		}
-	})
-
-	t.Run("fails when dsl is a file not a directory", func(t *testing.T) {
-		root := mkValidLayout(t)
-		dsl := filepath.Join(root, "apps", "dsl")
-		if err := os.RemoveAll(dsl); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(dsl, []byte("oops"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	t.Run("warnings alone exit clean with fix hints", func(t *testing.T) {
+		root := pfModeAPnpm(t)
+		pfWrite(t, root, "apps/yarn.lock", "")
 		out := captureStdout(t, func() {
-			if err := runPreflight(root, "fullstack"); !errors.Is(err, errPreflightFailed) {
-				t.Errorf("expected errPreflightFailed, got %v", err)
+			if err := runPreflight(root); err != nil {
+				t.Errorf("warnings must not fail: %v", err)
 			}
 		})
-		if !strings.Contains(out, "expected directory") {
-			t.Errorf("output should flag type mismatch: %q", out)
+		for _, want := range []string{"! P1", "How to fix:", "OK with 1 warning"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q:\n%s", want, out)
+			}
 		}
 	})
 
-	t.Run("fails on empty directory", func(t *testing.T) {
+	t.Run("mode B header", func(t *testing.T) {
+		root := pfModeB(t)
 		out := captureStdout(t, func() {
-			if err := runPreflight(t.TempDir(), "fullstack"); !errors.Is(err, errPreflightFailed) {
-				t.Errorf("expected errPreflightFailed, got %v", err)
+			if err := runPreflight(root); err != nil {
+				t.Errorf("unexpected error: %v", err)
 			}
 		})
-		if !strings.Contains(out, "FAIL: 3/3 checks failed") {
-			t.Errorf("output should report all checks failed: %q", out)
+		if !strings.Contains(out, "B (root Dockerfile)") {
+			t.Errorf("output missing mode B header:\n%s", out)
 		}
 	})
 
-	// --app-type service: 只查 dsl + service，缺 ui 不影响通过
-	t.Run("service type ignores missing ui", func(t *testing.T) {
-		root := mkValidLayout(t)
-		if err := os.RemoveAll(filepath.Join(root, "apps", "ui")); err != nil {
-			t.Fatal(err)
-		}
-		out := captureStdout(t, func() {
-			if err := runPreflight(root, "service"); err != nil {
-				t.Errorf("service preflight: unexpected error %v", err)
-			}
-		})
-		if strings.Contains(out, "apps/ui") {
-			t.Errorf("service type should not check apps/ui: %q", out)
-		}
-		if !strings.Contains(out, "Type:") || !strings.Contains(out, "service") {
-			t.Errorf("output should echo the project type: %q", out)
-		}
-	})
-
-	t.Run("service type still requires service package.json", func(t *testing.T) {
-		root := mkValidLayout(t)
-		if err := os.Remove(filepath.Join(root, "apps", "service", "package.json")); err != nil {
-			t.Fatal(err)
-		}
-		if err := runPreflight(root, "service"); !errors.Is(err, errPreflightFailed) {
-			t.Errorf("expected errPreflightFailed, got %v", err)
-		}
-	})
-
-	// --app-type ui: 只查 dsl + ui，缺 service 不影响通过
-	t.Run("ui type ignores missing service", func(t *testing.T) {
-		root := mkValidLayout(t)
-		if err := os.RemoveAll(filepath.Join(root, "apps", "service")); err != nil {
-			t.Fatal(err)
-		}
-		out := captureStdout(t, func() {
-			if err := runPreflight(root, "ui"); err != nil {
-				t.Errorf("ui preflight: unexpected error %v", err)
-			}
-		})
-		if strings.Contains(out, "apps/service") {
-			t.Errorf("ui type should not check apps/service: %q", out)
-		}
-	})
-
-	t.Run("rejects unknown type", func(t *testing.T) {
-		root := mkValidLayout(t)
-		err := runPreflight(root, "bogus")
+	t.Run("rejects non-directory root", func(t *testing.T) {
+		err := runPreflight(filepath.Join(t.TempDir(), "nope"))
 		if err == nil || errors.Is(err, errPreflightFailed) {
-			t.Errorf("expected a plain invalid-type error, got %v", err)
+			t.Errorf("want plain error, got %v", err)
 		}
-		if !strings.Contains(err.Error(), "invalid --app-type") {
-			t.Errorf("error should name the offending flag: %v", err)
+	})
+
+	t.Run("--app-type flag removed", func(t *testing.T) {
+		if newPreflightCmd().Flags().Lookup("app-type") != nil {
+			t.Error("--app-type must be removed")
 		}
 	})
 }
