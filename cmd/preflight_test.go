@@ -294,9 +294,7 @@ func TestBuildPreflightContext(t *testing.T) {
 
 func TestResolveRepoName(t *testing.T) {
 	t.Run("app.yaml key wins and is lowered", func(t *testing.T) {
-		root := t.TempDir()
-		pfWrite(t, root, "apps/dsl/app.yaml", "key: MyShop\nname: shop\ntype: Make.App\n")
-		name, source := resolveRepoName(root)
+		name, source := resolveRepoName(t.TempDir(), "MyShop", true)
 		if name != "myshop" {
 			t.Errorf("name = %q, want myshop", name)
 		}
@@ -310,7 +308,7 @@ func TestResolveRepoName(t *testing.T) {
 		if err := os.MkdirAll(root, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		name, source := resolveRepoName(root)
+		name, source := resolveRepoName(root, "", false)
 		if name != "my-app" || source != "directory name" {
 			t.Errorf("got %q from %q", name, source)
 		}
@@ -399,6 +397,37 @@ func TestPreflightChecksModeA(t *testing.T) {
 		if err := os.RemoveAll(filepath.Join(root, "apps", "dsl")); err != nil {
 			t.Fatal(err)
 		}
+		errIDs, _, _ := evalChecks(t, root)
+		if !slices.Contains(errIDs, "D1") {
+			t.Errorf("want D1, got %v", errIDs)
+		}
+	})
+
+	// D1 不能只看目录存在——app.yaml 缺失/不可读/无 key 时 deploy 仍会读不到 app key，
+	// 必须在 preflight 阶段就报错，而不是「preflight 绿、deploy 红」
+	t.Run("D1 fires when app.yaml is missing but apps/dsl/ dir stays", func(t *testing.T) {
+		root := pfModeAPnpm(t)
+		if err := os.Remove(filepath.Join(root, "apps", "dsl", "app.yaml")); err != nil {
+			t.Fatal(err)
+		}
+		errIDs, _, _ := evalChecks(t, root)
+		if !slices.Contains(errIDs, "D1") {
+			t.Errorf("want D1, got %v", errIDs)
+		}
+	})
+
+	t.Run("D1 fires when app.yaml is invalid YAML", func(t *testing.T) {
+		root := pfModeAPnpm(t)
+		pfWrite(t, root, "apps/dsl/app.yaml", "key: [\n")
+		errIDs, _, _ := evalChecks(t, root)
+		if !slices.Contains(errIDs, "D1") {
+			t.Errorf("want D1, got %v", errIDs)
+		}
+	})
+
+	t.Run("D1 fires when app.yaml has no Make.App key", func(t *testing.T) {
+		root := pfModeAPnpm(t)
+		pfWrite(t, root, "apps/dsl/app.yaml", "key: \"\"\nname: x\ntype: Make.App\n")
 		errIDs, _, _ := evalChecks(t, root)
 		if !slices.Contains(errIDs, "D1") {
 			t.Errorf("want D1, got %v", errIDs)
@@ -640,6 +669,59 @@ func TestPreflightChecksGeneric(t *testing.T) {
 		_, _, infoIDs := evalChecks(t, pfModeB(t))
 		if !slices.Contains(infoIDs, "G2") {
 			t.Errorf("want G2, got %v", infoIDs)
+		}
+	})
+}
+
+// TestPreflightChecksTableInvariants 守护表驱动设计最脆弱的关节：渲染器对失败的
+// ERROR/WARN 条目无条件调 fix，ERROR 通过时打印 label——缺一即 panic 或空行。
+func TestPreflightChecksTableInvariants(t *testing.T) {
+	for i, c := range preflightChecks {
+		if c.level != levelInfo && c.fix == nil {
+			t.Errorf("entry %d (%s): ERROR/WARN checks must have a fix", i, c.id)
+		}
+		if c.level == levelError && c.label == "" {
+			t.Errorf("entry %d (%s): ERROR checks must have a label", i, c.id)
+		}
+	}
+}
+
+// TestA15FixHint 锁定 A15 fix 分支：无 lockfile 可 import 时不能建议 `pnpm import`
+// （spec §7 现实：只有 service 存在且非 pnpm 才会触发，但 apps/ 可能压根没有任何 lockfile）。
+func TestA15FixHint(t *testing.T) {
+	var a15 preflightCheck
+	found := false
+	for _, c := range preflightChecks {
+		if c.id == "A15" && c.level == levelError {
+			a15 = c
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("A15 (levelError) entry not found in preflightChecks")
+	}
+
+	t.Run("with existing lockfile suggests pnpm import", func(t *testing.T) {
+		ctx := buildPreflightContext(pfModeAYarn(t))
+		out := a15.fix(ctx)
+		if !strings.Contains(out, "pnpm import") {
+			t.Errorf("fix hint missing pnpm import:\n%s", out)
+		}
+	})
+
+	t.Run("without lockfile suggests pnpm install only", func(t *testing.T) {
+		root := pfModeAYarn(t)
+		if err := os.Remove(filepath.Join(root, "apps", "yarn.lock")); err != nil {
+			t.Fatal(err)
+		}
+		ctx := buildPreflightContext(root)
+		out := a15.fix(ctx)
+		if strings.Contains(out, "pnpm import") {
+			t.Errorf("fix hint must not suggest pnpm import with no lockfile to import:\n%s", out)
+		}
+		if !strings.Contains(out, "pnpm install") {
+			t.Errorf("fix hint missing pnpm install:\n%s", out)
 		}
 	})
 }

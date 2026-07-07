@@ -291,7 +291,9 @@ type preflightContext struct {
 	pm        string   // pnpm | yarn | npm（无 lockfile 回退 npm）
 	lockDir   string   // lockfile 检测目录的相对名："apps" 或 "."（输出用）
 
-	hasDSL           bool // apps/dsl/ 目录存在
+	hasDSL           bool   // apps/dsl/ 目录存在
+	appKey           string // apps/dsl/app.yaml 的 Make.App key；不可读时为空
+	appYAMLReadable  bool   // app.yaml 解析成功且 key 非空（D1 用；deploy 靠它读 app key）
 	appsPkg          *pkgFile
 	uiPkg            *pkgFile
 	servicePkg       *pkgFile
@@ -330,7 +332,13 @@ func buildPreflightContext(root string) *preflightContext {
 	}
 	ctx.lockfiles, ctx.pm = detectLockfiles(lockPath)
 
-	ctx.repoName, ctx.repoNameSource = resolveRepoName(root)
+	// app.yaml 只在此处解析一次：D1（可读性）与 repoName（key 取值）共用同一份事实，
+	// 避免两处各自读文件、各自处理错误（曾经的 resolveRepoName 自己重新解析一遍）。
+	if manifest, err := loadAppManifestFromFile(filepath.Join(root, appDSLPath)); err == nil && manifest.Key != "" {
+		ctx.appKey = manifest.Key
+		ctx.appYAMLReadable = true
+	}
+	ctx.repoName, ctx.repoNameSource = resolveRepoName(root, ctx.appKey, ctx.appYAMLReadable)
 	return ctx
 }
 
@@ -339,11 +347,12 @@ func dirExists(p string) bool {
 	return err == nil && info.IsDir()
 }
 
-// resolveRepoName 取镜像仓库名候选：apps/dsl/app.yaml 的 app key 优先（deploy 建仓即按
-// key 派生远端仓库名），缺失或不可读回退目录 basename；统一 lower 后交 G1 校验。
-func resolveRepoName(root string) (name, source string) {
-	if manifest, err := loadAppManifestFromFile(filepath.Join(root, appDSLPath)); err == nil && manifest.Key != "" {
-		return strings.ToLower(manifest.Key), appDSLPath + " key"
+// resolveRepoName 取镜像仓库名候选：appYAMLReadable 时 app.yaml 的 app key 优先（deploy
+// 建仓即按 key 派生远端仓库名），否则回退目录 basename；统一 lower 后交 G1 校验。
+// appKey/appYAMLReadable 由 buildPreflightContext 单次解析 app.yaml 得出，本函数不重新读文件。
+func resolveRepoName(root, appKey string, appYAMLReadable bool) (name, source string) {
+	if appYAMLReadable {
+		return strings.ToLower(appKey), appDSLPath + " key"
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -435,6 +444,9 @@ var preflightChecks = []preflightCheck{
 		run: func(ctx *preflightContext) checkResult {
 			if !ctx.hasDSL {
 				return failf("apps/dsl/ not found — Make app identity (app.yaml) lives there")
+			}
+			if !ctx.appYAMLReadable {
+				return failf("apps/dsl/app.yaml is missing or has no readable Make.App key — `makecli app deploy` reads the app key from it")
 			}
 			return passed()
 		},
@@ -594,7 +606,10 @@ var preflightChecks = []preflightCheck{
 		run: func(ctx *preflightContext) checkResult {
 			return failf("service images currently support pnpm only, detected %s (temporary build service gap)", ctx.pm)
 		},
-		fix: func(_ *preflightContext) string {
+		fix: func(ctx *preflightContext) string {
+			if len(ctx.lockfiles) == 0 {
+				return "switch apps/ to pnpm: run `cd apps && pnpm install` (there is no existing lockfile to import) and commit pnpm-lock.yaml + pnpm-workspace.yaml"
+			}
 			return "switch apps/ to pnpm: delete other lockfiles, run `cd apps && pnpm import && pnpm install` (converts the existing lockfile) and commit pnpm-lock.yaml + pnpm-workspace.yaml"
 		},
 	},
