@@ -17,6 +17,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -338,4 +339,316 @@ func resolveRepoName(root string) (name, source string) {
 		abs = root
 	}
 	return strings.ToLower(filepath.Base(abs)), "directory name"
+}
+
+// ---------------------------------- 等级与结果 ----------------------------------
+
+type checkLevel int
+
+const (
+	levelError checkLevel = iota
+	levelWarn
+	levelInfo
+)
+
+// checkResult 是单项检查的裁决：ok=true 通过；否则 msg 给出「实际 vs 期望」。
+type checkResult struct {
+	ok  bool
+	msg string
+}
+
+func passed() checkResult { return checkResult{ok: true} }
+
+func failf(format string, a ...any) checkResult {
+	return checkResult{msg: fmt.Sprintf(format, a...)}
+}
+
+// ---------------------------------- 检查清单 ----------------------------------
+
+// repoNameRE 是镜像仓库名合法性正则（spec G1，push 前置条件）。
+var repoNameRE = regexp.MustCompile(`^[a-z0-9]+([._-][a-z0-9]+)*$`)
+
+// preflightCheck 与 build spec 第 5 节条目 1:1 对应：applies 是「条件」列，run 是
+// 「判定」列，fix 是失败时的修复动作（为什么 + 改哪个文件 + 改成什么），供
+// How to fix 块引导人或 AI agent 一步收敛。fix 为 nil 的条目（INFO）不进该块。
+type preflightCheck struct {
+	id      string
+	level   checkLevel
+	label   string // ERROR 级通过时打印的短标签
+	applies func(*preflightContext) bool
+	run     func(*preflightContext) checkResult
+	fix     func(*preflightContext) string
+}
+
+func always(*preflightContext) bool { return true }
+
+// componentBuildScript 校验 package.json 的 scripts.build 非空（A2 / B3 同构复用）。
+func componentBuildScript(p *pkgFile) checkResult {
+	if p.err != nil {
+		return failf("%s: %v", p.path, p.err)
+	}
+	if strings.TrimSpace(p.pkg.Scripts["build"]) == "" {
+		return failf("%s: scripts.build is missing or empty", p.path)
+	}
+	return passed()
+}
+
+// componentName 校验组件包名与目录名一致（A6 / A7 同构复用）。
+func componentName(p *pkgFile, want string) checkResult {
+	if p.err != nil {
+		return failf("%s: %v", p.path, p.err)
+	}
+	if p.pkg.Name != want {
+		return failf("%s: name is %q, must be %q", p.path, p.pkg.Name, want)
+	}
+	return passed()
+}
+
+// uncoveredComponents 汇总未被 workspace 声明覆盖的既存组件名（A4 / A5 共用）。
+func uncoveredComponents(ctx *preflightContext, patterns []string) []string {
+	var missing []string
+	if ctx.uiPkg.exists && !workspaceCovers(patterns, "ui") {
+		missing = append(missing, "ui")
+	}
+	if ctx.servicePkg.exists && !workspaceCovers(patterns, "service") {
+		missing = append(missing, "service")
+	}
+	return missing
+}
+
+// preflightChecks 的顺序即输出顺序：模式相关条目在前（最可能出错），通用尾随，INFO 收尾。
+var preflightChecks = []preflightCheck{
+	{
+		id: "D1", level: levelError, label: "apps/dsl/ (Make app DSL)",
+		applies: func(ctx *preflightContext) bool { return ctx.modeA },
+		run: func(ctx *preflightContext) checkResult {
+			if !ctx.hasDSL {
+				return failf("apps/dsl/ not found — Make app identity (app.yaml) lives there")
+			}
+			return passed()
+		},
+		fix: func(_ *preflightContext) string {
+			return "run `makecli app init` in the project root to scaffold apps/dsl/app.yaml; `makecli app deploy` reads the app key from it"
+		},
+	},
+	{
+		id: "A1", level: levelError, label: "apps/package.json (workspace root)",
+		applies: func(ctx *preflightContext) bool { return ctx.modeA },
+		run: func(ctx *preflightContext) checkResult {
+			if !ctx.appsPkg.exists {
+				return failf("apps/package.json not found")
+			}
+			return passed()
+		},
+		fix: func(_ *preflightContext) string {
+			return "create apps/package.json as the workspace root — dependency install runs there once for all components"
+		},
+	},
+	{
+		id: "A2", level: levelError, label: "apps/ui/package.json scripts.build",
+		applies: func(ctx *preflightContext) bool { return ctx.uiPkg.exists },
+		run:     func(ctx *preflightContext) checkResult { return componentBuildScript(ctx.uiPkg) },
+		fix: func(_ *preflightContext) string {
+			return `add a non-empty "build" script to apps/ui/package.json; its build must emit apps/ui/dist/index.html`
+		},
+	},
+	{
+		id: "A2", level: levelError, label: "apps/service/package.json scripts.build",
+		applies: func(ctx *preflightContext) bool { return ctx.servicePkg.exists },
+		run:     func(ctx *preflightContext) checkResult { return componentBuildScript(ctx.servicePkg) },
+		fix: func(_ *preflightContext) string {
+			return `add a non-empty "build" script to apps/service/package.json; its build must emit apps/service/dist/server.js`
+		},
+	},
+	{
+		id: "A3", level: levelError, label: "lockfile in apps/ (service frozen install)",
+		applies: func(ctx *preflightContext) bool { return ctx.modeA && ctx.servicePkg.exists },
+		run: func(ctx *preflightContext) checkResult {
+			if len(ctx.lockfiles) == 0 {
+				return failf("no lockfile in apps/ (need one of pnpm-lock.yaml / yarn.lock / package-lock.json)")
+			}
+			return passed()
+		},
+		fix: func(_ *preflightContext) string {
+			return "the service image reinstalls production deps with a frozen lockfile: run your package manager's install inside apps/ (e.g. `cd apps && pnpm install`) and commit the lockfile"
+		},
+	},
+	{
+		id: "A4", level: levelError, label: "apps/pnpm-workspace.yaml covers components",
+		applies: func(ctx *preflightContext) bool { return ctx.modeA && ctx.pm == "pnpm" },
+		run: func(ctx *preflightContext) checkResult {
+			ws := ctx.pnpmWS
+			if !ws.exists {
+				return failf("apps/pnpm-workspace.yaml not found (required with pnpm)")
+			}
+			if ws.err != nil {
+				return failf("apps/pnpm-workspace.yaml: %v", ws.err)
+			}
+			if missing := uncoveredComponents(ctx, ws.packages); len(missing) > 0 {
+				return failf("apps/pnpm-workspace.yaml packages %v does not cover: %s", ws.packages, strings.Join(missing, ", "))
+			}
+			return passed()
+		},
+		fix: func(_ *preflightContext) string {
+			return "declare every component in apps/pnpm-workspace.yaml (packages: [ui, service]) — dependency install does not reach undeclared components"
+		},
+	},
+	{
+		id: "A5", level: levelError, label: `apps/package.json "workspaces" covers components`,
+		applies: func(ctx *preflightContext) bool {
+			return ctx.modeA && ctx.pm != "pnpm" && ctx.appsPkg.exists
+		},
+		run: func(ctx *preflightContext) checkResult {
+			if ctx.appsPkg.err != nil {
+				return failf("%s: %v", ctx.appsPkg.path, ctx.appsPkg.err)
+			}
+			if missing := uncoveredComponents(ctx, ctx.appsPkg.pkg.Workspaces); len(missing) > 0 {
+				return failf("apps/package.json workspaces %v does not cover: %s", ctx.appsPkg.pkg.Workspaces, strings.Join(missing, ", "))
+			}
+			return passed()
+		},
+		fix: func(_ *preflightContext) string {
+			return `add "workspaces": ["ui", "service"] (the components that exist) to apps/package.json — yarn/npm install only reaches declared workspace members`
+		},
+	},
+	{
+		id: "A6", level: levelError, label: `apps/ui/package.json name == "ui"`,
+		applies: func(ctx *preflightContext) bool { return ctx.uiPkg.exists },
+		run:     func(ctx *preflightContext) checkResult { return componentName(ctx.uiPkg, "ui") },
+		fix: func(_ *preflightContext) string {
+			return `set "name": "ui" in apps/ui/package.json — the build system locates components by package name (--filter/--workspace), not by path`
+		},
+	},
+	{
+		id: "A7", level: levelError, label: `apps/service/package.json name == "service"`,
+		applies: func(ctx *preflightContext) bool { return ctx.servicePkg.exists },
+		run:     func(ctx *preflightContext) checkResult { return componentName(ctx.servicePkg, "service") },
+		fix: func(_ *preflightContext) string {
+			return `set "name": "service" in apps/service/package.json — the build system locates components by package name (--filter/--workspace), not by path`
+		},
+	},
+	// A8 不限模式：spec 第 7 节要求「组件目录存在但无 package.json、回退模式 B」同报 A8+B1
+	{
+		id: "A8", level: levelWarn,
+		applies: func(ctx *preflightContext) bool { return ctx.uiDirExists && !ctx.uiPkg.exists },
+		run: func(_ *preflightContext) checkResult {
+			return failf("apps/ui/ exists but has no package.json — the component is silently skipped, no ui image will be built")
+		},
+		fix: func(_ *preflightContext) string {
+			return `add apps/ui/package.json (with "name": "ui" and a "build" script) or delete the apps/ui/ directory`
+		},
+	},
+	{
+		id: "A8", level: levelWarn,
+		applies: func(ctx *preflightContext) bool { return ctx.serviceDirExists && !ctx.servicePkg.exists },
+		run: func(_ *preflightContext) checkResult {
+			return failf("apps/service/ exists but has no package.json — the component is silently skipped, no service image will be built")
+		},
+		fix: func(_ *preflightContext) string {
+			return `add apps/service/package.json (with "name": "service" and a "build" script) or delete the apps/service/ directory`
+		},
+	},
+	{
+		id: "A9", level: levelWarn,
+		applies: func(ctx *preflightContext) bool {
+			return ctx.modeA && ctx.uiPkg.exists && !ctx.servicePkg.exists && len(ctx.lockfiles) == 0
+		},
+		run: func(_ *preflightContext) checkResult {
+			return failf("no lockfile in apps/: build falls back to plain `npm install`, results are not reproducible")
+		},
+		fix: func(_ *preflightContext) string {
+			return "run your package manager's install inside apps/ and commit the resulting lockfile"
+		},
+	},
+	{
+		id: "A11", level: levelInfo,
+		applies: func(ctx *preflightContext) bool {
+			return ctx.modeA && (ctx.rootPkg.exists || ctx.hasDockerfile)
+		},
+		run: func(ctx *preflightContext) checkResult {
+			var ignored []string
+			if ctx.rootPkg.exists {
+				ignored = append(ignored, "package.json")
+			}
+			if ctx.hasDockerfile {
+				ignored = append(ignored, "Dockerfile")
+			}
+			return failf("root %s ignored in mode A (apps components take over)", strings.Join(ignored, " and "))
+		},
+	},
+	// A15 TEMP：build-job.sh(1b83199) 的 service 镜像模板仅支持 pnpm；差距关闭后整行删除
+	{
+		id: "A15", level: levelError, label: "service component uses pnpm (temporary gap)",
+		applies: func(ctx *preflightContext) bool { return ctx.modeA && ctx.servicePkg.exists && ctx.pm != "pnpm" },
+		run: func(ctx *preflightContext) checkResult {
+			return failf("service images currently support pnpm only, detected %s (temporary build service gap)", ctx.pm)
+		},
+		fix: func(_ *preflightContext) string {
+			return "switch apps/ to pnpm: delete other lockfiles, run `cd apps && pnpm import && pnpm install` (converts the existing lockfile) and commit pnpm-lock.yaml + pnpm-workspace.yaml"
+		},
+	},
+	{
+		id: "B1", level: levelError, label: "Dockerfile at repo root",
+		applies: func(ctx *preflightContext) bool { return !ctx.modeA },
+		run: func(ctx *preflightContext) checkResult {
+			if !ctx.hasDockerfile {
+				return failf("Dockerfile not found at repo root")
+			}
+			return passed()
+		},
+		fix: func(_ *preflightContext) string {
+			return "add a Dockerfile at the repo root (build context is the repo root); or, if you meant the apps component mode, add apps/ui/package.json or apps/service/package.json"
+		},
+	},
+	{
+		id: "B2", level: levelError, label: "lockfile next to package.json",
+		applies: func(ctx *preflightContext) bool { return !ctx.modeA && ctx.rootPkg.exists },
+		run: func(ctx *preflightContext) checkResult {
+			if len(ctx.lockfiles) == 0 {
+				return failf("package.json exists but no lockfile (need one of pnpm-lock.yaml / yarn.lock / package-lock.json)")
+			}
+			return passed()
+		},
+		fix: func(_ *preflightContext) string {
+			return "root-Dockerfile mode has no `npm install` fallback — without a lockfile the build runs `npm ci` and always fails; run your package manager's install and commit the lockfile"
+		},
+	},
+	{
+		id: "B3", level: levelError, label: "package.json scripts.build",
+		applies: func(ctx *preflightContext) bool { return !ctx.modeA && ctx.rootPkg.exists },
+		run:     func(ctx *preflightContext) checkResult { return componentBuildScript(ctx.rootPkg) },
+		fix: func(_ *preflightContext) string {
+			return `add a non-empty "build" script to package.json — with a root package.json the build service always runs install + build before the docker build`
+		},
+	},
+	{
+		id: "G1", level: levelError, label: "image repository name",
+		applies: always,
+		run: func(ctx *preflightContext) checkResult {
+			if !repoNameRE.MatchString(ctx.repoName) {
+				return failf("repo name %q (from %s) is not a valid image repository name (need %s)", ctx.repoName, ctx.repoNameSource, repoNameRE)
+			}
+			return passed()
+		},
+		fix: func(ctx *preflightContext) string {
+			return fmt.Sprintf("rename so that %s lower-cases to letters/digits with single ./_/- separators — image push uses it as the repository name", ctx.repoNameSource)
+		},
+	},
+	{
+		id: "P1", level: levelWarn,
+		applies: func(ctx *preflightContext) bool { return len(ctx.lockfiles) > 1 },
+		run: func(ctx *preflightContext) checkResult {
+			return failf("multiple lockfiles in %s: %s — %s wins (pnpm > yarn > npm), the rest are ignored",
+				ctx.lockDir, strings.Join(ctx.lockfiles, ", "), ctx.lockfiles[0])
+		},
+		fix: func(ctx *preflightContext) string {
+			return fmt.Sprintf("keep exactly one lockfile in %s: delete %s", ctx.lockDir, strings.Join(ctx.lockfiles[1:], ", "))
+		},
+	},
+	{
+		id: "G2", level: levelInfo, applies: always,
+		run: func(_ *preflightContext) checkResult {
+			return failf("build job time limit is 30 minutes by default")
+		},
+	},
 }
