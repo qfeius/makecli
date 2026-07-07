@@ -265,3 +265,77 @@ func workspaceCovers(patterns []string, component string) bool {
 	}
 	return false
 }
+
+// ---------------------------------- 上下文 ----------------------------------
+
+// preflightContext 一次性收集全部检查所需事实，检查函数只读不做 IO。
+type preflightContext struct {
+	root           string
+	repoName       string // 已 lower，G1 校验对象
+	repoNameSource string // repoName 从哪来（输出用）
+
+	modeA     bool
+	lockfiles []string // 检测目录下的 lockfile，按 spec 优先级排列
+	pm        string   // pnpm | yarn | npm（无 lockfile 回退 npm）
+	lockDir   string   // lockfile 检测目录的相对名："apps" 或 "."（输出用）
+
+	hasDSL           bool // apps/dsl/ 目录存在
+	appsPkg          *pkgFile
+	uiPkg            *pkgFile
+	servicePkg       *pkgFile
+	uiDirExists      bool
+	serviceDirExists bool
+	pnpmWS           *pnpmWorkspaceFile
+
+	rootPkg       *pkgFile
+	hasDockerfile bool // 根目录 Dockerfile 存在（文件）
+}
+
+func buildPreflightContext(root string) *preflightContext {
+	ctx := &preflightContext{
+		root:       root,
+		appsPkg:    loadPackageJSON(root, "apps/package.json"),
+		uiPkg:      loadPackageJSON(root, "apps/ui/package.json"),
+		servicePkg: loadPackageJSON(root, "apps/service/package.json"),
+		rootPkg:    loadPackageJSON(root, "package.json"),
+		pnpmWS:     loadPnpmWorkspace(root),
+	}
+	// spec 第 2 节：任一组件 package.json 存在即模式 A，无回退
+	ctx.modeA = ctx.uiPkg.exists || ctx.servicePkg.exists
+	ctx.hasDSL = dirExists(filepath.Join(root, "apps", "dsl"))
+	ctx.uiDirExists = dirExists(filepath.Join(root, "apps", "ui"))
+	ctx.serviceDirExists = dirExists(filepath.Join(root, "apps", "service"))
+	if info, err := os.Stat(filepath.Join(root, "Dockerfile")); err == nil && !info.IsDir() {
+		ctx.hasDockerfile = true
+	}
+
+	// spec 第 1 节：lockfile 检测目录模式 A 为 apps/，模式 B 为仓库根
+	ctx.lockDir = "."
+	lockPath := root
+	if ctx.modeA {
+		ctx.lockDir = "apps"
+		lockPath = filepath.Join(root, "apps")
+	}
+	ctx.lockfiles, ctx.pm = detectLockfiles(lockPath)
+
+	ctx.repoName, ctx.repoNameSource = resolveRepoName(root)
+	return ctx
+}
+
+func dirExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && info.IsDir()
+}
+
+// resolveRepoName 取镜像仓库名候选：apps/dsl/app.yaml 的 app key 优先（deploy 建仓即按
+// key 派生远端仓库名），缺失或不可读回退目录 basename；统一 lower 后交 G1 校验。
+func resolveRepoName(root string) (name, source string) {
+	if manifest, err := loadAppManifestFromFile(filepath.Join(root, appDSLPath)); err == nil && manifest.Key != "" {
+		return strings.ToLower(manifest.Key), appDSLPath + " key"
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		abs = root
+	}
+	return strings.ToLower(filepath.Base(abs)), "directory name"
+}

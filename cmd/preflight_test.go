@@ -319,3 +319,82 @@ func TestWorkspaceCovers(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildPreflightContext(t *testing.T) {
+	t.Run("mode A when any component package.json exists", func(t *testing.T) {
+		root := t.TempDir()
+		pfWrite(t, root, "apps/service/package.json", `{"name":"service"}`)
+		ctx := buildPreflightContext(root)
+		if !ctx.modeA {
+			t.Error("expected mode A")
+		}
+		if ctx.lockDir != "apps" {
+			t.Errorf("lockDir = %q, want apps", ctx.lockDir)
+		}
+	})
+
+	t.Run("component dir without package.json stays mode B", func(t *testing.T) {
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "apps", "ui"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ctx := buildPreflightContext(root)
+		if ctx.modeA {
+			t.Error("expected mode B: apps/ui/ dir alone must not trigger mode A")
+		}
+		if !ctx.uiDirExists {
+			t.Error("uiDirExists should be true")
+		}
+		if ctx.lockDir != "." {
+			t.Errorf("lockDir = %q, want .", ctx.lockDir)
+		}
+	})
+
+	t.Run("mode A reads lockfiles from apps/ not root", func(t *testing.T) {
+		root := t.TempDir()
+		pfWrite(t, root, "apps/ui/package.json", `{"name":"ui"}`)
+		pfWrite(t, root, "apps/yarn.lock", "")
+		pfWrite(t, root, "pnpm-lock.yaml", "") // 根目录的不算
+		ctx := buildPreflightContext(root)
+		if ctx.pm != "yarn" || !slices.Equal(ctx.lockfiles, []string{"yarn.lock"}) {
+			t.Errorf("pm=%q lockfiles=%v, want yarn from apps/ only", ctx.pm, ctx.lockfiles)
+		}
+	})
+
+	t.Run("root Dockerfile and dsl dir detected", func(t *testing.T) {
+		root := t.TempDir()
+		pfWrite(t, root, "Dockerfile", "FROM scratch\n")
+		if err := os.MkdirAll(filepath.Join(root, "apps", "dsl"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ctx := buildPreflightContext(root)
+		if !ctx.hasDockerfile || !ctx.hasDSL {
+			t.Errorf("hasDockerfile=%v hasDSL=%v, want both true", ctx.hasDockerfile, ctx.hasDSL)
+		}
+	})
+}
+
+func TestResolveRepoName(t *testing.T) {
+	t.Run("app.yaml key wins and is lowered", func(t *testing.T) {
+		root := t.TempDir()
+		pfWrite(t, root, "apps/dsl/app.yaml", "key: MyShop\nname: shop\ntype: Make.App\n")
+		name, source := resolveRepoName(root)
+		if name != "myshop" {
+			t.Errorf("name = %q, want myshop", name)
+		}
+		if source != appDSLPath+" key" {
+			t.Errorf("source = %q", source)
+		}
+	})
+
+	t.Run("falls back to directory basename", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "My-App")
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		name, source := resolveRepoName(root)
+		if name != "my-app" || source != "directory name" {
+			t.Errorf("got %q from %q", name, source)
+		}
+	})
+}
