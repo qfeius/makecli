@@ -16,6 +16,8 @@ build spec 第 5 节定义了完整的构建可行性检查清单，且规范原
   `apps/service/package.json` 任一存在 → 模式 A，否则模式 B），移除 `--app-type`。
 - `apps/dsl` 检查保留为模式 A 下的一项 makecli 自有条目（编号 D1，ERROR）——
   Make-app 身份核心，deploy 的 `appKeyFromDSL` 依赖它，build spec 不关心但 makecli 关心。
+  D1 不止查目录存在：`apps/dsl/app.yaml` 必须可解析且 Make.App key 非空，
+  否则目录在但 key 读不出来时会出现「preflight 绿、deploy 红」的缺口。
 - 包管理器按 spec 第 1 节 lockfile 优先级判定（pnpm > yarn > npm，检测目录
   模式 A 为 `apps/`、模式 B 为仓库根）。
 
@@ -27,7 +29,7 @@ build spec 第 5 节定义了完整的构建可行性检查清单，且规范原
 | 组 | 条目 |
 |---|---|
 | 通用 | G1（repoName 正则）、G2（INFO：构建 30 分钟上限）、P1（多 lockfile WARN） |
-| 模式 A | A1–A9、A11、A15（TEMP：service × yarn/npm 拦截）+ D1（`apps/dsl/` 存在，ERROR） |
+| 模式 A | A1–A9、A11、A15（TEMP：service × yarn/npm 拦截）+ D1（`apps/dsl/` 存在且 `app.yaml` 可读、Make.App key 非空，ERROR） |
 | 模式 B | B1–B3 |
 
 各条目语义严格以 build spec 第 5 节表格为准，不在本文复述。两处 makecli 侧的具体化：
@@ -118,7 +120,8 @@ How to fix:
 
 - 重写 `cmd/preflight.go`：上下文构建 + 检查表 + 渲染，单文件。
 - 重写 `cmd/preflight_test.go`：`t.TempDir` 构造目录树，覆盖
-  spec 第 7 节「常见失败结构速查」全部 9 行场景、包管理器判定优先级
+  spec 第 7 节「常见失败结构速查」9 行中的 8 行场景（第 7 行为 BUILD-TIME
+  启发式，本版缓实现）、包管理器判定优先级
   （含多 lockfile）、模式判定边界（组件目录存在但无 package.json → A8 + 回退模式 B）、
   G1 两种 repoName 来源、A4/A5 glob 各形态、退出码语义。
 - 依赖零新增（yaml、encoding/json 均已在用）。
