@@ -65,6 +65,8 @@ type check struct {
 
 ## 输出与退出码
 
+输出语言为英文（与 makecli 其余命令一致）。
+
 ```
 Project:          /path/to/repo
 Mode:             A (apps components)
@@ -72,16 +74,45 @@ Package manager:  pnpm
 
 ✓ D1 apps/dsl/
 ✓ A1 apps/package.json
-✗ A3 [ERROR] apps/ 缺少 lockfile（pnpm-lock.yaml / yarn.lock / package-lock.json 其一）
-! P1 [WARN]  检测到多个 lockfile，按 pnpm > yarn > npm 取 pnpm-lock.yaml，其余被忽略
-i G2 [INFO]  构建总时长上限默认 30 分钟
+✗ A3 [ERROR] no lockfile in apps/ (need one of pnpm-lock.yaml / yarn.lock / package-lock.json)
+✗ A6 [ERROR] apps/ui/package.json name is "frontend", must be "ui"
+! P1 [WARN]  multiple lockfiles found; pnpm-lock.yaml wins (pnpm > yarn > npm), others ignored
+i G2 [INFO]  build job time limit is 30 minutes by default
 
-FAIL: 1 error, 1 warning
+FAIL: 2 errors, 1 warning
 ```
 
 - 存在 ERROR → 返回既有哨兵 `errPreflightFailed`（main.go 转译退出码 1）。
 - 仅 WARN/INFO → exit 0。不设 `--strict`（YAGNI）。
 - 保留 `[dir]` 位置参数，默认 cwd。
+
+## 失败输出面向 AI agent 的可操作性
+
+preflight 的核心消费场景之一是 AI coding agent：跑 preflight → 按输出修 repo →
+重跑直到通过。失败输出必须让 agent **不读 build spec 原文也能一步收敛**，因此：
+
+1. **每条检查自带 fix 指引**：`check` 结构体增加
+   `fix func(*preflightContext) string`，失败消息本身给出「实际值 vs 期望值」
+   （如 A6 报出当前 name 是什么），fix 给出具体动作，并按上下文插值
+   （如 A3 的 fix 按已判定的包管理器给出对应命令）。
+2. **失败时追加 "How to fix" 块**，逐条列出 ERROR/WARN 的修复动作：
+
+```
+FAIL: 2 errors, 1 warning
+
+How to fix:
+  A3  service images reinstall dependencies with a frozen lockfile. Run
+      `pnpm install` inside apps/ and commit pnpm-lock.yaml.
+  A6  set "name": "ui" in apps/ui/package.json — the build system locates
+      components by package name, not by path.
+  P1  keep exactly one lockfile in apps/; delete yarn.lock.
+```
+
+   fix 文案三要素：为什么（一句话，构建系统的行为依据）、改哪个文件、改成什么。
+   通过的检查不打印 fix，保持输出紧凑。
+3. **不做 `--output json`**：agent 在 shell 里直接读 stdout 文本即可，
+   结构化文本（固定前缀 `✗/!/i` + 检查 ID + How to fix 块）对 LLM 已足够友好；
+   有 CI 程序化解析需求时再加。
 
 ## 文件与测试
 
