@@ -8,9 +8,11 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -170,4 +172,150 @@ func TestRunPreflight(t *testing.T) {
 			t.Errorf("error should name the offending flag: %v", err)
 		}
 	})
+}
+
+// ---------------------------------- build spec 检查：文件投影原语 ----------------------------------
+
+// pfWrite 在 root 下写文件，自动建父目录
+func pfWrite(t *testing.T, root, rel, content string) {
+	t.Helper()
+	p := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWorkspacesField(t *testing.T) {
+	cases := []struct {
+		name, json string
+		want       []string
+	}{
+		{"array form", `{"workspaces":["ui","service"]}`, []string{"ui", "service"}},
+		{"object form", `{"workspaces":{"packages":["ui"]}}`, []string{"ui"}},
+		{"absent", `{}`, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var pkg packageJSON
+			if err := json.Unmarshal([]byte(tc.json), &pkg); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if !slices.Equal([]string(pkg.Workspaces), tc.want) {
+				t.Errorf("workspaces = %v, want %v", pkg.Workspaces, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadPackageJSON(t *testing.T) {
+	root := t.TempDir()
+
+	t.Run("missing file", func(t *testing.T) {
+		p := loadPackageJSON(root, "package.json")
+		if p.exists || p.err != nil {
+			t.Errorf("missing file should be exists=false err=nil, got exists=%v err=%v", p.exists, p.err)
+		}
+	})
+
+	t.Run("valid file", func(t *testing.T) {
+		pfWrite(t, root, "apps/ui/package.json", `{"name":"ui","scripts":{"build":"vite build"}}`)
+		p := loadPackageJSON(root, "apps/ui/package.json")
+		if !p.exists || p.err != nil {
+			t.Fatalf("expected clean load, got exists=%v err=%v", p.exists, p.err)
+		}
+		if p.pkg.Name != "ui" || p.pkg.Scripts["build"] != "vite build" {
+			t.Errorf("bad projection: %+v", p.pkg)
+		}
+	})
+
+	t.Run("invalid JSON keeps exists=true with err", func(t *testing.T) {
+		pfWrite(t, root, "bad/package.json", `{not json`)
+		p := loadPackageJSON(root, "bad/package.json")
+		if !p.exists || p.err == nil {
+			t.Errorf("broken file should be exists=true err!=nil, got exists=%v err=%v", p.exists, p.err)
+		}
+	})
+}
+
+func TestLoadPnpmWorkspace(t *testing.T) {
+	t.Run("missing", func(t *testing.T) {
+		w := loadPnpmWorkspace(t.TempDir())
+		if w.exists || w.err != nil {
+			t.Errorf("missing should be exists=false err=nil, got %+v", w)
+		}
+	})
+	t.Run("valid", func(t *testing.T) {
+		root := t.TempDir()
+		pfWrite(t, root, "apps/pnpm-workspace.yaml", "packages:\n  - ui\n  - service\n")
+		w := loadPnpmWorkspace(root)
+		if !w.exists || w.err != nil || !slices.Equal(w.packages, []string{"ui", "service"}) {
+			t.Errorf("bad load: %+v", w)
+		}
+	})
+	t.Run("invalid YAML", func(t *testing.T) {
+		root := t.TempDir()
+		pfWrite(t, root, "apps/pnpm-workspace.yaml", "packages: [\n")
+		w := loadPnpmWorkspace(root)
+		if !w.exists || w.err == nil {
+			t.Errorf("broken yaml should be exists=true err!=nil, got %+v", w)
+		}
+	})
+}
+
+func TestDetectLockfiles(t *testing.T) {
+	t.Run("priority pnpm over yarn over npm", func(t *testing.T) {
+		root := t.TempDir()
+		pfWrite(t, root, "package-lock.json", "{}")
+		pfWrite(t, root, "yarn.lock", "")
+		pfWrite(t, root, "pnpm-lock.yaml", "")
+		files, pm := detectLockfiles(root)
+		if pm != "pnpm" {
+			t.Errorf("pm = %q, want pnpm", pm)
+		}
+		if !slices.Equal(files, []string{"pnpm-lock.yaml", "yarn.lock", "package-lock.json"}) {
+			t.Errorf("files = %v", files)
+		}
+	})
+	t.Run("yarn wins over npm", func(t *testing.T) {
+		root := t.TempDir()
+		pfWrite(t, root, "yarn.lock", "")
+		pfWrite(t, root, "package-lock.json", "{}")
+		_, pm := detectLockfiles(root)
+		if pm != "yarn" {
+			t.Errorf("pm = %q, want yarn", pm)
+		}
+	})
+	t.Run("no lockfile falls back to npm", func(t *testing.T) {
+		files, pm := detectLockfiles(t.TempDir())
+		if pm != "npm" || len(files) != 0 {
+			t.Errorf("got files=%v pm=%q, want none/npm", files, pm)
+		}
+	})
+}
+
+func TestWorkspaceCovers(t *testing.T) {
+	cases := []struct {
+		name     string
+		patterns []string
+		comp     string
+		want     bool
+	}{
+		{"exact", []string{"ui", "service"}, "ui", true},
+		{"dot slash prefix", []string{"./ui"}, "ui", true},
+		{"trailing slash", []string{"ui/"}, "ui", true},
+		{"star glob", []string{"*"}, "service", true},
+		{"miss", []string{"packages/*"}, "ui", false},
+		{"exclusion ignored", []string{"!ui"}, "ui", false},
+		{"empty", nil, "ui", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := workspaceCovers(tc.patterns, tc.comp); got != tc.want {
+				t.Errorf("workspaceCovers(%v, %q) = %v, want %v", tc.patterns, tc.comp, got, tc.want)
+			}
+		})
+	}
 }

@@ -11,12 +11,16 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 // ---------------------------------- 哨兵错误 ----------------------------------
@@ -131,4 +135,133 @@ func checkLayoutEntry(root string, e layoutEntry) error {
 		return errors.New("expected file, found directory")
 	}
 	return nil
+}
+
+// ================================ build spec 检查 ================================
+// 以 make-build-service build_spec.md 第 5 节检查清单为实现依据。
+
+// ---------------------------------- 文件投影 ----------------------------------
+
+// workspacesField 兼容 package.json workspaces 的两种形态：
+// ["ui"] 数组、{"packages": ["ui"]} 对象。
+type workspacesField []string
+
+func (w *workspacesField) UnmarshalJSON(data []byte) error {
+	var arr []string
+	if err := json.Unmarshal(data, &arr); err == nil {
+		*w = arr
+		return nil
+	}
+	var obj struct {
+		Packages []string `json:"packages"`
+	}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	*w = obj.Packages
+	return nil
+}
+
+// packageJSON 是 package.json 面向检查的最小投影。
+type packageJSON struct {
+	Name       string            `json:"name"`
+	Scripts    map[string]string `json:"scripts"`
+	Workspaces workspacesField   `json:"workspaces"`
+}
+
+// pkgFile 是一次 package.json 读取的三态结果：不存在 / 存在但坏 / 存在且可用。
+// 存在性与内容可用性分离——A1 只问存在，A2/A5/A6 才问内容，坏 JSON 归为内容检查的失败原因。
+type pkgFile struct {
+	path   string // 相对工程根，输出用
+	exists bool
+	err    error
+	pkg    packageJSON
+}
+
+func loadPackageJSON(root, rel string) *pkgFile {
+	p := &pkgFile{path: rel}
+	data, err := os.ReadFile(filepath.Join(root, rel))
+	if err != nil {
+		p.exists = !errors.Is(err, os.ErrNotExist)
+		if p.exists {
+			p.err = err
+		}
+		return p
+	}
+	p.exists = true
+	if err := json.Unmarshal(data, &p.pkg); err != nil {
+		p.err = fmt.Errorf("invalid JSON: %v", err)
+	}
+	return p
+}
+
+// pnpmWorkspaceFile 是 apps/pnpm-workspace.yaml 的读取结果，三态同 pkgFile。
+type pnpmWorkspaceFile struct {
+	exists   bool
+	err      error
+	packages []string
+}
+
+func loadPnpmWorkspace(root string) *pnpmWorkspaceFile {
+	w := &pnpmWorkspaceFile{}
+	data, err := os.ReadFile(filepath.Join(root, "apps", "pnpm-workspace.yaml"))
+	if err != nil {
+		w.exists = !errors.Is(err, os.ErrNotExist)
+		if w.exists {
+			w.err = err
+		}
+		return w
+	}
+	w.exists = true
+	var doc struct {
+		Packages []string `yaml:"packages"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		w.err = fmt.Errorf("invalid YAML: %v", err)
+		return w
+	}
+	w.packages = doc.Packages
+	return w
+}
+
+// ---------------------------------- 判定原语 ----------------------------------
+
+// lockfilePriority 按 spec 第 1 节优先级排列：命中即定包管理器，其余被忽略。
+var lockfilePriority = []struct{ file, pm string }{
+	{"pnpm-lock.yaml", "pnpm"},
+	{"yarn.lock", "yarn"},
+	{"package-lock.json", "npm"},
+}
+
+// detectLockfiles 返回 dir 下按优先级排列的 lockfile 清单与判定出的包管理器。
+// 无 lockfile 时包管理器回退 npm（spec 第 1 节：模式 A 走 npm install 兜底）。
+func detectLockfiles(dir string) (files []string, pm string) {
+	for _, lf := range lockfilePriority {
+		if info, err := os.Stat(filepath.Join(dir, lf.file)); err == nil && !info.IsDir() {
+			files = append(files, lf.file)
+			if pm == "" {
+				pm = lf.pm
+			}
+		}
+	}
+	if pm == "" {
+		pm = "npm"
+	}
+	return files, pm
+}
+
+// workspaceCovers 判断 workspace 声明（pnpm packages / yarn+npm workspaces）是否覆盖
+// 组件目录名。条目按 glob 语义匹配（path.Match），归一化 "./ui"、"ui/" 等写法；
+// "!" 排除条目跳过——只判覆盖不判排除，排除误伤交构建期暴露。
+func workspaceCovers(patterns []string, component string) bool {
+	for _, p := range patterns {
+		if strings.HasPrefix(p, "!") {
+			continue
+		}
+		p = strings.TrimSuffix(strings.TrimPrefix(p, "./"), "/")
+		if ok, err := path.Match(p, component); err == nil && ok {
+			return true
+		}
+	}
+	return false
 }
