@@ -20,7 +20,7 @@
 - 单测需要切换 profile 时用 `setProfile(t, "name")`（stdout_test.go），t.Cleanup 自动还原
 
 ## 成员清单
-root.go:             根命令入口，挂载所有顶级子命令（login / whoami / schema / apply / diff / update / integration / preflight 等；deploy 已下沉为 app 子命令），对外暴露 Execute(version, date)；定义全局 PersistentFlag --profile / --meta-server-url / --repo-server-url / --env / --debug，分别绑定全局变量 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode；后端 URL 兜底交给 config.Environment preset（不再持 default*Server 常量）；钩入 notifier.Start/Finish 生命周期；包内 commandName 解析顶级命令名；rootCmd.SilenceErrors=true 把错误呈现收口到 Execute 出口的 reportExecuteError（errors.go）单一出口
+root.go:             根命令入口，挂载所有顶级子命令（login / whoami / schema / apply / diff / update / skills / integration / preflight 等；deploy 已下沉为 app 子命令），对外暴露 Execute(version, date)；定义全局 PersistentFlag --profile / --meta-server-url / --repo-server-url / --env / --debug，分别绑定全局变量 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode；后端 URL 兜底交给 config.Environment preset（不再持 default*Server 常量）；钩入 notifier.Start/Finish 生命周期；包内 commandName 解析顶级命令名；rootCmd.SilenceErrors=true 把错误呈现收口到 Execute 出口的 reportExecuteError（errors.go）单一出口
 errors.go:           CLI 错误呈现单一出口：reportExecuteError(w, err) 把退出码哨兵（errDiffFound/errPreflightFailed）静默、api.ErrAuthFailed 升级为带 makecli login next-step + profile/env 回显的引导（authFailedHint）、其余复刻 cobra 的 `error: <msg>`；终结了原 diff/preflight 各自 SilenceErrors+自打印的特例
 errors_test.go:      覆盖 reportExecuteError 各分支（nil/退出码哨兵静默/真实错误打印/鉴权升级）+ authFailedHint 回显 profile/env，用 setProfile/setEnvFlag 隔离全局态
 root_test.go:        覆盖 commandName 顶级命令解析的单元测试（version/version list/update/app create/空 args/未知命令）
@@ -91,6 +91,13 @@ diff_test.go:        覆盖 diff 子命令核心逻辑的单元测试（computeD
 schema.go:           schema 顶级子命令，按 appKey 调用 MakeService.GetResource 获取聚合 Schema（App + Entities + Relations），JSON 输出
 schema_test.go:      覆盖 runSchema 的单元测试（成功/无凭证/API错误/未知profile），用 httptest 隔离网络
 output.go:           list 命令通用输出辅助（table|json 格式校验 + JSON 编码），被 app list / entity list / relation list / record list / record get 复用
+skills.go:              skills 命令组，挂载 list / update / remove 子命令；默认 RunE = list（version.go 同款 gh 模式），组级 --output 供裸 `makecli skills` 使用
+skills_list.go:         skills list 子命令，调 skillsync.List 合并本地 lockfile 与 GitHub 远端状态，tablewriter 输出 NAME/STATUS/DESCRIPTION(60 rune 截断)/UPDATED AT(裁到日期)；汇总行 N installed, M outdated, K available + update 提示；LockWarning/RemoteErr 渲染为 stderr 警告不阻断，退出码恒 0；支持 --output table|json（JSON 保留全文 description 与完整时间戳）；listSkillsFunc 包级可打桩变量
+skills_list_test.go:    覆盖 runSkillsList 的单元测试（table 渲染+汇总行/JSON 全文/空态引导/警告进 stderr 不阻断/非法格式/裸 skills 默认= list/truncateLine），stubListSkills 打桩隔离 lockfile 与网络
+skills_update.go:       skills update 子命令，复用 update.go 的 runSkillSync（skillsync.Sync 幂等：装缺的 + 升级已有的），与 makecli update 后置同步同一代码路径
+skills_update_test.go:  覆盖 skills update 走 runSkillSync 且 Skip 恒 false，syncSkillsFunc 打桩避免真实执行 npx
+skills_remove.go:       skills remove 子命令，名字必填（MinimumNArgs(1)），透传 skillsync.Remove（来源校验挡住误删第三方 skills）；removeSkillsFunc 包级可打桩变量
+skills_remove_test.go:  覆盖 skills remove 的透传/错误上抛/必填参数，stubRemoveSkills 打桩隔离 npx
 update.go:           update 子命令，支持 [version] 位置参数（v0.2.0 或 0.2.0）、--force、--check、--skip-skills；无 arg 走 CheckLatest 流程，指定版本走 GetRelease；CompareVersions 决定 upgrade/same/downgrade 分支，降级需 --force；DEV 版本跳过比较；--check 走 runUpdateCheck 仅检查不安装、不同步 skills（有更新打印 current→tag + Release HTMLURL + changelogFileURL 的 CHANGELOG.md 链接 + install 提示，已最新打印 Already up to date），--check 与版本参数互斥；二进制流程结束后默认每次调用 internal/skillsync 同步 Make platform skills，并保留原 binary 输出后追加 skills 输出；applyFunc / syncSkillsFunc 包级变量便于测试打桩
 update_test.go:      覆盖 runUpdate / runUpdateCheck 的单元测试（latest 已到位/有更新、specific 升级/同版本/降级拒绝/--force 降级/规范化无 v 前缀/非法 semver/tag 不存在/DEV 跳过比较、skills 输出、--skip-skills 透传；--check 有更新报告/已最新/拒绝带版本参数且不触发 apply/skills），applyFunc / syncSkillsFunc 打桩避免真实替换二进制或执行 npx，cobra SetOut 捕获输出
 integration.go:           integration 命令组，挂载 ocr 子命令；预留扩展点供未来其它 integration（translate / asr / embed 等）
