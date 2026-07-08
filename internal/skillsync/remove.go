@@ -26,7 +26,7 @@ func RemoveCommand(names []string) []string {
 // 名字必须都是 lockfile 中 source == SkillsSource 的已安装 skill——
 // 用户机器上可能有几十个第三方 skills，makecli 不越界删除。
 func Remove(ctx context.Context, names []string) error {
-	installed, _ := readLock()
+	installed, warning := readLock()
 
 	var invalid []string
 	for _, name := range names {
@@ -38,6 +38,9 @@ func Remove(ctx context.Context, names []string) error {
 		hint := "(none installed)"
 		if candidates := slices.Sorted(maps.Keys(installed)); len(candidates) > 0 {
 			hint = strings.Join(candidates, ", ")
+		}
+		if warning != "" {
+			hint += fmt.Sprintf(" (warning: %s)", warning)
 		}
 		return fmt.Errorf("not installed Make platform skills: %s\ninstalled Make platform skills: %s",
 			strings.Join(invalid, ", "), hint)

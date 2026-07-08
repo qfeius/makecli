@@ -96,6 +96,23 @@ func TestRemoveEmptyLockfile(t *testing.T) {
 	}
 }
 
+func TestRemoveCorruptLockfileSurfacesWarning(t *testing.T) {
+	stubLockFile(t, "{not json")
+	calls := stubRunSkillsCommand(t, "", nil)
+
+	err := Remove(context.Background(), []string{"makedsl"})
+
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "cannot parse") {
+		t.Fatalf("corrupt lockfile must surface readLock's warning, not just '(none installed)': %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatal("must not execute command when validation fails")
+	}
+}
+
 func TestRemoveCommandFailure(t *testing.T) {
 	stubLockFile(t, sampleLock)
 	stubRunSkillsCommand(t, "boom output", errors.New("exit 1"))
