@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 os、path/filepath、strings、testing
- * [OUTPUT]: 覆盖 readLock（缺失/过滤/损坏/版本不匹配）与 extractFrontmatter / readDescription
- * [POS]: internal/skillsync 清单层的本地数据源测试，t.TempDir 隔离文件系统
+ * [INPUT]: 依赖 context、net/http、net/http/httptest、os、path/filepath、strings、testing
+ * [OUTPUT]: 覆盖 readLock（缺失/过滤/损坏/版本不匹配）、extractFrontmatter / readDescription、fetchRemoteSkills（过滤非 dir/HTTP 错误）、List 合并（五状态/排序/远端不可达降级/description 填充）
+ * [POS]: internal/skillsync 清单层测试，本地数据源用 t.TempDir 隔离文件系统，远端数据源用 httptest 隔离网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
