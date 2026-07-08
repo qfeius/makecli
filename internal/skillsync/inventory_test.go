@@ -8,6 +8,9 @@
 package skillsync
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,5 +171,168 @@ func TestReadDescriptionBadYAML(t *testing.T) {
 
 	if got := readDescription(dir, "bad"); got != "" {
 		t.Fatalf("expected empty for bad YAML, got %q", got)
+	}
+}
+
+// stubRemoteAPI 起 httptest server 替换 inventoryAPIBaseURL。
+func stubRemoteAPI(t *testing.T, handler http.HandlerFunc) {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	orig := inventoryAPIBaseURL
+	inventoryAPIBaseURL = server.URL
+	t.Cleanup(func() {
+		inventoryAPIBaseURL = orig
+		server.Close()
+	})
+}
+
+const sampleRemote = `[
+  {"name": "makedsl", "sha": "hash-dsl-new", "type": "dir"},
+  {"name": "makeui", "sha": "hash-ui", "type": "dir"},
+  {"name": "make-app-auth", "sha": "hash-auth", "type": "dir"},
+  {"name": "setup-make-poc.md", "sha": "hash-file", "type": "file"}
+]`
+
+func TestFetchRemoteSkills(t *testing.T) {
+	stubRemoteAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		wantPath := "/repos/qfeius/make-platform-skills/contents/skills"
+		if r.URL.Path != wantPath {
+			t.Errorf("unexpected path %s, want %s", r.URL.Path, wantPath)
+		}
+		_, _ = w.Write([]byte(sampleRemote))
+	})
+
+	remote, err := fetchRemoteSkills(context.Background())
+
+	if err != nil {
+		t.Fatalf("fetchRemoteSkills: %v", err)
+	}
+	if len(remote) != 3 {
+		t.Fatalf("expected 3 dirs (file filtered), got %d", len(remote))
+	}
+	if remote["makedsl"] != "hash-dsl-new" {
+		t.Fatalf("unexpected sha: %s", remote["makedsl"])
+	}
+	if _, ok := remote["setup-make-poc.md"]; ok {
+		t.Fatal("non-dir entries must be filtered out")
+	}
+}
+
+func TestFetchRemoteSkillsHTTPError(t *testing.T) {
+	stubRemoteAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	if _, err := fetchRemoteSkills(context.Background()); err == nil {
+		t.Fatal("expected error on HTTP 500")
+	}
+}
+
+func TestListMergesStatuses(t *testing.T) {
+	stubLockFile(t, sampleLock) // makedsl hash-dsl(旧) + makeui hash-ui + swiftui-pro(第三方,被过滤)
+	stubSkillsDir(t)
+	stubRemoteAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(sampleRemote)) // makedsl hash-dsl-new + makeui hash-ui + make-app-auth
+	})
+
+	inv := List(context.Background())
+
+	if inv.RemoteErr != nil {
+		t.Fatalf("unexpected remote error: %v", inv.RemoteErr)
+	}
+	want := map[string]string{
+		"make-app-auth": StatusNotInstalled,
+		"makedsl":       StatusOutdated,
+		"makeui":        StatusUpToDate,
+	}
+	if len(inv.Skills) != len(want) {
+		t.Fatalf("expected %d skills, got %d: %+v", len(want), len(inv.Skills), inv.Skills)
+	}
+	for _, s := range inv.Skills {
+		if want[s.Name] != s.Status {
+			t.Errorf("%s: got status %q, want %q", s.Name, s.Status, want[s.Name])
+		}
+	}
+	// 按名字排序
+	for i := 1; i < len(inv.Skills); i++ {
+		if inv.Skills[i-1].Name > inv.Skills[i].Name {
+			t.Fatalf("skills not sorted: %s > %s", inv.Skills[i-1].Name, inv.Skills[i].Name)
+		}
+	}
+}
+
+func TestListLocalOnlySkillIsRemovedUpstream(t *testing.T) {
+	stubLockFile(t, sampleLock)
+	stubSkillsDir(t)
+	stubRemoteAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"name": "makeui", "sha": "hash-ui", "type": "dir"}]`))
+	})
+
+	inv := List(context.Background())
+
+	statuses := map[string]string{}
+	for _, s := range inv.Skills {
+		statuses[s.Name] = s.Status
+	}
+	if statuses["makedsl"] != StatusRemovedUpstream {
+		t.Fatalf("makedsl: got %q, want %q", statuses["makedsl"], StatusRemovedUpstream)
+	}
+}
+
+func TestListRemoteUnreachable(t *testing.T) {
+	stubLockFile(t, sampleLock)
+	stubSkillsDir(t)
+	// 指向已关闭的 server 制造网络失败
+	server := httptest.NewServer(http.NotFoundHandler())
+	server.Close()
+	orig := inventoryAPIBaseURL
+	inventoryAPIBaseURL = server.URL
+	t.Cleanup(func() { inventoryAPIBaseURL = orig })
+
+	inv := List(context.Background())
+
+	if inv.RemoteErr == nil {
+		t.Fatal("expected RemoteErr on unreachable remote")
+	}
+	if len(inv.Skills) != 2 {
+		t.Fatalf("expected 2 local skills only, got %d", len(inv.Skills))
+	}
+	for _, s := range inv.Skills {
+		if s.Status != StatusUnknown {
+			t.Errorf("%s: got %q, want %q", s.Name, s.Status, StatusUnknown)
+		}
+	}
+}
+
+func TestListFillsDescriptionForInstalled(t *testing.T) {
+	stubLockFile(t, sampleLock)
+	dir := stubSkillsDir(t)
+	if err := os.MkdirAll(filepath.Join(dir, "makeui"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skillMD := "---\nname: makeui\ndescription: 页面布局与 UI 组件组织\n---\n"
+	if err := os.WriteFile(filepath.Join(dir, "makeui", "SKILL.md"), []byte(skillMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stubRemoteAPI(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(sampleRemote))
+	})
+
+	inv := List(context.Background())
+
+	for _, s := range inv.Skills {
+		switch s.Name {
+		case "makeui":
+			if s.Description != "页面布局与 UI 组件组织" {
+				t.Errorf("makeui description: %q", s.Description)
+			}
+			if s.InstalledAt == "" || s.LocalHash == "" {
+				t.Error("installed skill must carry installedAt and localHash")
+			}
+		case "make-app-auth":
+			if s.Description != "" {
+				t.Errorf("not-installed skill must have empty description, got %q", s.Description)
+			}
+		}
 	}
 }

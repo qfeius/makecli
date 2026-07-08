@@ -1,18 +1,22 @@
 /**
- * [INPUT]: 依赖 encoding/json、fmt、os、path/filepath、strings、gopkg.in/yaml.v3
- * [OUTPUT]: 包内提供 readLock / lockEntry / readDescription / extractFrontmatter，本地数据源（lockfile + SKILL.md frontmatter）
- * [POS]: internal/skillsync 的清单层本地半边，被 List（远端合并）与 Remove（来源校验）复用；lockPathFunc / skillsDirFunc 为测试接缝
+ * [INPUT]: 依赖 context、encoding/json、fmt、net/http、os、path/filepath、slices、strings、time、gopkg.in/yaml.v3
+ * [OUTPUT]: 对外提供 List / Inventory / SkillInfo / Status* 常量（本地 lockfile × 远端 GitHub 状态合并清单）；包内 readLock / lockEntry / readDescription / extractFrontmatter 供 Remove（来源校验）复用
+ * [POS]: internal/skillsync 的清单层，被 cmd/skills_list.go 调用；lockPathFunc / skillsDirFunc / inventoryAPIBaseURL 为测试接缝
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
 package skillsync
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -119,4 +123,121 @@ func extractFrontmatter(data []byte) []byte {
 		}
 	}
 	return nil
+}
+
+// 状态常量：本地 lockfile × 远端仓库的比对结果。
+const (
+	StatusUpToDate        = "up-to-date"
+	StatusOutdated        = "outdated"
+	StatusNotInstalled    = "not installed"
+	StatusRemovedUpstream = "removed upstream"
+	StatusUnknown         = "unknown"
+)
+
+// SkillInfo 是单个 skill 的合并视图（本地安装记录 + 远端状态）。
+type SkillInfo struct {
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+	Description string `json:"description,omitempty"`
+	InstalledAt string `json:"installedAt,omitempty"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
+	LocalHash   string `json:"localHash,omitempty"`
+	RemoteHash  string `json:"remoteHash,omitempty"`
+}
+
+// Inventory 是 List 的完整结果；LockWarning / RemoteErr 由调用方渲染为 stderr 警告。
+type Inventory struct {
+	Skills      []SkillInfo
+	LockWarning string
+	RemoteErr   error
+}
+
+// inventoryAPIBaseURL 可在测试中替换（internal/update apiBaseURL 同款接缝）。
+var inventoryAPIBaseURL = "https://api.github.com"
+
+// inventoryClient 带 5 秒超时：远端比对是展示增强，不值得让 list 卡更久。
+var inventoryClient = &http.Client{Timeout: 5 * time.Second}
+
+// fetchRemoteSkills 匿名调 GitHub Contents API，一次拿到全部远端 skill 目录名 → tree SHA。
+// lockfile 的 skillFolderHash 与该 SHA 同语义（GitHub tree SHA），可直接等值比对。
+func fetchRemoteSkills(ctx context.Context) (map[string]string, error) {
+	url := fmt.Sprintf("%s/repos/%s/contents/skills", inventoryAPIBaseURL, SkillsSource)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := inventoryClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+
+	var entries []struct {
+		Name string `json:"name"`
+		SHA  string `json:"sha"`
+		Type string `json:"type"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		return nil, err
+	}
+
+	remote := make(map[string]string, len(entries))
+	for _, e := range entries {
+		if e.Type == "dir" {
+			remote[e.Name] = e.SHA
+		}
+	}
+	return remote, nil
+}
+
+// List 合并本地 lockfile 与 GitHub 远端状态，产出按名字排序的 Make platform skills 清单。
+// 远端失败不是错误：全部已装条目降级 StatusUnknown，错误进 Inventory.RemoteErr。
+func List(ctx context.Context) Inventory {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	local, warning := readLock()
+	remote, remoteErr := fetchRemoteSkills(ctx)
+
+	names := make(map[string]bool, len(local)+len(remote))
+	for name := range local {
+		names[name] = true
+	}
+	for name := range remote {
+		names[name] = true
+	}
+
+	skills := make([]SkillInfo, 0, len(names))
+	for name := range names {
+		entry, installed := local[name]
+		info := SkillInfo{Name: name, RemoteHash: remote[name]}
+		if installed {
+			info.Description = readDescription(skillsDirFunc(), name)
+			info.InstalledAt = entry.InstalledAt
+			info.UpdatedAt = entry.UpdatedAt
+			info.LocalHash = entry.SkillFolderHash
+		}
+		switch {
+		case remoteErr != nil:
+			info.Status = StatusUnknown
+		case !installed:
+			info.Status = StatusNotInstalled
+		case remote[name] == "":
+			info.Status = StatusRemovedUpstream
+		case remote[name] == entry.SkillFolderHash:
+			info.Status = StatusUpToDate
+		default:
+			info.Status = StatusOutdated
+		}
+		skills = append(skills, info)
+	}
+	slices.SortFunc(skills, func(a, b SkillInfo) int { return strings.Compare(a.Name, b.Name) })
+
+	return Inventory{Skills: skills, LockWarning: warning, RemoteErr: remoteErr}
 }
