@@ -210,6 +210,10 @@ type Field struct {
 	Meta        map[string]any `json:"meta"`
 	Properties  map[string]any `json:"properties"`
 	Validations map[string]any `json:"validations,omitempty"`
+	// Capabilities 是服务端按字段类型派生的能力位（groupable/sortable/
+	// supportsUniqueConstraint 等）。仅读路径填充；写路径不设置，omitempty
+	// 保证不向线缆发空对象（与 Validations 同款只读透传语义）。
+	Capabilities map[string]any `json:"capabilities,omitempty"`
 }
 
 // Entity 代表 Meta Server 返回的单个 Entity 资源

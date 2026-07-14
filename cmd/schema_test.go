@@ -40,7 +40,8 @@ func TestRunSchema(t *testing.T) {
 					"entities": []map[string]any{
 						{"key": "expense_report", "name": "报销单", "type": "Make.Entity", "appKey": "expense_management",
 							"meta":       map[string]any{"version": "1.0.0"},
-							"properties": map[string]any{"fields": []map[string]any{{"key": "applicant", "name": "申请人", "type": "Make.Field.Text"}}}},
+							"properties": map[string]any{"fields": []map[string]any{{"key": "applicant", "name": "申请人", "type": "Make.Field.Text",
+								"capabilities": map[string]any{"groupable": true, "sortable": true, "supportsUniqueConstraint": false}}}}},
 					},
 					"relations": []map[string]any{
 						{"key": "report_has_invoices", "name": "报销单发票关联", "type": "Make.Relation", "appKey": "expense_management",
@@ -75,6 +76,13 @@ func TestRunSchema(t *testing.T) {
 		}
 		if !strings.Contains(output, "expense_report") {
 			t.Fatalf("expected entity name in output, got %q", output)
+		}
+		// capabilities 是服务端派生的能力位，schema 输出须原样透传（Field 结构缺此字段时会被静默丢弃）
+		if !strings.Contains(output, "\"capabilities\"") {
+			t.Fatalf("expected field capabilities in output, got %q", output)
+		}
+		if !strings.Contains(output, "supportsUniqueConstraint") {
+			t.Fatalf("expected capability keys in output, got %q", output)
 		}
 	})
 
