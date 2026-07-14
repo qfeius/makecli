@@ -16,6 +16,11 @@ makecli skills update             # 安装缺失 + 升级已有（复用 skillsy
 makecli skills remove <name>...   # 删除指定 skill，名字必填
 ```
 
+## 支持选项
+```
+makecli skills list --output=table | json
+```
+
 ## list：数据流与状态判定
 
 三个数据源合并成一张表：
