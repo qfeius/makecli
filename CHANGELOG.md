@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.5] - 2026-07-14
+
+### Features
+
+- **skills**: Add the `makecli skills` command group — `skills list` merges the local lockfile with GitHub to flag each skill as installed / outdated / available (`--output table|json`), `skills update` installs missing and upgrades existing skills, and `skills remove <name>...` removes them after a source check that blocks deleting third-party skills (#21)
+- **preflight**: Replace the `--app-type` skeleton check with a deterministic checklist derived from the build-service `build_spec.md` §5 — it auto-detects build mode A/B and the package manager (pnpm > yarn > npm), reports each item as ERROR/WARN/INFO with a per-failure "How to fix" block, and gates deploy/CI on the result (#21)
+
+### Bug Fixes
+
+- **schema**: Preserve the server-derived field `capabilities` (`groupable` / `sortable` / `supportsUniqueConstraint`) in `schema` output. They were silently dropped on the decode→re-encode round-trip, so the CLI diverged from the raw API response
+
 ## [v0.5.4] - 2026-07-06
 
 ### Features
@@ -179,7 +190,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.5...HEAD
+[v0.5.5]: https://github.com/qfeius/makecli/releases/tag/v0.5.5
 [v0.5.4]: https://github.com/qfeius/makecli/releases/tag/v0.5.4
 [v0.5.3]: https://github.com/qfeius/makecli/releases/tag/v0.5.3
 [v0.5.2]: https://github.com/qfeius/makecli/releases/tag/v0.5.2
