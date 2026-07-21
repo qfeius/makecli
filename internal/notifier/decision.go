@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 fmt、io、strconv、strings；依赖 github.com/Masterminds/semver/v3、internal/update 的 CompareVersions
- * [OUTPUT]: 对外提供（包内）notifierEnabled / shouldNotify / renderNotice 与 skipCommands 表
+ * [INPUT]: 依赖 fmt、io、regexp、strconv、strings；依赖 github.com/Masterminds/semver/v3、internal/config 的通道常量、internal/update 的 CompareVersions
+ * [OUTPUT]: 对外提供（包内）notifierEnabled / versionInChannel / shouldNotify / renderNotice 与 skipCommands 表
  * [POS]: internal/notifier 的判定与渲染层，被 notifier.go 的 Finish 编排
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -10,10 +10,12 @@ package notifier
 import (
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/qfeius/makecli/internal/config"
 	"github.com/qfeius/makecli/internal/update"
 )
 
@@ -41,24 +43,30 @@ func notifierEnabled(envVal string, cfgVal *bool) bool {
 	return true
 }
 
-// isReleaseVersion 判定 current 是否为正式发布版本（无 prerelease 段）。
-// DEV / 非法 semver → false；带 prerelease 的版本（含 git-describe 伪版本
-// 如 v0.3.0-16-ga4765c1，以及 go install 的模块伪版本）一律视为开发态 → false，
-// 否则会因 semver「prerelease 低于正式版」把降级误报成升级。
-func isReleaseVersion(current string) bool {
+// betaSegRe 匹配合法 beta 预发布段（beta.N 白名单）。git-describe 伪版本
+// （如 16-ga4765c1）与 go install 模块伪版本天然被拒——开发态构建即使切了
+// beta 通道也保持静默。
+var betaSegRe = regexp.MustCompile(`^beta\.[0-9]+$`)
+
+// versionInChannel 判定 current 是否为 channel 内的正式发布版本。
+// stable：无预发布段；beta：无预发布段或 beta.N。DEV / 非法 semver 恒 false。
+// 调用必须先于 CompareVersions（DEV/非法版本在其中恒返回 +1，不加此守卫会让
+// 开发构建永远显示更新提示）。
+func versionInChannel(current, channel string) bool {
 	v, err := semver.NewVersion(strings.TrimPrefix(current, "v"))
 	if err != nil {
 		return false
 	}
-	return v.Prerelease() == ""
+	pre := v.Prerelease()
+	if pre == "" {
+		return true
+	}
+	return channel == config.ChannelBeta && betaSegRe.MatchString(pre)
 }
 
 // shouldNotify 在「已启用」前提下，判定是否真的要打印提示。任一条件不满足即 false。
-//
-// 顺序：isReleaseVersion 必须在 CompareVersions 之前，因为对 DEV/非法版本
-// CompareVersions 恒返回 +1，不加此守卫会让开发构建永远显示更新提示。
-func shouldNotify(current, cmdName string, isTTY bool, ci string, cache cacheData) bool {
-	if !isReleaseVersion(current) {
+func shouldNotify(current, cmdName string, isTTY bool, ci string, cache cacheData, channel string) bool {
+	if !versionInChannel(current, channel) {
 		return false
 	}
 	if ci != "" {
@@ -68,6 +76,9 @@ func shouldNotify(current, cmdName string, isTTY bool, ci string, cache cacheDat
 		return false
 	}
 	if cmdName == "" || skipCommands[cmdName] {
+		return false
+	}
+	if cache.Channel != channel {
 		return false
 	}
 	if cache.LatestVersion == "" {
