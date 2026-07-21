@@ -42,6 +42,8 @@ const sampleConfig = `# MakeCLI configuration reference - every available key wi
 environment = dev
 # Auto-update notifier. true | false
 check-for-updates = true
+# Release channel for updates and the update notifier. One of: stable, beta
+channel = stable
 
 # ===== Profile: default (select another with --profile <name>) =====
 # These override the environment preset and are optional - replace the
@@ -238,6 +240,17 @@ func setEnvironment(value string) error {
 	return config.SetSetting(environmentKey, value)
 }
 
+// channelKey 是 configure set/get 里路由到全局 [settings] 的发布通道特殊键名。
+const channelKey = "channel"
+
+// setChannel 校验通道名后写入全局 [settings] channel（不受 --profile 影响）。
+func setChannel(value string) error {
+	if !slices.Contains(config.ChannelNames(), value) {
+		return fmt.Errorf("unknown channel '%s', valid: %s", value, strings.Join(config.ChannelNames(), ", "))
+	}
+	return config.SetSetting(channelKey, value)
+}
+
 func newConfigureSetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "set <key> <value>",
@@ -245,12 +258,17 @@ func newConfigureSetCmd() *cobra.Command {
 		Long: fmt.Sprintf(`Set a single config value as "<key> <value>" — exactly two args, no section name.
 
 Most keys write to the current --profile section: %s
-The special key "environment" instead writes to the global [settings] section
-(shared by every profile) and only accepts: %s`,
+The special keys "environment" and "channel" instead write to the global
+[settings] section (shared by every profile). environment accepts: %s.
+channel accepts: %s.`,
 			strings.Join(validConfigKeys, ", "),
-			strings.Join(config.EnvironmentNames(), ", ")),
+			strings.Join(config.EnvironmentNames(), ", "),
+			strings.Join(config.ChannelNames(), ", ")),
 		Example: `  # switch backend environment (global, affects every profile)
   makecli configure set environment test
+
+  # track pre-releases with bare 'makecli update'
+  makecli configure set channel beta
 
   # point the current profile at a custom meta server host
   makecli configure set meta-server-url meta.dev.example.com
@@ -268,6 +286,9 @@ The special key "environment" instead writes to the global [settings] section
 func runConfigureSet(key, value string) error {
 	if key == environmentKey {
 		return setEnvironment(value)
+	}
+	if key == channelKey {
+		return setChannel(value)
 	}
 	if err := validateConfigKey(key); err != nil {
 		return err
@@ -302,10 +323,13 @@ func newConfigureGetCmd() *cobra.Command {
 		Long: fmt.Sprintf(`Read a single config value by key.
 
 Profile keys: %s
-The special key "environment" reads the global [settings] section.`,
+The special keys "environment" and "channel" read the global [settings] section.`,
 			strings.Join(validConfigKeys, ", ")),
 		Example: `  # read the active backend environment (global)
   makecli configure get environment
+
+  # read the active release channel (global)
+  makecli configure get channel
 
   # read a profile config value
   makecli configure get meta-server-url`,
@@ -324,6 +348,14 @@ func runConfigureGet(key string) error {
 			return err
 		}
 		fmt.Println(firstNonEmpty(settings.Environment, config.DefaultEnvironment))
+		return nil
+	}
+	if key == channelKey {
+		settings, err := config.LoadSettings()
+		if err != nil {
+			return err
+		}
+		fmt.Println(firstNonEmpty(settings.Channel, config.DefaultChannel))
 		return nil
 	}
 	if err := validateConfigKey(key); err != nil {
