@@ -8,6 +8,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/qfeius/makecli/internal/config"
@@ -88,4 +90,46 @@ func TestWithGateway(t *testing.T) {
 			t.Errorf("withGateway(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
+}
+
+func TestResolveChannel(t *testing.T) {
+	writeSettings := func(t *testing.T, content string) {
+		t.Helper()
+		dir := t.TempDir()
+		t.Setenv(config.EnvConfigDir, dir)
+		if content != "" {
+			if err := os.WriteFile(filepath.Join(dir, "config"), []byte(content), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	t.Run("unset falls back to stable", func(t *testing.T) {
+		writeSettings(t, "")
+		ch, err := resolveChannel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ch != config.ChannelStable {
+			t.Fatalf("channel = %q, want stable", ch)
+		}
+	})
+
+	t.Run("beta from settings", func(t *testing.T) {
+		writeSettings(t, "[settings]\nchannel = beta\n")
+		ch, err := resolveChannel()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ch != config.ChannelBeta {
+			t.Fatalf("channel = %q, want beta", ch)
+		}
+	})
+
+	t.Run("unknown value rejected", func(t *testing.T) {
+		writeSettings(t, "[settings]\nchannel = nightly\n")
+		if _, err := resolveChannel(); err == nil {
+			t.Fatal("expected error for unknown channel")
+		}
+	})
 }

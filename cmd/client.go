@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 internal/config（Load/LoadConfig/LoadSettings/LookupEnvironment）、internal/api（New/Option/WithDebug/WithHeaders）、fmt、strings；从 root.go 读取全局 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode
- * [OUTPUT]: 对外提供 newClientFromProfile（变参 ...api.Option）/ newRepoClientFromProfile / resolveEnvironment / envName 函数、withGateway helper、apiGatewayPath 常量
+ * [OUTPUT]: 对外提供 newClientFromProfile（变参 ...api.Option）/ newRepoClientFromProfile / resolveEnvironment / resolveChannel / envName 函数、withGateway helper、apiGatewayPath 常量
  * [POS]: cmd 模块的公共 helper，统一「全局命令行入参 → API 客户端」的构建逻辑——profile / server / env / debug 全部由 root PersistentFlag 注入，子命令零参数调用；
  *        newClientFromProfile 收 ...api.Option 变参，把每命令横切选项（如 WithDryRun）追加到基础选项之后，写命令按需注入；
  *        resolveProfile 收口凭证与配置解析，resolveEnvironment 收口环境 preset；URL 取值链：flag > profile config > 环境 preset，主机基址再经 withGateway 补网关前缀 /api/make
@@ -11,6 +11,7 @@ package cmd
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/qfeius/makecli/internal/api"
@@ -104,6 +105,24 @@ func resolveEnvironment() (config.Environment, error) {
 		return config.Environment{}, fmt.Errorf("unknown environment %q, valid: %s", name, strings.Join(config.EnvironmentNames(), ", "))
 	}
 	return env, nil
+}
+
+// resolveChannel 收口发布通道解析：[settings] channel > DefaultChannel。
+// 未知通道名报错（对齐 resolveEnvironment 的未知名报错先例；notifier 侧
+// 的静默回退是另一职责，见 internal/notifier channelOf）。
+func resolveChannel() (string, error) {
+	settings, err := config.LoadSettings()
+	if err != nil {
+		return "", err
+	}
+	if settings.Channel == "" {
+		return config.DefaultChannel, nil
+	}
+	if !slices.Contains(config.ChannelNames(), settings.Channel) {
+		return "", fmt.Errorf("unknown channel '%s' in config, valid: %s",
+			settings.Channel, strings.Join(config.ChannelNames(), ", "))
+	}
+	return settings.Channel, nil
 }
 
 // newClientFromProfile 构建指向 Meta/Data Server 的 API 客户端。
