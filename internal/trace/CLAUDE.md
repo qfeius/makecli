@@ -11,7 +11,7 @@
 - 全零回退分支被刻意省略（概率 2^-128/2^-64 可忽略），保持无分支
 
 ## 成员清单
-trace.go:      提供 TraceID()（稳定 trace-id / X-Log-Id 值）、Traceparent()（W3C v00 串，trace-id 稳定 + parent-id 每次新生成，flags 固定 01）；randHex(n) 用 crypto/rand 生成 n 字节并 hex 编码，与 otel randomIDGenerator 同源
-trace_test.go: 覆盖 trace-id 稳定性与 32-hex 格式、traceparent v00 格式锚定、trace-id 跨请求复用、parent-id 每次新生成
+- `trace.go`: 提供 TraceID()（稳定 trace-id / X-Log-Id 值）、Traceparent()（W3C v00 串，trace-id 稳定 + parent-id 每次新生成，flags 固定 01）；randHex(n) 用 crypto/rand 生成 n 字节并 hex 编码，与 otel randomIDGenerator 同源
+- `trace_test.go`: 覆盖 trace-id 稳定性与 32-hex 格式、traceparent v00 格式锚定、trace-id 跨请求复用、parent-id 每次新生成
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
