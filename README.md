@@ -22,6 +22,33 @@ makecli update --skip-skills
 ```
 git -C $(brew --repo qfeius/makecli) pull && brew upgrade makecli
 ```
+
+## 发布通道（stable / beta）
+
+makecli 有两个发布通道：
+
+- **stable**（默认）：正式版本，Homebrew 与 `makecli update` 默认追踪
+- **beta**：`vX.Y.Z-beta.N` 预发布版本，先行体验新功能；不进 Homebrew，仅通过 `makecli update` 自更新分发
+
+```bash
+# 切入 beta 通道：之后裸 update 与后台更新提示自动追踪 beta
+# （若出现更高的稳定版会自动收敛回稳定版）
+makecli configure set channel beta
+makecli update
+
+# 查看当前通道
+makecli configure get channel
+
+# 切回稳定通道；稳定版低于手上的 beta 时降级需 --force，或等更高稳定版自然收敛
+makecli configure set channel stable
+makecli update v0.5.5 --force
+
+# 不切通道，临时安装某个 beta 版本
+makecli update v0.6.0-beta.1
+```
+
+`makecli version list` 的 TYPE 列会标注 `Pre-release`，便于分辨预发布版本。
+
 ## 功能
 
 ### 配置凭证
