@@ -17,11 +17,15 @@ import (
 	"github.com/qfeius/makecli/internal/config"
 )
 
-// cacheData 是 update-check.json 的结构
+// cacheData 是 update-check.json 的结构。
+// Channel 标记检测结果所属通道：跨通道缓存视为不可用（Start 触发刷新、
+// shouldNotify 短路）。旧版二进制写的缓存无此字段 → 空串与任何通道不匹配，
+// 触发一次刷新后自愈，无需迁移逻辑。
 type cacheData struct {
 	CheckedAt     time.Time `json:"checked_at"`
 	LatestVersion string    `json:"latest_version"`
 	HTMLURL       string    `json:"html_url"`
+	Channel       string    `json:"channel"`
 }
 
 // cacheFileName 缓存文件名

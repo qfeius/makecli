@@ -1,9 +1,9 @@
 /**
- * [INPUT]: 依赖 github.com/spf13/cobra、internal/update、internal/build、internal/skillsync
- * [OUTPUT]: 对外提供 newUpdateCmd 函数；包内 runUpdateCheck / changelogFileURL
+ * [INPUT]: 依赖 github.com/spf13/cobra、internal/update、internal/build、internal/config（通道常量）、internal/skillsync；client.go 的 resolveChannel
+ * [OUTPUT]: 对外提供 newUpdateCmd 函数；包内 runUpdateCheck / changelogFileURL / channelSuffix / hintBetaAboveStable
  * [POS]: cmd 模块的 update 子命令，从 GitHub Releases 自更新二进制；
- *        无 arg 走 latest 流程，有 arg 走指定版本流程；降级需 --force；DEV 版本跳过比较；
- *        --check 仅检查最新版本并打印报告，不安装、不同步 skills；二进制流程结束后默认每次同步 Make platform skills
+ *        无 arg 走 latest 流程（按 [settings] channel 选通道：stable 走 /releases/latest、beta 走列表取 semver 最高），有 arg 走指定版本流程；降级需 --force；DEV 版本跳过比较；
+ *        --check 仅检查最新版本并打印报告，不安装、不同步 skills；stable 通道下持有高于最新稳定版的 beta 时补降级去向提示；二进制流程结束后默认每次同步 Make platform skills
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/qfeius/makecli/internal/build"
+	"github.com/qfeius/makecli/internal/config"
 	"github.com/qfeius/makecli/internal/skillsync"
 	"github.com/qfeius/makecli/internal/update"
 	"github.com/spf13/cobra"
@@ -37,7 +38,8 @@ func newUpdateCmd() *cobra.Command {
   makecli update --check
   makecli update v0.2.0
   makecli update --force v0.0.1
-  makecli update --skip-skills`,
+  makecli update --skip-skills
+  makecli configure set channel beta   # make bare 'update' track pre-releases`,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -62,19 +64,24 @@ func newUpdateCmd() *cobra.Command {
 
 // runUpdateCheck 仅检查最新版本并打印报告，不下载、不替换二进制、不同步 skills。
 func runUpdateCheck(cmd *cobra.Command, currentVersion string) error {
-	release, newer, err := update.CheckLatest(currentVersion)
+	channel, err := resolveChannel()
+	if err != nil {
+		return err
+	}
+	release, newer, err := update.CheckLatest(currentVersion, channel == config.ChannelBeta)
 	if err != nil {
 		return err
 	}
 
 	out := cmd.OutOrStdout()
 	if !newer {
-		_, _ = fmt.Fprintf(out, "Already up to date (%s)\n", release.TagName)
+		_, _ = fmt.Fprintf(out, "Already up to date (%s)%s\n", release.TagName, channelSuffix(channel))
+		hintBetaAboveStable(out, currentVersion, release.TagName, channel)
 		return nil
 	}
 
-	_, _ = fmt.Fprintf(out, "Update available: %s → %s\n",
-		formatCurrentVersion(currentVersion), release.TagName)
+	_, _ = fmt.Fprintf(out, "Update available: %s → %s%s\n",
+		formatCurrentVersion(currentVersion), release.TagName, channelSuffix(channel))
 	_, _ = fmt.Fprintf(out, "  Release:   %s\n", release.HTMLURL)
 	_, _ = fmt.Fprintf(out, "  Changelog: %s\n", changelogFileURL())
 	_, _ = fmt.Fprintf(out, "\nRun `makecli update` to install.\n")
@@ -95,15 +102,20 @@ func runUpdate(cmd *cobra.Command, target string, force, skipSkills bool) error 
 }
 
 func runUpdateLatest(cmd *cobra.Command, currentVersion string, skipSkills bool) error {
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Checking for updates...\n")
+	channel, err := resolveChannel()
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Checking for updates...%s\n", channelSuffix(channel))
 
-	release, newer, err := update.CheckLatest(currentVersion)
+	release, newer, err := update.CheckLatest(currentVersion, channel == config.ChannelBeta)
 	if err != nil {
 		return err
 	}
 
 	if !newer {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Already up to date (%s)\n", release.TagName)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Already up to date (%s)%s\n", release.TagName, channelSuffix(channel))
+		hintBetaAboveStable(cmd.OutOrStdout(), currentVersion, release.TagName, channel)
 		return runSkillSync(cmd, release.TagName, skipSkills)
 	}
 
@@ -179,6 +191,27 @@ func renderSkillSyncResult(w io.Writer, result skillsync.Result) {
 	default:
 		_, _ = fmt.Fprintf(w, "Skills updated for makecli %s\n", result.Version)
 	}
+}
+
+// channelSuffix 仅在非默认通道时回显，稳定用户输出零变化
+func channelSuffix(channel string) string {
+	if channel == config.ChannelBeta {
+		return " [beta channel]"
+	}
+	return ""
+}
+
+// hintBetaAboveStable 消解「Already up to date 却拿着 -beta.N」的字面矛盾：
+// stable 通道下当前预发布版本高于最新稳定版时，补两行去向说明。
+func hintBetaAboveStable(w io.Writer, current, latestStable, channel string) {
+	if channel != config.ChannelStable || !update.IsPrerelease(current) {
+		return
+	}
+	if update.CompareVersions(latestStable, current) >= 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "Note: current %s is a pre-release above the stable channel.\n", formatCurrentVersion(current))
+	_, _ = fmt.Fprintf(w, "Run `makecli update %s --force` to return to stable, or wait for a newer stable release.\n", latestStable)
 }
 
 // formatCurrentVersion 格式化当前版本号用于显示

@@ -177,3 +177,23 @@ func TestRunVersionList_TableDevVersionNoMarker(t *testing.T) {
 		t.Errorf("DEV build.Version should not produce any * marker, got:\n%s", out)
 	}
 }
+
+func TestRunVersionList_TableMarksPrerelease(t *testing.T) {
+	cleanup := mockReleasesServer(t, 0, []update.Release{
+		{TagName: "v0.6.0-beta.1", Prerelease: true, PublishedAt: "2026-07-20", HTMLURL: "https://example.com/b"},
+		{TagName: "v0.5.5", PublishedAt: "2026-07-18", HTMLURL: "https://example.com/s"},
+	})
+	defer cleanup()
+
+	out := captureStdout(t, func() {
+		if err := runVersionList(20, "table"); err != nil {
+			t.Errorf("runVersionList: %v", err)
+		}
+	})
+	if !strings.Contains(out, "TYPE") {
+		t.Fatalf("table missing TYPE header: %s", out)
+	}
+	if !strings.Contains(out, "Pre-release") {
+		t.Fatalf("table missing Pre-release label: %s", out)
+	}
+}

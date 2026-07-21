@@ -14,10 +14,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/qfeius/makecli/internal/build"
+	"github.com/qfeius/makecli/internal/config"
 	"github.com/qfeius/makecli/internal/skillsync"
 	"github.com/qfeius/makecli/internal/update"
 	"github.com/spf13/cobra"
@@ -422,5 +425,62 @@ func TestUpdateCmd_CheckRejectsVersionArg(t *testing.T) {
 	cmd.SilenceErrors = true
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("expected error: --check does not take a version argument")
+	}
+}
+
+func TestRunUpdateCheckBetaChannel(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, dir)
+	if err := os.WriteFile(filepath.Join(dir, "config"), []byte("[settings]\nchannel = beta\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/qfeius/makecli/releases" {
+			t.Errorf("path = %s, want /repos/qfeius/makecli/releases", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`[{"tag_name":"v9.9.9-beta.1","prerelease":true,"html_url":"https://example.com/r"}]`))
+	}))
+	defer srv.Close()
+	old := update.SetAPIBaseURLForTest(srv.URL)
+	defer update.SetAPIBaseURLForTest(old)
+
+	var buf bytes.Buffer
+	cmd := newUpdateCmd()
+	cmd.SetOut(&buf)
+
+	if err := runUpdateCheck(cmd, "0.5.5"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "v9.9.9-beta.1") {
+		t.Fatalf("output missing beta tag: %s", out)
+	}
+	if !strings.Contains(out, "[beta channel]") {
+		t.Fatalf("output missing channel echo: %s", out)
+	}
+}
+
+func TestRunUpdateCheckStableHintsWhenCurrentBetaHigher(t *testing.T) {
+	t.Setenv(config.EnvConfigDir, t.TempDir()) // channel 未配置 → stable
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"tag_name":"v0.5.5","html_url":"https://example.com/r"}`))
+	}))
+	defer srv.Close()
+	old := update.SetAPIBaseURLForTest(srv.URL)
+	defer update.SetAPIBaseURLForTest(old)
+
+	var buf bytes.Buffer
+	cmd := newUpdateCmd()
+	cmd.SetOut(&buf)
+
+	if err := runUpdateCheck(cmd, "0.6.0-beta.1"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "pre-release above the stable channel") {
+		t.Fatalf("output missing beta-above-stable hint: %s", out)
+	}
+	if !strings.Contains(out, "--force") {
+		t.Fatalf("hint must mention --force downgrade path: %s", out)
 	}
 }

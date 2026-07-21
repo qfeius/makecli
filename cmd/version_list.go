@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/output（writeJSON / validateOutputFormat / outputTable / outputJSON）、internal/update（ListReleases）、internal/build（Version）、fmt、os、strings、github.com/olekukonko/tablewriter、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newVersionListCmd 函数（包内）
- * [POS]: cmd 模块 version 子命令下的 list 子命令，列出 GitHub 上的历史 release
+ * [POS]: cmd 模块 version 子命令下的 list 子命令，列出 GitHub 上的历史 release（TYPE 列标注 Pre-release，对齐 gh release list）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -88,12 +88,20 @@ func renderReleaseTable(releases []update.Release, currentVersion string) error 
 		if strings.TrimPrefix(r.TagName, "v") == currentTag && currentTag != "" && currentTag != "DEV" {
 			marker = "*"
 		}
-		rows[i] = []string{marker, r.TagName, r.PublishedAt, r.HTMLURL}
+		rows[i] = []string{marker, r.TagName, releaseTypeLabel(r.Prerelease), r.PublishedAt, r.HTMLURL}
 	}
 
 	table := tablewriter.NewTable(os.Stdout)
-	table.Header("CURRENT", "VERSION", "PUBLISHED", "URL")
+	table.Header("CURRENT", "VERSION", "TYPE", "PUBLISHED", "URL")
 	_ = table.Bulk(rows)
 	_ = table.Render()
 	return nil
+}
+
+// releaseTypeLabel 对齐 gh release list 的 TYPE 列：预发布标注，正式版留空
+func releaseTypeLabel(prerelease bool) string {
+	if prerelease {
+		return "Pre-release"
+	}
+	return ""
 }

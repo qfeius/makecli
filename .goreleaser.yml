@@ -42,10 +42,19 @@ checksum:
   name_template: "checksums.txt"
 
 # -------------------------------------------------------------------------
+# Release：tag 带 semver 预发布段（v0.6.0-beta.1）自动标为 GitHub prerelease，
+# /releases/latest 与稳定通道用户（含所有旧版本二进制）天然不受影响
+# -------------------------------------------------------------------------
+release:
+  prerelease: auto
+
+# -------------------------------------------------------------------------
 # Homebrew Tap：GoReleaser 自动向 homebrew-makecli 推送更新后的 formula
 # -------------------------------------------------------------------------
 brews:
   - name: makecli
+    # 预发布版本不推 Homebrew formula：brew 用户永远只见稳定版
+    skip_upload: auto
     repository:
       owner: qfeius
       name: homebrew-makecli

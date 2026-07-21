@@ -121,6 +121,57 @@ func TestConfigureSetEnvironment(t *testing.T) {
 	})
 }
 
+func TestConfigureSetGetChannel(t *testing.T) {
+	t.Run("set beta writes to settings", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if err := runConfigureSet("channel", "beta"); err != nil {
+			t.Fatalf("runConfigureSet: %v", err)
+		}
+		s, err := config.LoadSettings()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Channel != config.ChannelBeta {
+			t.Errorf("settings channel = %q, want beta", s.Channel)
+		}
+	})
+
+	t.Run("get prints configured channel", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if err := runConfigureSet("channel", "beta"); err != nil {
+			t.Fatal(err)
+		}
+		out := captureStdout(t, func() {
+			if err := runConfigureGet("channel"); err != nil {
+				t.Errorf("runConfigureGet: %v", err)
+			}
+		})
+		if strings.TrimSpace(out) != "beta" {
+			t.Errorf("get channel = %q, want beta", strings.TrimSpace(out))
+		}
+	})
+
+	t.Run("get defaults to stable when unset", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		out := captureStdout(t, func() {
+			if err := runConfigureGet("channel"); err != nil {
+				t.Errorf("runConfigureGet: %v", err)
+			}
+		})
+		if strings.TrimSpace(out) != "stable" {
+			t.Errorf("get channel = %q, want stable (缺省回退)", strings.TrimSpace(out))
+		}
+	})
+
+	t.Run("unknown channel rejected", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		err := runConfigureSet("channel", "nightly")
+		if err == nil || !strings.Contains(err.Error(), "stable, beta") {
+			t.Fatalf("expected unknown-channel error listing valid names, got %v", err)
+		}
+	})
+}
+
 func TestReservedProfileName(t *testing.T) {
 	t.Run("configure set rejects --profile settings", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
@@ -147,7 +198,7 @@ func TestSampleConfig(t *testing.T) {
 				t.Errorf("sampleConfig missing profile key %q", key)
 			}
 		}
-		for _, key := range []string{"environment", "check-for-updates"} {
+		for _, key := range []string{"environment", "check-for-updates", "channel"} {
 			if !strings.Contains(sampleConfig, key) {
 				t.Errorf("sampleConfig missing settings key %q", key)
 			}
@@ -170,6 +221,9 @@ func TestSampleConfig(t *testing.T) {
 		}
 		if !slices.Contains(config.EnvironmentNames(), s.Environment) {
 			t.Errorf("sample active environment %q not in %v", s.Environment, config.EnvironmentNames())
+		}
+		if !slices.Contains(config.ChannelNames(), s.Channel) {
+			t.Errorf("sample active channel %q not in %v", s.Channel, config.ChannelNames())
 		}
 		// profile 覆盖键平铺为激活占位值 → 每个 ConfigProfile 字段都应解析出非空值，
 		// 证明每行 `key = value` 都被真实 loader 接住（漏键/写坏即空，红灯）
