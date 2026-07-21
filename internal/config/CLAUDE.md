@@ -10,9 +10,11 @@
 - `credentials_test.go`: 覆盖 parseINI（白盒）+ Load/Save 全路径测试，用 t.Setenv("HOME",...) 隔离文件系统
 - `config.go`: 读写 config 文件（默认 ~/.make/config，INI 格式），提供 LoadConfig/SaveConfig/SetSetting/ConfigPath，Config/ConfigProfile 类型（含 MetaServerURL/RepoServerURL/AuthServerURL/XTenantID/OperatorID，INI key: meta-server-url / repo-server-url / auth-server-url / X-Tenant-ID / X-Operator-ID；auth-server-url 为 OAuth 身份服务器基址，供 login 派生 .well-known 元数据地址）；唯一写路径 saveConfigWithSettings（profile 段 + 显式 [settings] 段，经 ValidateProfileName 拒绝保留名 settings 作 profile）：SaveConfig 传磁盘现状以保留 [settings]，SetSetting 读-改-写单个全局键（让 [settings] 可写）；parseINISections 通用 INI 解析器供 settings.go 复用
 - `config_test.go`: 覆盖 parseConfigINI（白盒）+ LoadConfig/SaveConfig 全路径测试，复用 writeTempINI helper
+- `channel.go`: 发布通道域常量（ChannelStable/ChannelBeta/DefaultChannel=stable + ChannelNames），与 environment.go 同责的域取值单一真相源；stable 只跟踪正式版、beta 额外跟踪 prerelease，被 cmd 层（resolveChannel/setChannel）与 internal/notifier（channelOf/versionInChannel）消费
+- `channel_test.go`: 覆盖通道常量/名称集与 LoadSettings 读取 [settings] channel（配置/未配置三态），$MAKE_CLI_CONFIG_DIR 隔离文件系统
 - `environment.go`: 后端环境拓扑中枢，把 dev/test/production 三套**主机基址**（make/make-repo/myaccount，均为 scheme://host 不含路径；dev/test 用 qtech.cn 且带 {dev-,test-} 前缀，production 用 qfei.cn）收成一等 Environment preset；Meta/Repo 的网关前缀 /api/make 不在此、由 cmd 层 withGateway 补齐，Auth 基址供 login 追加 .well-known；提供 LookupEnvironment（空名回退 DefaultEnvironment=production，未知名 ok=false）/ EnvironmentNames；作 cmd 层 URL 解析链的兜底层（flag > profile config > 环境 preset）
 - `environment_test.go`: 覆盖 LookupEnvironment（空回退/三环境完整 preset/未知名）+ EnvironmentNames 排序与 DefaultEnvironment
-- `settings.go`: 读取 config 文件 [settings] 全局段，提供 Settings 类型（CheckForUpdates *bool / Environment string）与 LoadSettings、ValidateProfileName（拒绝保留段名 settings 作 profile，防 [settings] profile 段与全局段碰撞）；settingsSection 常量由此定义，profile 解析层自动跳过该段；写入走 config.go 的 SetSetting
+- `settings.go`: 读取 config 文件 [settings] 全局段，提供 Settings 类型（CheckForUpdates *bool / Environment string / Channel string）与 LoadSettings、ValidateProfileName（拒绝保留段名 settings 作 profile，防 [settings] profile 段与全局段碰撞）；settingsSection 常量由此定义，profile 解析层自动跳过该段；写入走 config.go 的 SetSetting
 - `settings_test.go`: 覆盖 LoadSettings（check-for-updates 三态 + environment 读取）+ SetSetting 写入并保留 profile/其他 settings 键 + LoadConfig 隔离 [settings] 段 + ValidateProfileName/Save 拒绝保留名
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
