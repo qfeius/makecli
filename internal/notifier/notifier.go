@@ -49,7 +49,7 @@ func Start() *Notifier {
 
 		cleanStaleTemps(time.Now()) // 清扫此前 writeCache 夭折的孤儿临时文件
 
-		release, _, err := update.CheckLatest(build.Version)
+		release, _, err := update.CheckLatest(build.Version, false)
 		if err != nil || release == nil {
 			// 刷新失败也落盘退避标记：CheckedAt 前进、版本留空（shouldNotify
 			// 已对空版本短路）。否则慢/离线机器每次命令都重新 spawn 并再付一次

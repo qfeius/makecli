@@ -67,20 +67,71 @@ var renameFile = os.Rename
 // 公开 API
 // -----------------------------------------------------------------------
 
-// CheckLatest 查询 GitHub 最新 release，返回 release 信息和是否有更新
-func CheckLatest(currentVersion string) (*Release, bool, error) {
-	url := apiBaseURL + "/repos/qfeius/makecli/releases/latest"
-
-	var release Release
-	status, err := fetchJSON(url, &release)
+// CheckLatest 查询 GitHub 最新 release，返回 release 信息和是否有更新。
+//
+//	includePrerelease=false → GET /releases/latest：GitHub 服务端契约只返回
+//	  最新的非 prerelease、非 draft release（stable 通道）
+//	includePrerelease=true  → GET /releases 列表取 semver 最高者（beta 通道；
+//	  候选天然含稳定版，稳定版反超 beta 时自动收敛回 stable）
+func CheckLatest(currentVersion string, includePrerelease bool) (*Release, bool, error) {
+	release, err := latestRelease(includePrerelease)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to check for updates: %w", err)
+		return nil, false, err
 	}
-	if status != http.StatusOK {
-		return nil, false, fmt.Errorf("failed to check for updates: HTTP %d", status)
+	return release, isNewer(currentVersion, release.TagName), nil
+}
+
+// latestRelease 按通道语义取最新 release
+func latestRelease(includePrerelease bool) (*Release, error) {
+	if !includePrerelease {
+		url := apiBaseURL + "/repos/qfeius/makecli/releases/latest"
+		var release Release
+		status, err := fetchJSON(url, &release)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check for updates: %w", err)
+		}
+		if status != http.StatusOK {
+			return nil, fmt.Errorf("failed to check for updates: HTTP %d", status)
+		}
+		return &release, nil
 	}
 
-	return &release, isNewer(currentVersion, release.TagName), nil
+	releases, err := ListReleases(100)
+	if err != nil {
+		return nil, err
+	}
+	if r := maxSemverRelease(releases); r != nil {
+		return r, nil
+	}
+	return nil, fmt.Errorf("failed to check for updates: no valid releases")
+}
+
+// maxSemverRelease 返回 tag 为合法 semver 的最高版本 release（含预发布段；非法
+// tag 跳过）。列表按 created_at 倒序，但乱序补发旧版 tag 时时间序不可靠，故显式
+// 取 semver 最大而非首元素。
+func maxSemverRelease(releases []Release) *Release {
+	var best *Release
+	var bestV *semver.Version
+	for i := range releases {
+		v, err := semver.NewVersion(strings.TrimPrefix(releases[i].TagName, "v"))
+		if err != nil {
+			continue
+		}
+		if bestV == nil || v.GreaterThan(bestV) {
+			best, bestV = &releases[i], v
+		}
+	}
+	return best
+}
+
+// IsPrerelease 判定版本是否带 semver 预发布段（v0.6.0-beta.1 → true）。
+// DEV / 非法 semver → false。
+func IsPrerelease(version string) bool {
+	v, err := semver.NewVersion(strings.TrimPrefix(version, "v"))
+	if err != nil {
+		return false
+	}
+	return v.Prerelease() != ""
 }
 
 // ListReleases 拉取最近 limit 条 release（按 created_at 倒序）

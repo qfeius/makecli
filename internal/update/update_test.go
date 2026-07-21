@@ -107,7 +107,7 @@ func TestCheckLatest_Newer(t *testing.T) {
 	apiBaseURL = server.URL
 	defer func() { apiBaseURL = oldURL }()
 
-	rel, newer, err := CheckLatest("1.0.0")
+	rel, newer, err := CheckLatest("1.0.0", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestCheckLatest_UpToDate(t *testing.T) {
 	apiBaseURL = server.URL
 	defer func() { apiBaseURL = oldURL }()
 
-	_, newer, err := CheckLatest("1.0.0")
+	_, newer, err := CheckLatest("1.0.0", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestCheckLatest_HTTPError(t *testing.T) {
 	apiBaseURL = server.URL
 	defer func() { apiBaseURL = oldURL }()
 
-	_, _, err := CheckLatest("1.0.0")
+	_, _, err := CheckLatest("1.0.0", false)
 	if err == nil {
 		t.Fatal("expected error for HTTP 500")
 	}
@@ -374,5 +374,87 @@ func TestCompareVersions(t *testing.T) {
 				t.Errorf("CompareVersions(%q, %q) = %d, want %d", tt.target, tt.current, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCheckLatest_IncludePrerelease_PicksHighestSemver(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/qfeius/makecli/releases" {
+			t.Errorf("path = %s, want /repos/qfeius/makecli/releases", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`[
+			{"tag_name":"v0.6.0-beta.2","prerelease":true},
+			{"tag_name":"v0.5.5","prerelease":false},
+			{"tag_name":"not-a-version","prerelease":false},
+			{"tag_name":"v0.6.0-beta.10","prerelease":true}
+		]`))
+	}))
+	defer srv.Close()
+	old := SetAPIBaseURLForTest(srv.URL)
+	defer SetAPIBaseURLForTest(old)
+
+	rel, newer, err := CheckLatest("0.5.5", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// semver 数值段排序：beta.10 > beta.2；非法 tag 跳过
+	if rel.TagName != "v0.6.0-beta.10" {
+		t.Fatalf("TagName = %s, want v0.6.0-beta.10", rel.TagName)
+	}
+	if !newer {
+		t.Fatal("expected newer=true")
+	}
+}
+
+func TestCheckLatest_IncludePrerelease_StableWins(t *testing.T) {
+	// 稳定版反超 beta：候选集含稳定版，semver 最大自然指向稳定版
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"tag_name":"v0.7.0-beta.3","prerelease":true},
+			{"tag_name":"v0.7.0","prerelease":false}
+		]`))
+	}))
+	defer srv.Close()
+	old := SetAPIBaseURLForTest(srv.URL)
+	defer SetAPIBaseURLForTest(old)
+
+	rel, _, err := CheckLatest("0.7.0-beta.3", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.TagName != "v0.7.0" {
+		t.Fatalf("TagName = %s, want v0.7.0", rel.TagName)
+	}
+}
+
+func TestCheckLatest_IncludePrerelease_NoValidReleases(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"tag_name":"garbage","prerelease":false}]`))
+	}))
+	defer srv.Close()
+	old := SetAPIBaseURLForTest(srv.URL)
+	defer SetAPIBaseURLForTest(old)
+
+	if _, _, err := CheckLatest("1.0.0", true); err == nil {
+		t.Fatal("expected error for no valid releases")
+	}
+}
+
+func TestIsPrerelease(t *testing.T) {
+	cases := []struct {
+		version string
+		want    bool
+	}{
+		{"v0.6.0-beta.1", true},
+		{"0.6.0-beta.1", true},
+		{"v0.3.0-16-ga4765c1", true}, // git-describe 伪版本也是预发布段（本函数不做白名单）
+		{"v0.6.0", false},
+		{"DEV", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := IsPrerelease(c.version); got != c.want {
+			t.Errorf("IsPrerelease(%q) = %v, want %v", c.version, got, c.want)
+		}
 	}
 }

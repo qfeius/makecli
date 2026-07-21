@@ -62,7 +62,7 @@ func newUpdateCmd() *cobra.Command {
 
 // runUpdateCheck 仅检查最新版本并打印报告，不下载、不替换二进制、不同步 skills。
 func runUpdateCheck(cmd *cobra.Command, currentVersion string) error {
-	release, newer, err := update.CheckLatest(currentVersion)
+	release, newer, err := update.CheckLatest(currentVersion, false)
 	if err != nil {
 		return err
 	}
@@ -97,7 +97,7 @@ func runUpdate(cmd *cobra.Command, target string, force, skipSkills bool) error 
 func runUpdateLatest(cmd *cobra.Command, currentVersion string, skipSkills bool) error {
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Checking for updates...\n")
 
-	release, newer, err := update.CheckLatest(currentVersion)
+	release, newer, err := update.CheckLatest(currentVersion, false)
 	if err != nil {
 		return err
 	}
