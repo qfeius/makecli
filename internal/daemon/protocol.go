@@ -53,12 +53,23 @@ type Actor struct {
 	ID   string `json:"id,omitempty"`
 }
 
-// Block 是渠道无关内容块（daemon 只消费 text/mention 的 text 呈现）。
+// MentionTarget 是 mention 块的目标身份（镜像 agent-contract 词汇）。
+// 出站方向 daemon 只知道名字：ID 先填名字，平台按 id-or-name 归一化。
+type MentionTarget struct {
+	Kind string `json:"kind"` // agent | team | end_user
+	ID   string `json:"id"`
+}
+
+// Block 是渠道无关内容块（入站消费 text/mention 的 text 呈现，出站产出
+// text 与 mention——互@触发依赖结构化 mention 块，纯文本 @ 不触发）。
 type Block struct {
 	Kind string `json:"kind"` // text | image | file | mention
 	Text string `json:"text,omitempty"`
 	URL  string `json:"url,omitempty"`
 	Name string `json:"name,omitempty"`
+
+	// mention 块的目标
+	Target *MentionTarget `json:"target,omitempty"`
 }
 
 // Event 是事件 envelope（读取用）。

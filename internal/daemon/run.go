@@ -1,8 +1,8 @@
 /**
- * [INPUT]: 依赖 context、encoding/json、log/slog、time；协议与传输来自 protocol.go/client.go，执行契约来自 adapter 包
+ * [INPUT]: 依赖 context、encoding/json、log/slog、time；协议与传输来自 protocol.go/client.go，执行契约来自 adapter 包，出站 mention 切分来自 mention.go
  * [OUTPUT]: 对外提供 executeRun——单 run 的完整生命周期：start → 读触发区间 → 执行 → 事件批量上报 → complete/fail
  * [POS]: internal/daemon 的执行编排——batch_seq 单调保证模糊重试不双写；中间文本映射为 status（最终答复才是 message，
- *        message 事件在状态面物化出站投递）
+ *        经 parseMentionBlocks 产出结构化 mention 块，message 事件在状态面物化出站投递并驱动互@）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -159,9 +159,11 @@ func (r *eventReporter) add(ctx context.Context, message adapter.Message) {
 // finish 追加最终 message 事件（成功且有产出时）并冲刷余量。
 func (r *eventReporter) finish(ctx context.Context, result adapter.Result) {
 	if !result.IsError && result.Text != "" {
+		// @Name 切成结构化 mention 块——互@的平台内直通只认 mention 块，
+		// 纯文本 @ 只是字面量（Design.md §7.5）。
 		r.buffer = append(r.buffer, NewEvent{
 			Type: "message", Actor: Actor{Kind: "agent"}, RunID: r.claim.RunID,
-			Payload: mustJSON(map[string]any{"blocks": []Block{{Kind: "text", Text: result.Text}}}),
+			Payload: mustJSON(map[string]any{"blocks": parseMentionBlocks(result.Text)}),
 		})
 	}
 	if result.IsError && result.ErrorMessage != "" {
