@@ -54,15 +54,21 @@ func (d *Daemon) executeRun(ctx context.Context, backend adapter.Backend, claim 
 		prompt = "(空消息)"
 	}
 
-	workDir, err := PrepareWorkDir(d.workBaseDir, claim)
+	workDir, resumable, err := PrepareWorkDir(d.workBaseDir, claim)
 	if err != nil {
 		fail(RunStatusFailed, FailReasonCLICrash, "准备工作目录失败: "+err.Error())
 		return
 	}
+	resumeSessionID := claim.Resume.CLISessionID
+	if !resumable {
+		// resume 目录不可用（跨设备遗留路径）：连续性整体放弃，新会话起步。
+		logger.Warn("resume 目录不可用,放弃连续性新会话执行", "staleWorkDir", claim.Resume.WorkDir)
+		resumeSessionID = ""
+	}
 
 	session, err := backend.Execute(ctx, prompt, adapter.ExecOptions{
 		WorkDir:         workDir,
-		ResumeSessionID: claim.Resume.CLISessionID,
+		ResumeSessionID: resumeSessionID,
 		MaxRunDuration:  d.maxRunDuration,
 	})
 	if err != nil {

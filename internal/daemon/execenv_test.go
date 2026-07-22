@@ -20,12 +20,12 @@ func TestPrepareWorkDirRendersInstructions(t *testing.T) {
 		SessionID: "session_1",
 		Agent:     AgentBundle{Name: "助手", Instructions: "永远说中文"},
 	}
-	workDir, err := PrepareWorkDir(base, claim)
+	workDir, resumable, err := PrepareWorkDir(base, claim)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if workDir != filepath.Join(base, "session_1") {
-		t.Fatalf("workDir = %q", workDir)
+	if workDir != filepath.Join(base, "session_1") || !resumable {
+		t.Fatalf("workDir = %q resumable = %v", workDir, resumable)
 	}
 	for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
 		content, err := os.ReadFile(filepath.Join(workDir, name))
@@ -41,12 +41,25 @@ func TestPrepareWorkDirRendersInstructions(t *testing.T) {
 func TestPrepareWorkDirPrefersResumeDir(t *testing.T) {
 	resumeDir := filepath.Join(t.TempDir(), "existing")
 	claim := RunClaim{SessionID: "session_1", Resume: ResumeState{WorkDir: resumeDir}}
-	workDir, err := PrepareWorkDir(t.TempDir(), claim)
+	workDir, resumable, err := PrepareWorkDir(t.TempDir(), claim)
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
 	}
-	if workDir != resumeDir {
-		t.Fatalf("连续性 work_dir 应沿用: %q", workDir)
+	if workDir != resumeDir || !resumable {
+		t.Fatalf("连续性 workDir 应沿用: %q resumable=%v", workDir, resumable)
+	}
+}
+
+func TestPrepareWorkDirFallsBackOnUnusableResumeDir(t *testing.T) {
+	// 跨设备遗留路径（如另一台机器的 /Users/...）不可创建时回退新目录并放弃连续性。
+	base := t.TempDir()
+	claim := RunClaim{SessionID: "session_1", Resume: ResumeState{WorkDir: "/nonexistent-root/child", CLISessionID: "cli_stale"}}
+	workDir, resumable, err := PrepareWorkDir(base, claim)
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if workDir != filepath.Join(base, "session_1") || resumable {
+		t.Fatalf("应回退新目录且 resumable=false: %q %v", workDir, resumable)
 	}
 }
 
