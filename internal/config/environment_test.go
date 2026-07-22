@@ -26,19 +26,22 @@ func TestLookupEnvironment(t *testing.T) {
 	t.Run("known environments full preset", func(t *testing.T) {
 		cases := map[string]Environment{
 			"dev": {
-				MetaServerURL: "https://dev-make.qtech.cn",
-				RepoServerURL: "https://dev-make-repo.qtech.cn",
-				AuthServerURL: "https://dev-myaccount.qtech.cn",
+				MetaServerURL:   "https://dev-make.qtech.cn",
+				RepoServerURL:   "https://dev-make-repo.qtech.cn",
+				AuthServerURL:   "https://dev-myaccount.qtech.cn",
+				AgentGatewayURL: "https://dev-make-agent.qtech.cn",
 			},
 			"test": {
-				MetaServerURL: "https://test-make.qtech.cn",
-				RepoServerURL: "https://test-make-repo.qtech.cn",
-				AuthServerURL: "https://test-myaccount.qtech.cn",
+				MetaServerURL:   "https://test-make.qtech.cn",
+				RepoServerURL:   "https://test-make-repo.qtech.cn",
+				AuthServerURL:   "https://test-myaccount.qtech.cn",
+				AgentGatewayURL: "https://test-make-agent.qtech.cn",
 			},
 			"production": {
-				MetaServerURL: "https://make.qfei.cn",
-				RepoServerURL: "https://make-repo.qfei.cn",
-				AuthServerURL: "https://myaccount.qfei.cn",
+				MetaServerURL:   "https://make.qfei.cn",
+				RepoServerURL:   "https://make-repo.qfei.cn",
+				AuthServerURL:   "https://myaccount.qfei.cn",
+				AgentGatewayURL: "https://make-agent.qfei.cn",
 			},
 		}
 		for name, want := range cases {

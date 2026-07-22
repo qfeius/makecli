@@ -41,9 +41,9 @@ var daemonCmd = &cobra.Command{
 		if token == "" {
 			token = os.Getenv("MAKE_AGENT_DEVICE_TOKEN")
 		}
-		gatewayURL := daemonGatewayURL
-		if gatewayURL == "" {
-			gatewayURL = os.Getenv("MAKE_AGENT_GATEWAY_URL")
+		gatewayURL, err := resolveAgentGatewayURL()
+		if err != nil {
+			return err
 		}
 		deviceName := daemonDeviceName
 		if deviceName == "" {
@@ -77,8 +77,25 @@ var daemonCmd = &cobra.Command{
 	},
 }
 
+// resolveAgentGatewayURL 收口 gateway 地址取值链：
+// --gateway-url flag > env MAKE_AGENT_GATEWAY_URL > 环境 preset（随全局 --env）。
+// 与其余子命令的 URL 解析纪律一致——用户缺省零配置连对环境。
+func resolveAgentGatewayURL() (string, error) {
+	if daemonGatewayURL != "" {
+		return daemonGatewayURL, nil
+	}
+	if fromEnv := os.Getenv("MAKE_AGENT_GATEWAY_URL"); fromEnv != "" {
+		return fromEnv, nil
+	}
+	environment, err := resolveEnvironment()
+	if err != nil {
+		return "", err
+	}
+	return environment.AgentGatewayURL, nil
+}
+
 func init() {
-	daemonCmd.Flags().StringVar(&daemonGatewayURL, "gateway-url", "", "Agent 平台 gateway 地址(缺省读 MAKE_AGENT_GATEWAY_URL)")
+	daemonCmd.Flags().StringVar(&daemonGatewayURL, "gateway-url", "", "Agent 平台 gateway 地址(缺省 MAKE_AGENT_GATEWAY_URL,再缺省按 --env 环境 preset)")
 	daemonCmd.Flags().StringVar(&daemonToken, "token", "", "设备 token(缺省读 MAKE_AGENT_DEVICE_TOKEN)")
 	daemonCmd.Flags().StringVar(&daemonDeviceName, "name", "", "设备名(缺省取 hostname)")
 	daemonCmd.Flags().StringVar(&daemonWorkDir, "work-dir", "", "工作目录根(缺省 ~/.make/agent/work)")
