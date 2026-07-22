@@ -2,8 +2,11 @@
 > L2 | 父级: /CLAUDE.md
 
 ## 成员清单
-- `atomic.go`: 落盘原语 atomicWrite（同目录 temp + rename 原子替换，render 出错清理不留残留），被 Save/SaveConfig 复用，消除 O_TRUNC 直写的崩溃损坏窗口
-- `atomic_test.go`: 覆盖 atomicWrite 落盘内容/权限0600/无临时残留/覆盖既有文件/render 出错传播不落盘
+- `atomic.go`: 落盘原语 atomicWrite（同目录 temp + ReplaceFile 原子替换，render 出错清理不留残留），被 Save/SaveConfig 复用，消除 O_TRUNC 直写的崩溃损坏窗口；替换动作收口到 build-tag 分发的 ReplaceFile（POSIX 直通 rename，Windows 单步覆盖原语退避重试，两分支合同一致：失败时目标原样保有旧内容）
+- `atomic_replace.go`: ReplaceFile 平台分支（!windows）——POSIX rename(2) 对既有目标本就原子覆盖，直接透传 os.Rename；导出供 internal/notifier 缓存落盘复用
+- `atomic_replace_windows.go`: ReplaceFile 平台分支（windows）——失败安全替换：只用单步覆盖原语（renameFile=os.Rename，MoveFileEx+REPLACE_EXISTING；包级变量供失败注入测试）退避重试 3 次 ×10ms，任何失败路径都不触碰既有目标——dst 要么已是新内容、要么原样保有旧内容，无路径缺失窗口；目标被独占时如实报错让调用方重试，不冒丢数据险；零额外依赖（刻意不引入 golang.org/x/sys）
+- `atomic_replace_windows_test.go`: Windows 分支的失败合同测试（windows-tagged）——renameFile 注入失败证明重复失败后 dst 原样保有旧内容且每次尝试时在位、重试计数正确、前失败后成功的重试出口
+- `atomic_test.go`: 覆盖 atomicWrite 落盘内容/权限0600/无临时残留/覆盖既有文件/render 出错传播不落盘 + ReplaceFile 非 Windows 分支覆盖既有目标（内容替换/源消失/权限保留）
 - `paths.go`: 配置目录解析中枢，提供 Dir 函数与 EnvConfigDir 常量，$MAKE_CLI_CONFIG_DIR 非空时覆盖默认 ~/.make
 - `paths_test.go`: 覆盖 Dir 默认回退与 $MAKE_CLI_CONFIG_DIR 覆盖语义，串联 Save/Load 的 env 隔离测试
 - `credentials.go`: 读写 credentials 文件（默认 ~/.make/credentials，INI 格式），提供 Load/Save/CredentialsPath，Credentials/Profile 类型；Save 经 atomicWrite 原子落盘，落盘前过 INI 注入防线（ValidateProfileName 文法+保留名、validateINIValue 拒 token 含换行/首尾空白）
