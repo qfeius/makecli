@@ -4,7 +4,7 @@ Go 1.25.8 + github.com/spf13/cobra + github.com/go-git/go-git/v5（app init/crea
 <directory>
 
 - `agents/` - 脚手架模板文件（CLAUDE.md.tmpl / AGENTS.md.tmpl 由 app create 写出；gitignore.tmpl 是 .gitignore 期望清单单一真相源，由 cmd/git ensureGitignore 增量补齐），.tmpl 后缀避开 GEB L2 撞名，通过 embed.FS 编译进二进制
-- `cmd/` - Cobra 子命令层（root、version、configure[token/config/set/get/verify]、app[create/init/list/delete/deploy]、entity、relation、record、apply、diff、update、skills[list/update/remove]、schema、integration[ocr]、preflight、login、daemon[隐藏]）；git.go 收口共享 go-git 原语
+- `cmd/` - Cobra 子命令层（root、version、configure[token/config/set/get/verify]、app[create/init/list/delete/deploy]、entity、relation、record、apply、diff、update、skills[list/update/remove]、schema、integration[ocr]、preflight、login、daemon[隐藏]、agent[隐藏]）；git.go 收口共享 go-git 原语
 - `internal/api/` - Make Meta/Data/Integration Service HTTP 客户端（Client + functional options，X-Make-Target 路由 + 自定义 headers 注入 + 每请求注入 W3C Traceparent/X-Log-Id + WithDryRun 时注入 X-Dry-Run（CreateResource 全族写命令 --dry-run 共用：远端跑真实流程但 ROLLBACK 不落库）；Meta 操作走 /meta/v1/，Record 操作走 /data/v1/，Integration 操作走 /integration/v1/，代码仓库操作走独立 host 的 /code/v1/repository）
 - `internal/trace/` - W3C Trace Context 出站头生成（零依赖手写 traceparent v00；进程级 trace-id 单一真相源——每次 CLI 调用一个、全程稳定，X-Log-Id=trace-id 段，parent-id 每请求新生成），被 internal/api 请求咽喉点消费
 - `internal/oauth/` - 浏览器 OAuth 登陆原语（PKCE + 单跳 discovery + RFC 7591 动态注册 + 授权URL/换token + 动态端口回调 server），从 contract-cli 移植，被 cmd/login 编排
@@ -13,6 +13,7 @@ Go 1.25.8 + github.com/spf13/cobra + github.com/go-git/go-git/v5（app init/crea
 - `internal/update/` - 自更新引擎（GitHub Releases 查询、下载、原子替换二进制）；CheckLatest 双通道：stable 走 /releases/latest（GitHub 服务端过滤 prerelease），beta 走 /releases 列表取 semver 最高（候选含稳定版，反超自动收敛回 stable）
 - `internal/skillsync/` - Make platform skills 同步/清单/删除（Sync 默认每次 npx 安装/升级 qfeius/make-platform-skills --all，--skip-skills 跳过；List 合并 lockfile + SKILL.md + GitHub Contents API 做 outdated 比对；Remove 来源校验后透传 npx skills remove），被 cmd/update 与 cmd/skills 消费
 - `internal/daemon/` - Agent 平台设备接入（隐藏命令 `makecli daemon`）：注册/心跳/claim 轮询驱动本机 coding CLI（claude-code / codex adapter），协议 wire 类型镜像 agent-design/Contract.md（公开仓库无法 import 私有 agent-contract）
+- `internal/agent/` - keyless 本地 agent（隐藏命令 `makecli agent`，agent-design/Design.md §8.2）：OpenAI 兼容 SSE 客户端指向 gateway /v1/chat/completions（平台 token 只开模型门，设备端零厂商 key）+ 会话编排（一次性 -p / 交互 REPL，历史进程内存续）；v1 纯聊天，loop/tools/context/session 四模块随后续 goal 进入
 - `internal/notifier/` - 自动更新提示（读本地缓存零延迟判定，过期或跨通道后台 goroutine 刷新，stderr+仅TTY 提示；三态开关 env MAKE_CLI_UPDATE_NOTIFIER > config [settings] > 默认开；按 [settings] channel 检查与提示，缓存带 channel 字段跨通道失效，beta.N 白名单拒 git-describe 伪版本）
 
 </directory>
