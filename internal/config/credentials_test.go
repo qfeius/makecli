@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 config 包内的 parseINI、Load、Save、CredentialsPath（包内白盒）
- * [OUTPUT]: 覆盖 INI 解析与凭证读写全路径的单元测试
+ * [OUTPUT]: 覆盖 INI 解析与凭证读写全路径的单元测试（含 INI 注入拒绝）
  * [POS]: internal/config 模块 credentials.go 的配套测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -184,6 +184,37 @@ func TestSaveDefaultFirst(t *testing.T) {
 	if defaultIdx > zzzIdx {
 		t.Errorf("[default] should appear before [zzz] in file, got:\n%s", content)
 	}
+}
+
+// TestSaveRejectsInjection 锁定 INI 注入防线：section 注入形的 profile 名与含换行/首尾空白的
+// token 值都必须在落盘前被拒绝，且不留下文件。
+func TestSaveRejectsInjection(t *testing.T) {
+	t.Run("profile name with section injection", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		err := Save(Credentials{"evil]\n[other": {AccessToken: "tok"}})
+		if err == nil {
+			t.Fatal("Save must reject a profile name containing INI syntax")
+		}
+		path, _ := CredentialsPath()
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Error("rejected Save must not leave a credentials file behind")
+		}
+	})
+
+	t.Run("token with newline", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		err := Save(Credentials{"default": {AccessToken: "tok\n[evil]\naccess_token = stolen"}})
+		if err == nil {
+			t.Fatal("Save must reject a token containing a newline")
+		}
+	})
+
+	t.Run("token with surrounding whitespace", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if err := Save(Credentials{"default": {AccessToken: " tok "}}); err == nil {
+			t.Fatal("Save must reject a token with leading/trailing whitespace")
+		}
+	})
 }
 
 func indexOf(s, sub string) int {
