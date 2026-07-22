@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 config 包内的 parseConfigINI、LoadConfig、SaveConfig、ConfigPath（包内白盒）
- * [OUTPUT]: 覆盖 INI 解析与 config 读写全路径的单元测试
+ * [INPUT]: 依赖 config 包内的 parseConfigINI、LoadConfig、SaveConfig、SetSetting、ConfigPath（包内白盒）
+ * [OUTPUT]: 覆盖 INI 解析与 config 读写全路径的单元测试（含 INI 注入拒绝）
  * [POS]: internal/config 模块 config.go 的配套测试
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -81,6 +81,37 @@ func TestSaveConfigAndLoad(t *testing.T) {
 			t.Errorf("profile %q: AuthServerURL = %q, want %q", profile, got.AuthServerURL, want.AuthServerURL)
 		}
 	}
+}
+
+// TestSaveConfigRejectsInjection 锁定 INI 注入防线：含换行/首尾空白的值、非法 settings 键
+// 都必须在落盘前被拒绝——否则 "x\n[evil]" 这类值会伪造出新的 section。
+func TestSaveConfigRejectsInjection(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	t.Run("profile value with newline", func(t *testing.T) {
+		err := SaveConfig(Config{"default": {MetaServerURL: "https://x\n[evil]\nmeta-server-url = https://attacker"}})
+		if err == nil {
+			t.Fatal("SaveConfig must reject a value containing a newline")
+		}
+	})
+
+	t.Run("profile value with surrounding whitespace", func(t *testing.T) {
+		if err := SaveConfig(Config{"default": {XTenantID: " padded "}}); err == nil {
+			t.Fatal("SaveConfig must reject a value with leading/trailing whitespace")
+		}
+	})
+
+	t.Run("setting value with newline", func(t *testing.T) {
+		if err := SetSetting("environment", "test\n[evil]"); err == nil {
+			t.Fatal("SetSetting must reject a value containing a newline")
+		}
+	})
+
+	t.Run("invalid setting key", func(t *testing.T) {
+		if err := SetSetting("bad key]", "x"); err == nil {
+			t.Fatal("SetSetting must reject a key outside the INI key grammar")
+		}
+	})
 }
 
 func TestParseConfigINI(t *testing.T) {

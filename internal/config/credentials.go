@@ -1,7 +1,8 @@
 /**
- * [INPUT]: 依赖 os、bufio、io、fmt、strings、path/filepath；依赖 paths.go 的 Dir、atomic.go 的 atomicWrite
+ * [INPUT]: 依赖 os、bufio、io、fmt、strings、path/filepath；依赖 paths.go 的 Dir、atomic.go 的 atomicWrite、settings.go 的 ValidateProfileName、config.go 的 validateINIValue
  * [OUTPUT]: 对外提供 Load、Save、CredentialsPath 函数，Credentials/Profile 类型
- * [POS]: internal/config 的核心，管理 credentials 文件（默认 ~/.make/credentials）的 INI 格式读写
+ * [POS]: internal/config 的核心，管理 credentials 文件（默认 ~/.make/credentials）的 INI 格式读写；
+ *        Save 前对 profile 名与 token 值过 INI 注入防线
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -108,9 +109,13 @@ func parseINI(f *os.File) (Credentials, error) {
 
 // Save 将 Credentials 写入 ~/.make/credentials
 // 自动创建 ~/.make/ 目录（0700），文件权限 0600
+// 落盘前对 profile 名与 token 值过 INI 注入防线（文法 + 换行/首尾空白拒绝）。
 func Save(creds Credentials) error {
-	for name := range creds {
+	for name, p := range creds {
 		if err := ValidateProfileName(name); err != nil {
+			return err
+		}
+		if err := validateINIValue(fmt.Sprintf("profile %q 的 access_token", name), p.AccessToken); err != nil {
 			return err
 		}
 	}

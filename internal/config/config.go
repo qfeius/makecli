@@ -1,7 +1,8 @@
 /**
- * [INPUT]: 依赖 os、bufio、fmt、io、sort、strings、path/filepath；依赖 paths.go 的 Dir
- * [OUTPUT]: 对外提供 LoadConfig、SaveConfig、SetSetting、ConfigPath 函数，Config/ConfigProfile 类型
- * [POS]: internal/config 的 config 文件管理，读写 config 文件（默认 ~/.make/config，INI 格式）
+ * [INPUT]: 依赖 os、bufio、fmt、io、regexp、sort、strings、path/filepath；依赖 paths.go 的 Dir、settings.go 的 ValidateProfileName
+ * [OUTPUT]: 对外提供 LoadConfig、SaveConfig、SetSetting、ConfigPath 函数，Config/ConfigProfile 类型；包内 validateINIKey / validateINIValue（写路径 INI 注入防线，被 credentials.go 复用）
+ * [POS]: internal/config 的 config 文件管理，读写 config 文件（默认 ~/.make/config，INI 格式）；
+ *        所有落盘键值先过 validateINIKey/validateINIValue（拒换行与首尾空白，防止值注入伪造 section/键）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -13,9 +14,37 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
+
+// ---------------------------------- INI 写入防线 ----------------------------------
+
+// validINIKey 是允许落盘的 INI 键名文法（与 profile 名同族但不限长度上限之外的约束）。
+// 键名会被原样写成 `key = value` 行，空白/括号/等号/换行都能破坏行结构或伪造新段。
+var validINIKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// validateINIKey 校验将写入 INI 的键名，拒绝一切可能触碰 INI 语法的字符。
+func validateINIKey(key string) error {
+	if !validINIKey.MatchString(key) {
+		return fmt.Errorf("非法配置键 %q: 仅支持字母数字开头，后接字母数字或 . _ -", key)
+	}
+	return nil
+}
+
+// validateINIValue 校验将写入 INI 的值：含换行的值会把后续内容注入成新的行/段
+// （如 "x\n[evil]" 伪造 section），含首尾空白的值经读路径 TrimSpace 后无法原样读回。
+// field 仅用于错误定位（指明是哪个 profile 的哪个键）。
+func validateINIValue(field, value string) error {
+	if strings.ContainsAny(value, "\r\n") {
+		return fmt.Errorf("%s 含换行符，会破坏 INI 文件结构，拒绝写入", field)
+	}
+	if value != strings.TrimSpace(value) {
+		return fmt.Errorf("%s 含前导/尾随空白，写回后无法原样读出，拒绝写入", field)
+	}
+	return nil
+}
 
 // ---------------------------------- 数据结构 ----------------------------------
 
@@ -166,9 +195,29 @@ func SetSetting(key, value string) error {
 
 // saveConfigWithSettings 是 config 文件的唯一写路径：落盘 profile 段 + 显式的 [settings] 段。
 // settings 由调用方提供（SaveConfig 传磁盘现状以保留，SetSetting 传修改后的副本）。
+// 落盘前对所有 profile 名与键值过 INI 注入防线（文法 + 换行/首尾空白拒绝）。
 func saveConfigWithSettings(cfg Config, settings map[string]string) error {
-	for name := range cfg {
+	for name, p := range cfg {
 		if err := ValidateProfileName(name); err != nil {
+			return err
+		}
+		for field, value := range map[string]string{
+			"meta-server-url": p.MetaServerURL,
+			"repo-server-url": p.RepoServerURL,
+			"auth-server-url": p.AuthServerURL,
+			"X-Tenant-ID":     p.XTenantID,
+			"X-Operator-ID":   p.OperatorID,
+		} {
+			if err := validateINIValue(fmt.Sprintf("profile %q 的 %s", name, field), value); err != nil {
+				return err
+			}
+		}
+	}
+	for k, v := range settings {
+		if err := validateINIKey(k); err != nil {
+			return err
+		}
+		if err := validateINIValue(fmt.Sprintf("[settings] 的 %s", k), v); err != nil {
 			return err
 		}
 	}

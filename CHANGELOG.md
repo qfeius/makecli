@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **config**: Profile names are validated against a conservative grammar (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`) and every persisted INI value rejects embedded newlines and leading/trailing whitespace, closing an INI section-injection window (e.g. a profile named `evil]\n[other` or a token value smuggling a `[section]` line)
+
 ## [v0.5.5] - 2026-07-14
 
 ### Features

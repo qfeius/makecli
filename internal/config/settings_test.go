@@ -10,6 +10,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -162,9 +163,34 @@ func TestValidateProfileName(t *testing.T) {
 	if err := ValidateProfileName("settings"); err == nil {
 		t.Error("'settings' must be rejected as a profile name (reserved section)")
 	}
-	for _, name := range []string{"default", "test", "production", "my-profile"} {
+	valid := []string{
+		"default", "test", "production", "my-profile",
+		"a", "A1", "user.name_x-1",
+		"a" + strings.Repeat("b", 63), // 64 字符上限恰好通过
+	}
+	for _, name := range valid {
 		if err := ValidateProfileName(name); err != nil {
 			t.Errorf("%q should be a valid profile name: %v", name, err)
+		}
+	}
+	// 文法收紧：空名、INI 语法字符（括号/换行）、空白、非法首字符、超长——全部拒绝，
+	// 否则 profile 名会被原样写进 [section] 头，"evil]\n[other" 可注入新段。
+	invalid := []string{
+		"",
+		"evil]\n[other",
+		"[bracket",
+		"closing]",
+		"has space",
+		"tab\tname",
+		"newline\nname",
+		"-leading-dash",
+		".leading-dot",
+		"_leading-underscore",
+		"a" + strings.Repeat("b", 64), // 65 字符超长
+	}
+	for _, name := range invalid {
+		if err := ValidateProfileName(name); err == nil {
+			t.Errorf("%q must be rejected as a profile name", name)
 		}
 	}
 }
