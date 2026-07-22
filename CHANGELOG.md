@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 
 - **config**: Profile names are validated against a conservative grammar (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`) and every persisted INI value rejects embedded newlines and leading/trailing whitespace, closing an INI section-injection window (e.g. a profile named `evil]\n[other` or a token value smuggling a `[section]` line)
+- **config**: Atomic file replacement is platform-aware — on Windows the single-step overwrite rename (`MoveFileEx` + `REPLACE_EXISTING`) is retried with backoff when the destination is held open by another process, never touching the existing destination on failure; POSIX keeps plain atomic rename semantics
 
 ## [v0.5.5] - 2026-07-14
 

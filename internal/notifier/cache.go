@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 encoding/json、os、path/filepath、strings、time；依赖 internal/config 的 Dir
+ * [INPUT]: 依赖 encoding/json、os、path/filepath、strings、time；依赖 internal/config 的 Dir 与 ReplaceFile（平台感知的原子替换）
  * [OUTPUT]: 对外提供（包内）cacheData 类型与 readCache/writeCache/cachePath/cleanStaleTemps，及 expired 方法
  * [POS]: internal/notifier 的本地缓存层，持久化最近一次 GitHub 检测结果，供 Start/Finish 消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -88,7 +88,7 @@ func writeCache(c cacheData) error {
 		_ = os.Remove(tmpName)
 		return err
 	}
-	return os.Rename(tmpName, path)
+	return config.ReplaceFile(tmpName, path)
 }
 
 // expired 判定缓存是否已超过 interval（now 显式传入便于测试）

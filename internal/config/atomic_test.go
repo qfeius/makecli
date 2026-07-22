@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 io、os、path/filepath、strings、testing；包内 atomicWrite（白盒）
+ * [INPUT]: 依赖 io、os、path/filepath、strings、testing；包内 atomicWrite / ReplaceFile（白盒）
  * [OUTPUT]: 单元测试，无导出
- * [POS]: internal/config 原子写 helper 的测试，覆盖落盘内容、权限、无临时文件残留、覆盖既有文件
+ * [POS]: internal/config 原子写 helper 的测试，覆盖落盘内容、权限、无临时文件残留、覆盖既有文件、ReplaceFile 平台分支（非 Windows 路径）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -70,6 +70,42 @@ func TestAtomicWriteOverwrites(t *testing.T) {
 	got, _ := os.ReadFile(path)
 	if string(got) != "NEW\n" {
 		t.Errorf("content = %q, want fully replaced %q", got, "NEW\n")
+	}
+}
+
+// TestReplaceFileOverwritesExisting 验证 ReplaceFile（当前平台分支）覆盖既有目标：
+// 内容整体替换、源文件消失、权限保留——守护 atomicWrite 换用 ReplaceFile 后非 Windows 路径行为不变。
+func TestReplaceFileOverwritesExisting(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	if err := os.WriteFile(src, []byte("NEW\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("OLD CONTENT that is long\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ReplaceFile(src, dst); err != nil {
+		t.Fatalf("ReplaceFile: %v", err)
+	}
+
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("read dst: %v", err)
+	}
+	if string(got) != "NEW\n" {
+		t.Errorf("dst content = %q, want %q", got, "NEW\n")
+	}
+	if _, statErr := os.Stat(src); !os.IsNotExist(statErr) {
+		t.Error("src must not remain after replace")
+	}
+	info, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Errorf("dst perm = %v, want source perm 0600", info.Mode().Perm())
 	}
 }
 
