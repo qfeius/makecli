@@ -12,7 +12,7 @@ Go 1.25.8 + github.com/spf13/cobra + github.com/go-git/go-git/v5（app init/crea
 - `internal/config/` - 凭证与配置管理（读写 credentials 和 config，INI 格式；默认 ~/.make，可用 $MAKE_CLI_CONFIG_DIR 覆盖）；内建 dev/test/production 环境 preset（后端主机基址三件套，scheme://host 不含路径），全局 [settings] environment 选当前环境，URL 解析链 flag > profile config > 环境 preset；发布通道常量 stable/beta（channel.go），全局 [settings] channel 选通道；Meta/Repo 网关前缀 /api/make 由 cmd 层 withGateway 自动补齐（配置只写主机名）
 - `internal/update/` - 自更新引擎（GitHub Releases 查询、下载、原子替换二进制）；CheckLatest 双通道：stable 走 /releases/latest（GitHub 服务端过滤 prerelease），beta 走 /releases 列表取 semver 最高（候选含稳定版，反超自动收敛回 stable）
 - `internal/skillsync/` - Make platform skills 同步/清单/删除（Sync 默认每次 npx 安装/升级 qfeius/make-platform-skills --all，--skip-skills 跳过；List 合并 lockfile + SKILL.md + GitHub Contents API 做 outdated 比对；Remove 来源校验后透传 npx skills remove），被 cmd/update 与 cmd/skills 消费
-- `internal/daemon/` - Agent 平台设备接入（隐藏命令 `makecli daemon`）：注册/心跳/claim 轮询驱动本机 coding CLI（claude-code / codex adapter），协议 wire 类型镜像 agent-design/Contract.md（公开仓库无法 import 私有 agent-contract）
+- `internal/daemon/` - Agent 平台设备接入（隐藏命令 `makecli daemon`）：注册/心跳/claim 轮询驱动本机 coding CLI（claude-code / codex adapter），最终答复经 @Name 解析产出结构化 mention 块（互@触发，agent-design/Design.md §7.5），协议 wire 类型镜像 agent-design/Contract.md（公开仓库无法 import 私有 agent-contract）
 - `internal/agent/` - keyless 本地 agent（隐藏命令 `makecli agent`，agent-design/Design.md §8.2）：OpenAI 兼容 SSE 客户端指向 gateway /v1/chat/completions（平台 token 只开模型门，设备端零厂商 key）+ 会话编排（一次性 -p / 交互 REPL，历史进程内存续）；v1 纯聊天，loop/tools/context/session 四模块随后续 goal 进入
 - `internal/notifier/` - 自动更新提示（读本地缓存零延迟判定，过期或跨通道后台 goroutine 刷新，stderr+仅TTY 提示；三态开关 env MAKE_CLI_UPDATE_NOTIFIER > config [settings] > 默认开；按 [settings] channel 检查与提示，缓存带 channel 字段跨通道失效，beta.N 白名单拒 git-describe 伪版本）
 

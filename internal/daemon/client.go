@@ -47,7 +47,7 @@ func (c *Client) call(ctx context.Context, resource, target string, requestBody,
 		return fmt.Errorf("marshal request: %w", err)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.baseURL+"/v1/daemon/"+resource, bytes.NewReader(bodyJSON))
+		c.baseURL+PathPrefix+"/"+resource, bytes.NewReader(bodyJSON))
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
@@ -81,51 +81,41 @@ func (c *Client) call(ctx context.Context, resource, target string, requestBody,
 }
 
 // RegisterDevice 注册（幂等，身份来自 token）。
-func (c *Client) RegisterDevice(ctx context.Context, request RegisterDeviceRequest) (RegisterDeviceResponse, error) {
-	var response RegisterDeviceResponse
-	err := c.call(ctx, "device", TargetRegisterDevice, request, &response)
+func (c *Client) RegisterDevice(ctx context.Context, request CreateDeviceRequest) (CreateDeviceResponse, error) {
+	var response CreateDeviceResponse
+	err := c.call(ctx, ResourceDevice, TargetCreateResource, request, &response)
 	return response, err
 }
 
 // Heartbeat 心跳（15s）；响应 actions 携带取消指令。
-func (c *Client) Heartbeat(ctx context.Context, request HeartbeatRequest) (HeartbeatResponse, error) {
-	var response HeartbeatResponse
-	err := c.call(ctx, "device", TargetHeartbeatDevice, request, &response)
+func (c *Client) Heartbeat(ctx context.Context, request CreateDeviceHeartbeatRequest) (CreateDeviceHeartbeatResponse, error) {
+	var response CreateDeviceHeartbeatResponse
+	err := c.call(ctx, ResourceDeviceHeartbeat, TargetCreateResource, request, &response)
 	return response, err
 }
 
-// ClaimRuns 领取待执行 run（拉取式分派，空数组=无活可领）。
-func (c *Client) ClaimRuns(ctx context.Context, request ClaimRequest) ([]RunClaim, error) {
+// ClaimRuns 领取待执行 run（run-claim 资源的 CreateResource：claim 即创建租约）。
+func (c *Client) ClaimRuns(ctx context.Context, request CreateRunClaimRequest) ([]RunClaim, error) {
 	var claims []RunClaim
-	err := c.call(ctx, "run", TargetClaimRuns, request, &claims)
+	err := c.call(ctx, ResourceRunClaim, TargetCreateResource, request, &claims)
 	return claims, err
 }
 
-// StartRun：dispatched → running。
-func (c *Client) StartRun(ctx context.Context, request StartRunRequest) error {
-	return c.call(ctx, "run", TargetStartRun, request, nil)
+// UpdateRun 状态迁移统一入口（语义由 status 目标值表达）。
+func (c *Client) UpdateRun(ctx context.Context, request UpdateRunRequest) error {
+	return c.call(ctx, ResourceRun, TargetUpdateResource, request, nil)
 }
 
-// CompleteRun：running → completed。
-func (c *Client) CompleteRun(ctx context.Context, request CompleteRunRequest) error {
-	return c.call(ctx, "run", TargetCompleteRun, request, nil)
-}
-
-// FailRun：类型化失败收尾（reason=cancelled 时终态 cancelled）。
-func (c *Client) FailRun(ctx context.Context, request FailRunRequest) error {
-	return c.call(ctx, "run", TargetFailRun, request, nil)
-}
-
-// AppendEvents 租约 append（batch_seq 幂等，模糊重试安全）。
-func (c *Client) AppendEvents(ctx context.Context, request AppendEventsRequest) (AppendEventsResponse, error) {
-	var response AppendEventsResponse
-	err := c.call(ctx, "session", TargetAppendEvents, request, &response)
+// AppendEvents 租约 append（batchSeq 幂等，模糊重试安全）。
+func (c *Client) AppendEvents(ctx context.Context, request CreateEventsRequest) (CreateEventsResponse, error) {
+	var response CreateEventsResponse
+	err := c.call(ctx, ResourceEvent, TargetCreateResource, request, &response)
 	return response, err
 }
 
 // ListEvents 区间读取（触发区间与恢复现场共用）。
-func (c *Client) ListEvents(ctx context.Context, request ListEventsRequest) (ListEventsResponse, error) {
-	var response ListEventsResponse
-	err := c.call(ctx, "session", TargetListEvents, request, &response)
-	return response, err
+func (c *Client) ListEvents(ctx context.Context, request ListEventsRequest) ([]Event, error) {
+	var events []Event
+	err := c.call(ctx, ResourceEvent, TargetListResources, request, &events)
+	return events, err
 }

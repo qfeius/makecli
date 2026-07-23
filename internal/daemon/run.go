@@ -1,8 +1,8 @@
 /**
- * [INPUT]: 依赖 context、encoding/json、log/slog、time；协议与传输来自 protocol.go/client.go，执行契约来自 adapter 包
+ * [INPUT]: 依赖 context、encoding/json、log/slog、time；协议与传输来自 protocol.go/client.go，执行契约来自 adapter 包，出站 mention 切分来自 mention.go
  * [OUTPUT]: 对外提供 executeRun——单 run 的完整生命周期：start → 读触发区间 → 执行 → 事件批量上报 → complete/fail
  * [POS]: internal/daemon 的执行编排——batch_seq 单调保证模糊重试不双写；中间文本映射为 status（最终答复才是 message，
- *        message 事件在状态面物化出站投递）
+ *        经 parseMentionBlocks 产出结构化 mention 块，message 事件在状态面物化出站投递并驱动互@）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -27,15 +27,15 @@ const (
 // 心跳 actions 到达后由 daemon 调 cancel）；cancelled 标记决定收尾 reason。
 func (d *Daemon) executeRun(ctx context.Context, backend adapter.Backend, claim RunClaim, cancelled *bool) {
 	logger := d.logger.With("run", claim.RunID, "session", claim.SessionID, "provider", backend.Provider())
-	if err := d.client.StartRun(ctx, StartRunRequest{RunID: claim.RunID, LeaseToken: claim.LeaseToken}); err != nil {
+	if err := d.client.UpdateRun(ctx, UpdateRunRequest{RunID: claim.RunID, Status: RunStatusRunning, LeaseToken: claim.LeaseToken}); err != nil {
 		logger.Error("start run", "err", err)
 		return // start 失败不 FailRun：lease 可能已被回收，留给 sweeper 处置
 	}
 
-	fail := func(reason, detail string) {
-		logger.Warn("run failed", "reason", reason, "detail", detail)
-		if err := d.client.FailRun(context.WithoutCancel(ctx), FailRunRequest{
-			RunID: claim.RunID, LeaseToken: claim.LeaseToken, Reason: reason,
+	fail := func(status, reason, detail string) {
+		logger.Warn("run failed", "status", status, "reason", reason, "detail", detail)
+		if err := d.client.UpdateRun(context.WithoutCancel(ctx), UpdateRunRequest{
+			RunID: claim.RunID, Status: status, LeaseToken: claim.LeaseToken, FailureReason: reason,
 		}); err != nil {
 			logger.Error("fail run receipt", "err", err)
 		}
@@ -46,27 +46,33 @@ func (d *Daemon) executeRun(ctx context.Context, backend adapter.Backend, claim 
 		SessionID: claim.SessionID, From: claim.Trigger.FromSeq, To: claim.Trigger.ToSeq, Limit: 1000,
 	})
 	if err != nil {
-		fail(FailReasonCLICrash, "读取触发事件失败: "+err.Error())
+		fail(RunStatusFailed, FailReasonCLICrash, "读取触发事件失败: "+err.Error())
 		return
 	}
-	prompt := BuildPrompt(listed.Events)
+	prompt := BuildPrompt(listed)
 	if prompt == "" {
 		prompt = "(空消息)"
 	}
 
-	workDir, err := PrepareWorkDir(d.workBaseDir, claim)
+	workDir, resumable, err := PrepareWorkDir(d.workBaseDir, claim)
 	if err != nil {
-		fail(FailReasonCLICrash, "准备工作目录失败: "+err.Error())
+		fail(RunStatusFailed, FailReasonCLICrash, "准备工作目录失败: "+err.Error())
 		return
+	}
+	resumeSessionID := claim.Resume.CLISessionID
+	if !resumable {
+		// resume 目录不可用（跨设备遗留路径）：连续性整体放弃，新会话起步。
+		logger.Warn("resume 目录不可用,放弃连续性新会话执行", "staleWorkDir", claim.Resume.WorkDir)
+		resumeSessionID = ""
 	}
 
 	session, err := backend.Execute(ctx, prompt, adapter.ExecOptions{
 		WorkDir:         workDir,
-		ResumeSessionID: claim.Resume.CLISessionID,
+		ResumeSessionID: resumeSessionID,
 		MaxRunDuration:  d.maxRunDuration,
 	})
 	if err != nil {
-		fail(FailReasonCLICrash, "启动 CLI 失败: "+err.Error())
+		fail(RunStatusFailed, FailReasonCLICrash, "启动 CLI 失败: "+err.Error())
 		return
 	}
 
@@ -80,14 +86,14 @@ func (d *Daemon) executeRun(ctx context.Context, backend adapter.Backend, claim 
 	switch {
 	case *cancelled:
 		// 取消指令收尾：无论 CLI 以何种方式退出，终态都是 cancelled。
-		fail(FailReasonCancelled, "")
+		fail(RunStatusCancelled, "", "")
 	case result.IsError && ctx.Err() != nil:
-		fail(FailReasonTimeout, result.ErrorMessage)
+		fail(RunStatusFailed, FailReasonTimeout, result.ErrorMessage)
 	case result.IsError:
-		fail(FailReasonCLICrash, result.ErrorMessage)
+		fail(RunStatusFailed, FailReasonCLICrash, result.ErrorMessage)
 	default:
-		request := CompleteRunRequest{
-			RunID: claim.RunID, LeaseToken: claim.LeaseToken,
+		request := UpdateRunRequest{
+			RunID: claim.RunID, Status: RunStatusCompleted, LeaseToken: claim.LeaseToken,
 			CLISessionID: result.CLISessionID, WorkDir: workDir,
 		}
 		if result.Usage != nil {
@@ -98,7 +104,7 @@ func (d *Daemon) executeRun(ctx context.Context, backend adapter.Backend, claim 
 				CacheCreationTokens: result.Usage.CacheCreationTokens,
 			}
 		}
-		if err := d.client.CompleteRun(context.WithoutCancel(ctx), request); err != nil {
+		if err := d.client.UpdateRun(context.WithoutCancel(ctx), request); err != nil {
 			logger.Error("complete run", "err", err)
 			return
 		}
@@ -134,10 +140,10 @@ func (r *eventReporter) add(ctx context.Context, message adapter.Message) {
 		event.Payload = mustJSON(map[string]string{"text": message.Text})
 	case adapter.MessageToolUse:
 		event.Type = "tool_use"
-		event.Payload = mustJSON(map[string]any{"call_id": message.CallID, "tool": message.Tool, "input": json.RawMessage(nonEmptyJSON(message.Input))})
+		event.Payload = mustJSON(map[string]any{"callID": message.CallID, "tool": message.Tool, "input": json.RawMessage(nonEmptyJSON(message.Input))})
 	case adapter.MessageToolResult:
 		event.Type = "tool_result"
-		event.Payload = mustJSON(map[string]any{"call_id": message.CallID, "output": truncate(message.Output, 16*1024), "is_error": message.IsError})
+		event.Payload = mustJSON(map[string]any{"callID": message.CallID, "output": truncate(message.Output, 16*1024), "isError": message.IsError})
 	case adapter.MessageError:
 		event.Type = "error"
 		event.Payload = mustJSON(map[string]string{"code": "brain_error", "message": message.Text})
@@ -153,9 +159,11 @@ func (r *eventReporter) add(ctx context.Context, message adapter.Message) {
 // finish 追加最终 message 事件（成功且有产出时）并冲刷余量。
 func (r *eventReporter) finish(ctx context.Context, result adapter.Result) {
 	if !result.IsError && result.Text != "" {
+		// @Name 切成结构化 mention 块——互@的平台内直通只认 mention 块，
+		// 纯文本 @ 只是字面量（Design.md §7.5）。
 		r.buffer = append(r.buffer, NewEvent{
 			Type: "message", Actor: Actor{Kind: "agent"}, RunID: r.claim.RunID,
-			Payload: mustJSON(map[string]any{"blocks": []Block{{Kind: "text", Text: result.Text}}}),
+			Payload: mustJSON(map[string]any{"blocks": parseMentionBlocks(result.Text)}),
 		})
 	}
 	if result.IsError && result.ErrorMessage != "" {
@@ -173,7 +181,7 @@ func (r *eventReporter) flush(ctx context.Context) {
 	}
 	r.batchSeq++
 	// 收尾冲刷必须在取消后仍可达——用不承继取消的 ctx。
-	_, err := r.daemon.client.AppendEvents(context.WithoutCancel(ctx), AppendEventsRequest{
+	_, err := r.daemon.client.AppendEvents(context.WithoutCancel(ctx), CreateEventsRequest{
 		SessionID:  r.claim.SessionID,
 		LeaseToken: r.claim.LeaseToken,
 		BatchSeq:   r.batchSeq,

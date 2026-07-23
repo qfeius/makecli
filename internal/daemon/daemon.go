@@ -94,7 +94,7 @@ func New(ctx context.Context, options Options) (*Daemon, error) {
 // Run 阻塞运行直到 ctx 取消：注册 → 心跳 goroutine → claim 轮询（3s）。
 // v1 单设备串行：执行中不 claim，新消息在平台侧排队为下一个 run。
 func (d *Daemon) Run(ctx context.Context) error {
-	registered, err := d.client.RegisterDevice(ctx, RegisterDeviceRequest{
+	registered, err := d.client.RegisterDevice(ctx, CreateDeviceRequest{
 		Name: d.deviceName, Capabilities: d.capabilities,
 	})
 	if err != nil {
@@ -122,7 +122,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 			// 按 provider 分别 claim：RunClaim 不携带 provider 字段，
 			// 单能力请求领到即知道该用哪个 CLI——匹配不靠猜。
 			for _, provider := range providers {
-				claims, err := d.client.ClaimRuns(ctx, ClaimRequest{Capabilities: []string{provider}, Max: 1})
+				claims, err := d.client.ClaimRuns(ctx, CreateRunClaimRequest{Capabilities: []string{provider}, Max: 1})
 				if err != nil {
 					d.logger.Warn("claim", "provider", provider, "err", err)
 					continue
@@ -175,7 +175,7 @@ func (d *Daemon) heartbeatLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			response, err := d.client.Heartbeat(ctx, HeartbeatRequest{Capabilities: d.capabilities})
+			response, err := d.client.Heartbeat(ctx, CreateDeviceHeartbeatRequest{Capabilities: d.capabilities})
 			if err != nil {
 				d.logger.Warn("heartbeat", "err", err)
 				continue

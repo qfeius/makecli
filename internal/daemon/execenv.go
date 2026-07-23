@@ -16,26 +16,30 @@ import (
 )
 
 // PrepareWorkDir 定位（或创建）run 的工作目录并渲染 agent instructions。
-// 连续性优先：claim 下发的 work_dir 存在即沿用；否则在 baseDir 下按
-// session 建目录。instructions 渲染为 CLAUDE.md 与 AGENTS.md——两个 CLI
-// 的原生发现路径都覆盖，呈现按 provider 适配的差异就止步于文件名。
-func PrepareWorkDir(baseDir string, claim RunClaim) (string, error) {
-	workDir := claim.Resume.WorkDir
-	if workDir == "" {
+// 连续性优先：claim 下发的 workDir 可用即沿用；不可用（跨设备/跨 OS 的
+// 遗留路径）则回退 baseDir 下按 session 建目录并报告 resumable=false——
+// 调用方须同时放弃 cliSessionID（CLI 会话是设备本地状态，目录都不在，
+// 会话必然也不在）。instructions 渲染为 CLAUDE.md 与 AGENTS.md——两个
+// CLI 的原生发现路径都覆盖，呈现按 provider 适配的差异就止步于文件名。
+func PrepareWorkDir(baseDir string, claim RunClaim) (workDir string, resumable bool, err error) {
+	resumable = true
+	workDir = claim.Resume.WorkDir
+	if workDir == "" || os.MkdirAll(workDir, 0o755) != nil {
+		resumable = workDir == "" // 显式回退：resume 目录建不出来即放弃连续性
 		workDir = filepath.Join(baseDir, claim.SessionID)
 	}
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
-		return "", fmt.Errorf("create work dir: %w", err)
+		return "", false, fmt.Errorf("create work dir: %w", err)
 	}
 	if instructions := strings.TrimSpace(claim.Agent.Instructions); instructions != "" {
 		content := fmt.Sprintf("# %s\n\n%s\n", claim.Agent.Name, instructions)
 		for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
 			if err := os.WriteFile(filepath.Join(workDir, name), []byte(content), 0o644); err != nil {
-				return "", fmt.Errorf("render %s: %w", name, err)
+				return "", false, fmt.Errorf("render %s: %w", name, err)
 			}
 		}
 	}
-	return workDir, nil
+	return workDir, resumable, nil
 }
 
 // BuildPrompt 把触发区间的 user_message 事件拼为 prompt 文本。

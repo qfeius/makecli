@@ -26,7 +26,7 @@ type fakeGateway struct {
 	calls  []string
 	bodies map[string][]byte
 	server *httptest.Server
-	events ListEventsResponse
+	events []Event
 }
 
 func newFakeGateway(t *testing.T) *fakeGateway {
@@ -40,17 +40,18 @@ func newFakeGateway(t *testing.T) *fakeGateway {
 			n, _ := r.Body.Read(buffer)
 			body = buffer[:n]
 		}
+		key := r.URL.Path + "|" + target
 		fake.mu.Lock()
-		fake.calls = append(fake.calls, target)
-		fake.bodies[target] = body
+		fake.calls = append(fake.calls, key)
+		fake.bodies[key] = body
 		fake.mu.Unlock()
 
 		var data any = map[string]any{}
-		if target == TargetListEvents {
+		if target == TargetListResources {
 			data = fake.events
 		}
-		if target == TargetAppendEvents {
-			data = AppendEventsResponse{Appended: 1, NextSeq: 10}
+		if r.URL.Path == PathPrefix+"/"+ResourceEvent && target == TargetCreateResource {
+			data = CreateEventsResponse{Appended: 1}
 		}
 		dataJSON, _ := json.Marshal(data)
 		w.Header().Set("Content-Type", "application/json")
@@ -120,9 +121,7 @@ func (w testWriter) Write(p []byte) (int, error) { w.t.Log(string(p)); return le
 func TestExecuteRunHappyPath(t *testing.T) {
 	gateway := newFakeGateway(t)
 	defer gateway.server.Close()
-	gateway.events = ListEventsResponse{Events: []Event{
-		userMessageEvent(0, "第一条"), userMessageEvent(1, "第二条"),
-	}}
+	gateway.events = []Event{userMessageEvent(0, "第一条"), userMessageEvent(1, "第二条")}
 	backend := &stubBackend{
 		messages: []adapter.Message{
 			{Type: adapter.MessageThinking, Text: "想"},
@@ -142,18 +141,21 @@ func TestExecuteRunHappyPath(t *testing.T) {
 	if backend.gotOpts.WorkDir == "" {
 		t.Fatal("应准备工作目录")
 	}
+	runUpdateKey := PathPrefix + "/" + ResourceRun + "|" + TargetUpdateResource
+	eventListKey := PathPrefix + "/" + ResourceEvent + "|" + TargetListResources
+	eventCreateKey := PathPrefix + "/" + ResourceEvent + "|" + TargetCreateResource
 	targets := gateway.targets()
-	// start → list → append(执行事件+最终 message) → complete
-	if targets[0] != TargetStartRun || targets[1] != TargetListEvents || targets[len(targets)-1] != TargetCompleteRun {
+	// start(update) → list → append(执行事件+最终 message) → complete(update)
+	if targets[0] != runUpdateKey || targets[1] != eventListKey || targets[len(targets)-1] != runUpdateKey {
 		t.Fatalf("targets = %v", targets)
 	}
-	var complete CompleteRunRequest
-	_ = json.Unmarshal(gateway.bodies[TargetCompleteRun], &complete)
-	if complete.CLISessionID != "cli_new" || complete.WorkDir != backend.gotOpts.WorkDir {
-		t.Fatalf("complete = %+v, want 连续性回写", complete)
+	var complete UpdateRunRequest
+	_ = json.Unmarshal(gateway.bodies[runUpdateKey], &complete)
+	if complete.Status != RunStatusCompleted || complete.CLISessionID != "cli_new" || complete.WorkDir != backend.gotOpts.WorkDir {
+		t.Fatalf("complete = %+v, want status=completed 且连续性回写", complete)
 	}
-	var appended AppendEventsRequest
-	_ = json.Unmarshal(gateway.bodies[TargetAppendEvents], &appended)
+	var appended CreateEventsRequest
+	_ = json.Unmarshal(gateway.bodies[eventCreateKey], &appended)
 	hasMessage := false
 	for _, event := range appended.Events {
 		if event.Type == "message" {
@@ -168,33 +170,35 @@ func TestExecuteRunHappyPath(t *testing.T) {
 func TestExecuteRunFailureReportsCLICrash(t *testing.T) {
 	gateway := newFakeGateway(t)
 	defer gateway.server.Close()
-	gateway.events = ListEventsResponse{Events: []Event{userMessageEvent(0, "hi")}}
+	gateway.events = []Event{userMessageEvent(0, "hi")}
 	backend := &stubBackend{result: adapter.Result{IsError: true, ErrorMessage: "boom"}}
 	daemonUnderTest := newTestDaemon(t, gateway.server.URL)
 
 	cancelled := false
 	daemonUnderTest.executeRun(context.Background(), backend, testClaim(), &cancelled)
 
-	var fail FailRunRequest
-	_ = json.Unmarshal(gateway.bodies[TargetFailRun], &fail)
-	if fail.Reason != FailReasonCLICrash {
-		t.Fatalf("reason = %q, want cli_crash", fail.Reason)
+	runUpdateKey := PathPrefix + "/" + ResourceRun + "|" + TargetUpdateResource
+	var fail UpdateRunRequest
+	_ = json.Unmarshal(gateway.bodies[runUpdateKey], &fail)
+	if fail.Status != RunStatusFailed || fail.FailureReason != FailReasonCLICrash {
+		t.Fatalf("fail = %+v, want status=failed reason=cli_crash", fail)
 	}
 }
 
 func TestExecuteRunCancelledFinalizesAsCancelled(t *testing.T) {
 	gateway := newFakeGateway(t)
 	defer gateway.server.Close()
-	gateway.events = ListEventsResponse{Events: []Event{userMessageEvent(0, "hi")}}
+	gateway.events = []Event{userMessageEvent(0, "hi")}
 	backend := &stubBackend{result: adapter.Result{IsError: true, ErrorMessage: "被杀"}}
 	daemonUnderTest := newTestDaemon(t, gateway.server.URL)
 
 	cancelled := true // 心跳 actions 已置位
 	daemonUnderTest.executeRun(context.Background(), backend, testClaim(), &cancelled)
 
-	var fail FailRunRequest
-	_ = json.Unmarshal(gateway.bodies[TargetFailRun], &fail)
-	if fail.Reason != FailReasonCancelled {
-		t.Fatalf("reason = %q, want cancelled（取消收尾优先于错误原因）", fail.Reason)
+	runUpdateKey := PathPrefix + "/" + ResourceRun + "|" + TargetUpdateResource
+	var fail UpdateRunRequest
+	_ = json.Unmarshal(gateway.bodies[runUpdateKey], &fail)
+	if fail.Status != RunStatusCancelled {
+		t.Fatalf("fail = %+v, want status=cancelled（取消收尾优先于错误原因）", fail)
 	}
 }
