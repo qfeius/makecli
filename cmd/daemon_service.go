@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra、context、errors、fmt、log/slog、os、path/filepath、runtime、strings、
  *          internal/config（配置目录/日志目录）、internal/daemon/launchd（LaunchAgent 托管原语）、daemon.go（配置解析与入册）
- * [OUTPUT]: 对外提供 daemon start / stop / restart / status 四个子命令（挂在 daemonCmd 下）
+ * [OUTPUT]: 对外提供 daemon start / stop / restart / status / uninstall 五个子命令（挂在 daemonCmd 下）
  * [POS]: cmd 模块的 daemon 托管面：把前台 `makecli daemon` 交给 macOS launchd 常驻（登录自启 + 崩溃拉起）；
  *        平台守卫 hostGOOS 与 launchd 原语均为包级变量，单测无需 macOS 也能跑
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -80,11 +80,12 @@ var daemonStopCmd = &cobra.Command{
 
 var daemonUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "彻底移除 launchd 托管(停服 + 删除 LaunchAgent)",
+	Short: "彻底移除 daemon(停服 + 删除 LaunchAgent 与当前 profile 的 node key)",
 	Long: `停止 daemon 并删除 LaunchAgent plist,同时清掉 stop 留下的 disable 记录。
 
-只移除托管本身,不动 daemon 的数据:日志、工作目录与 ~/.make/credentials 里的
-node key 都原样保留,重新 makecli daemon start 即可续连(不必再拿 setup-key)。`,
+同时删除当前 profile 在 ~/.make/credentials 里的 node key,不保留旧 runtime
+身份。日志、工作目录与同 profile 的 access token 原样保留;重新接入必须使用
+新的 setup-key。`,
 	SilenceUsage: true,
 	Args:         cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -258,17 +259,50 @@ func runDaemonUninstall() error {
 	if err != nil {
 		return err
 	}
-	if !installed {
+	nodeKeyRemoved, err := removeDaemonNodeKey()
+	if err != nil {
+		if installed {
+			return fmt.Errorf("LaunchAgent 已移除，但删除当前 profile 的 node key 失败: %w", err)
+		}
+		return fmt.Errorf("删除当前 profile 的 node key 失败: %w", err)
+	}
+	if !installed && !nodeKeyRemoved {
 		fmt.Println("daemon 未托管(没有 LaunchAgent),无需移除")
 		return nil
 	}
-	fmt.Println("daemon 已停止,LaunchAgent 已移除")
-	// 明说留下了什么：托管没了不等于数据没了，要清得用户自己动手。
+	if installed {
+		fmt.Println("daemon 已停止,LaunchAgent 已移除")
+	} else {
+		fmt.Println("daemon 未托管(没有 LaunchAgent)")
+	}
+	if nodeKeyRemoved {
+		fmt.Printf("%-10s %s\n", "已移除", fmt.Sprintf("credentials profile %q 里的 node key", Profile))
+	}
 	if logPath, err := daemonLogPath(); err == nil {
 		fmt.Printf("%-10s %s\n", "保留", logPath+"(日志)")
 	}
-	fmt.Printf("%-10s %s\n", "保留", "~/.make/agent/work(工作目录)、credentials 里的 node key")
+	fmt.Printf("%-10s %s\n", "保留", "~/.make/agent/work(工作目录)、credentials 里的其他凭证")
+	fmt.Println("重新接入需使用新的 setup-key")
 	return nil
+}
+
+// removeDaemonNodeKey 只删除当前 profile 的 runtime 身份，保留 access token
+// 与其他 profile。无 key 时幂等返回 false，避免凭空创建 credentials 文件。
+func removeDaemonNodeKey() (bool, error) {
+	creds, err := config.Load()
+	if err != nil {
+		return false, err
+	}
+	profile, ok := creds[Profile]
+	if !ok || profile.NodeKey == "" {
+		return false, nil
+	}
+	profile.NodeKey = ""
+	creds[Profile] = profile
+	if err := config.Save(creds); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func runDaemonRestart() error {

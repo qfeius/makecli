@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 context、encoding/json、log/slog、path/filepath、strings、testing、internal/daemon、internal/daemon/launchd；
+ * [INPUT]: 依赖 context、encoding/json、log/slog、path/filepath、strings、testing、internal/config、internal/daemon、internal/daemon/launchd；
  *          复用 captureStdout / setProfile（stdout_test.go）
- * [OUTPUT]: 对外提供 daemon 缺省后台/--foreground 与 start / stop / restart / status / uninstall 的单元测试
+ * [OUTPUT]: 对外提供 daemon 缺省后台/--foreground 与 start / stop / restart / status / uninstall（含 node key 清理）的单元测试
  * [POS]: cmd 模块的 daemon 托管面测试——打桩 launchd 原语与入册前置，非 macOS 机器也能跑全路径
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/qfeius/makecli/internal/config"
 	"github.com/qfeius/makecli/internal/daemon"
 	"github.com/qfeius/makecli/internal/daemon/launchd"
 )
@@ -329,7 +330,14 @@ func TestDaemonStopIsIdempotent(t *testing.T) {
 func TestDaemonUninstallRemovesAgent(t *testing.T) {
 	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
 	setHostGOOS(t, "darwin")
+	setProfile(t, "work")
 	stubUninstall(t, true, nil)
+	if err := config.Save(config.Credentials{
+		"work":  {AccessToken: "access_work", NodeKey: "make_node_work"},
+		"other": {AccessToken: "access_other", NodeKey: "make_node_other"},
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	output := captureStdout(t, func() {
 		if err := runDaemonUninstall(); err != nil {
@@ -339,9 +347,49 @@ func TestDaemonUninstallRemovesAgent(t *testing.T) {
 	if !strings.Contains(output, "已移除") {
 		t.Fatalf("应回显移除结论，实际: %s", output)
 	}
-	// 移除托管 ≠ 删数据：留下什么必须明说，否则用户以为清干净了。
-	if !strings.Contains(output, "保留") || !strings.Contains(output, "node key") {
-		t.Fatalf("应交代保留的数据，实际: %s", output)
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded["work"].NodeKey != "" {
+		t.Fatalf("uninstall 必须删除当前 profile 的 node key: %+v", loaded["work"])
+	}
+	if loaded["work"].AccessToken != "access_work" {
+		t.Fatalf("uninstall 不得删除 access token: %+v", loaded["work"])
+	}
+	if loaded["other"].NodeKey != "make_node_other" || loaded["other"].AccessToken != "access_other" {
+		t.Fatalf("uninstall 不得修改其他 profile: %+v", loaded["other"])
+	}
+	if !strings.Contains(output, "新的 setup-key") || strings.Contains(output, "credentials 里的 node key") {
+		t.Fatalf("输出应说明 node key 已删除且重新接入需要 setup-key，实际: %s", output)
+	}
+}
+
+func TestDaemonUninstallClearsNodeKeyEvenWhenAgentIsNotInstalled(t *testing.T) {
+	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	setHostGOOS(t, "darwin")
+	setProfile(t, "default")
+	stubUninstall(t, false, nil)
+	if err := config.Save(config.Credentials{
+		"default": {AccessToken: "access", NodeKey: "make_node_stale"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := runDaemonUninstall(); err != nil {
+			t.Fatalf("未托管但有旧 node key 时仍应完成清理: %v", err)
+		}
+	})
+	loaded, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded["default"].NodeKey != "" || loaded["default"].AccessToken != "access" {
+		t.Fatalf("只应清除旧 node key: %+v", loaded["default"])
+	}
+	if !strings.Contains(output, "已移除") || !strings.Contains(output, "新的 setup-key") {
+		t.Fatalf("应回显凭证清理与重新接入指引: %s", output)
 	}
 }
 

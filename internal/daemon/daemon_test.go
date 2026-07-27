@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -117,6 +118,54 @@ func newTestDaemon(t *testing.T, gatewayURL string) *Daemon {
 type testWriter struct{ t *testing.T }
 
 func (w testWriter) Write(p []byte) (int, error) { w.t.Log(string(p)); return len(p), nil }
+
+func TestNewSetupKeyEnrollmentHasNoBearer(t *testing.T) {
+	var gotAuthorization string
+	var gotRequest CreateRuntimeRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuthorization = r.Header.Get("Authorization")
+		if r.URL.Path != PathPrefix+"/"+ResourceRuntime || r.Header.Get(TargetHeader) != TargetCreateResource {
+			t.Errorf("unexpected enrollment request: path=%s target=%s", r.URL.Path, r.Header.Get(TargetHeader))
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotRequest); err != nil {
+			t.Errorf("decode enrollment request: %v", err)
+		}
+		data, _ := json.Marshal(CreateRuntimeResponse{RuntimeID: "runtime_new", NodeKey: "make_node_new"})
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(Envelope{Code: 200, Msg: "ok", Data: data})
+	}))
+	defer server.Close()
+
+	agentDaemon, err := New(context.Background(), Options{
+		ServerURL: server.URL,
+		SetupKey:  "make_setup_fresh",
+		Backends:  []adapter.Backend{&stubBackend{}},
+		Logger:    slog.New(slog.NewTextHandler(testWriter{t}, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAuthorization != "" {
+		t.Fatalf("重新入册携带了旧 Authorization: %q", gotAuthorization)
+	}
+	if gotRequest.SetupKey != "make_setup_fresh" {
+		t.Fatalf("setup key = %q, want fresh setup key", gotRequest.SetupKey)
+	}
+	if agentDaemon.NodeKey() != "make_node_new" {
+		t.Fatalf("node key = %q, want enrollment response key", agentDaemon.NodeKey())
+	}
+}
+
+func TestNewRejectsNodeKeyAndSetupKeyTogether(t *testing.T) {
+	_, err := New(context.Background(), Options{
+		ServerURL: "https://gateway.example.com",
+		NodeKey:   "make_node_existing",
+		SetupKey:  "make_setup_fresh",
+	})
+	if err == nil || !strings.Contains(err.Error(), "不能同时使用") {
+		t.Fatalf("同时提供两种凭证应在任何探测或网络请求前拒绝，实际: %v", err)
+	}
+}
 
 func TestExecuteRunHappyPath(t *testing.T) {
 	gateway := newFakeGateway(t)
