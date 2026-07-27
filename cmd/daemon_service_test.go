@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 context、encoding/json、log/slog、path/filepath、strings、testing、internal/daemon、internal/daemon/launchd；
  *          复用 captureStdout / setProfile（stdout_test.go）
- * [OUTPUT]: 对外提供 daemon start / stop / restart / status 的单元测试
+ * [OUTPUT]: 对外提供 daemon 缺省后台/--foreground 与 start / stop / restart / status / uninstall 的单元测试
  * [POS]: cmd 模块的 daemon 托管面测试——打桩 launchd 原语与入册前置，非 macOS 机器也能跑全路径
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -14,6 +14,7 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -128,6 +129,7 @@ func TestDaemonStartInstallsResolvedConfig(t *testing.T) {
 	wantArgs := []string{
 		"--profile", "work",
 		"daemon",
+		"--foreground",
 		"--gateway-server-url", "https://dev-make-agent.qtech.cn",
 		"--name", "mac-mini",
 		"--work-dir", "/tmp/agent-work",
@@ -151,6 +153,94 @@ func TestDaemonStartInstallsResolvedConfig(t *testing.T) {
 	}
 	if !strings.Contains(output, "mac-mini") || !strings.Contains(output, "launchd") {
 		t.Fatalf("应回显 runtime 与托管结论，实际:\n%s", output)
+	}
+}
+
+// setDaemonForeground 临时覆盖 --foreground 全局态。
+func setDaemonForeground(t *testing.T, foreground bool) {
+	t.Helper()
+	original := daemonForeground
+	daemonForeground = foreground
+	t.Cleanup(func() { daemonForeground = original })
+}
+
+// plist 少了 --foreground，launchd 拉起的进程会转头再托管一次自己——无限套娃。
+// 这条断言是那个坑的守门人，别删。
+func TestLaunchdArgsCarryForegroundFlag(t *testing.T) {
+	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	setDaemonFlags(t, "https://dev-make-agent.qtech.cn", "mac-mini", "/tmp/agent-work")
+
+	config, err := buildLaunchdConfig(daemonRunConfig{
+		ServerURL: "https://dev-make-agent.qtech.cn", RuntimeName: "mac-mini",
+		WorkDir: "/tmp/agent-work", MaxRunDuration: daemon.DefaultMaxRunDuration,
+	})
+	if err != nil {
+		t.Fatalf("buildLaunchdConfig: %v", err)
+	}
+	if !slices.Contains(config.Args, "--foreground") {
+		t.Fatalf("plist 参数必须带 --foreground，否则托管进程会递归托管自己: %v", config.Args)
+	}
+}
+
+// `makecli daemon <flags>` 缺省即后台：等价于 start，不阻塞终端。
+func TestBareDaemonDefaultsToBackground(t *testing.T) {
+	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	setHostGOOS(t, "darwin")
+	setDaemonForeground(t, false)
+	setDaemonFlags(t, "https://dev-make-agent.qtech.cn", "mac-mini", "/tmp/agent-work")
+	stubEnroll(t, nil)
+	captured := stubInstall(t, nil)
+
+	output := captureStdout(t, func() {
+		if err := runDaemon(context.Background()); err != nil {
+			t.Fatalf("runDaemon: %v", err)
+		}
+	})
+	if len(*captured) != 1 {
+		t.Fatal("缺省应走托管路径(等价 daemon start)")
+	}
+	if !strings.Contains(output, "后台") {
+		t.Fatalf("应回显已在后台运行，实际:\n%s", output)
+	}
+}
+
+// --foreground 是"就在这个终端跑"，绝不能顺手装 LaunchAgent。
+func TestDaemonForegroundDoesNotInstall(t *testing.T) {
+	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	setHostGOOS(t, "darwin")
+	setDaemonForeground(t, true)
+	setDaemonFlags(t, "https://dev-make-agent.qtech.cn", "mac-mini", "/tmp/agent-work")
+	// 前置报错短路，免得真跑起阻塞的主循环。
+	stubEnroll(t, errors.New("探测失败"))
+	captured := stubInstall(t, nil)
+
+	if err := runDaemon(context.Background()); err == nil {
+		t.Fatal("前置失败应上抛")
+	}
+	if len(*captured) != 0 {
+		t.Fatal("--foreground 不得安装 LaunchAgent")
+	}
+}
+
+// 非 macOS 没有托管实现：回落前台并明说，而不是把用户拦在门外。
+func TestBareDaemonFallsBackToForegroundOffDarwin(t *testing.T) {
+	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	setHostGOOS(t, "linux")
+	setDaemonForeground(t, false)
+	setDaemonFlags(t, "https://dev-make-agent.qtech.cn", "mac-mini", "/tmp/agent-work")
+	stubEnroll(t, errors.New("探测失败"))
+	captured := stubInstall(t, nil)
+
+	var err error
+	stderr := captureStderr(t, func() { err = runDaemon(context.Background()) })
+	if err == nil {
+		t.Fatal("前台路径的前置失败应上抛")
+	}
+	if len(*captured) != 0 {
+		t.Fatal("非 macOS 不得安装 LaunchAgent")
+	}
+	if !strings.Contains(stderr, "前台运行") {
+		t.Fatalf("应提示已回落前台，实际 stderr: %s", stderr)
 	}
 }
 

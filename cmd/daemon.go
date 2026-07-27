@@ -1,8 +1,9 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra、context、os、os/signal、path/filepath、syscall、time、log/slog、internal/config、internal/daemon（主循环）与 internal/daemon/adapter（claude-code / codex backend）
  * [OUTPUT]: 对外提供 daemonCmd——`makecli daemon` 子命令（Hidden：功能未稳定，不对普通用户展示）；
- *           包内提供 daemonRunConfig / resolveDaemonRunConfig / newEnrolledDaemon（前台运行与 launchd 托管共用）
+ *           包内提供 runDaemon / runDaemonForeground 与 daemonRunConfig / resolveDaemonRunConfig / newEnrolledDaemon（前台与 launchd 托管共用）
  * [POS]: cmd 模块的设备接入入口：外接 brain 的 daemon 模式——注册设备、claim 领工作、驱动本机 CLI 执行；
+ *        缺省即后台（转 runDaemonStart 交 launchd），--foreground 才在当前终端阻塞；
  *        配置 flag > env；首次入册走 --setup-key（console 铸），换回 node key 落 credentials；重启读本地 node key 续连
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -31,35 +32,60 @@ var (
 	daemonRuntimeName      string
 	daemonWorkDir          string
 	daemonMaxRunDuration   time.Duration
+	daemonForeground       bool
 )
 
 // daemonCmd 是外接 brain 的接入点（agent-design/Design.md §8.1）。
-// 自身 RunE = 前台运行（launchd 托管时被 plist 直接调用的就是这一形态），
-// start/stop/restart/status 子命令是它的 macOS 托管面（daemon_service.go）。
+// 缺省即后台：跑完立刻回到提示符，常驻交给 launchd（等价 `daemon start`）；
+// --foreground 才在当前终端阻塞——launchd 拉起的正是这一形态。
+// stop/restart/status/uninstall 等托管面在 daemon_service.go。
 // Hidden：功能未稳定，不在 help 中对普通用户展示；稳定后摘除。
 var daemonCmd = &cobra.Command{
-	Use:    "daemon",
-	Short:  "以设备模式接入 Agent 平台,驱动本机 coding CLI 执行任务",
+	Use:   "daemon",
+	Short: "以设备模式接入 Agent 平台,驱动本机 coding CLI 执行任务(缺省后台常驻)",
+	Long: `以 runtime 模式接入 Agent 平台:探测本机 coding CLI、入册、心跳 + claim 领工作。
+
+缺省行为是后台常驻——写好 LaunchAgent 交给 launchd 后立刻返回,等价于 makecli daemon start。
+要盯着日志调试就加 --foreground,在当前终端阻塞运行(Ctrl-C 退出)。
+launchd 托管的进程跑的就是 --foreground 形态:launchd 要求服务自身不得 fork 到后台。`,
 	Hidden: true,
 	// NoArgs 让 `makecli daemon statsu` 这类拼错直接报"未知子命令"，
-	// 而不是被当成位置参数悄悄起了一个前台 daemon。
-	Args: cobra.NoArgs,
+	// 而不是被当成位置参数悄悄起了一个 daemon。
+	Args:         cobra.NoArgs,
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-		runConfig, err := resolveDaemonRunConfig()
-		if err != nil {
-			return err
-		}
-
-		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
-		defer stop()
-
-		agentDaemon, err := newEnrolledDaemon(ctx, runConfig, logger)
-		if err != nil {
-			return err
-		}
-		return agentDaemon.Run(ctx)
+		return runDaemon(cmd.Context())
 	},
+}
+
+// runDaemon 决定这次调用是"交给 launchd 后台常驻"还是"就在这个终端跑"。
+// 非 macOS 没有托管实现，此时回落前台并明说——把用户拦在门外没有意义。
+func runDaemon(ctx context.Context) error {
+	if !daemonForeground {
+		if hostGOOS == "darwin" {
+			return runDaemonStart(ctx)
+		}
+		fmt.Fprintf(os.Stderr, "当前系统 %s 无后台托管实现(仅 macOS/launchd),改为前台运行;Ctrl-C 退出\n", hostGOOS)
+	}
+	return runDaemonForeground(ctx)
+}
+
+// runDaemonForeground 在当前进程阻塞运行主循环直到 SIGINT/SIGTERM。
+func runDaemonForeground(ctx context.Context) error {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	runConfig, err := resolveDaemonRunConfig()
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	agentDaemon, err := newEnrolledDaemonFunc(ctx, runConfig, logger)
+	if err != nil {
+		return err
+	}
+	return agentDaemon.Run(ctx)
 }
 
 // daemonRunConfig 是 daemon 启动事实的解析结果。
@@ -164,5 +190,7 @@ func init() {
 	daemonCmd.PersistentFlags().StringVar(&daemonRuntimeName, "name", "", "runtime 名(缺省取 hostname)")
 	daemonCmd.PersistentFlags().StringVar(&daemonWorkDir, "work-dir", "", "工作目录根(缺省 ~/.make/agent/work)")
 	daemonCmd.PersistentFlags().DurationVar(&daemonMaxRunDuration, "max-run-duration", daemon.DefaultMaxRunDuration, "单 run 时长兜底")
+	// 本地 flag：只属于 `makecli daemon` 自身，start/stop 等子命令不继承（对它们没有意义）。
+	daemonCmd.Flags().BoolVar(&daemonForeground, "foreground", false, "在当前终端前台运行(缺省交给 launchd 后台常驻)")
 	rootCmd.AddCommand(daemonCmd)
 }

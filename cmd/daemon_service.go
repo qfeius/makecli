@@ -174,7 +174,8 @@ func runDaemonStart(ctx context.Context) error {
 	fmt.Printf("%-10s %s\n", "Work dir", runConfig.WorkDir)
 	fmt.Printf("%-10s %s\n", "Plist", plistPath)
 	fmt.Printf("%-10s %s\n", "Logs", agentConfig.LogPath)
-	fmt.Println("daemon 已交给 launchd 托管(登录自启,退出自动拉起)")
+	fmt.Println("daemon 已在后台运行(launchd 托管:登录自启,退出自动拉起)")
+	fmt.Println("看状态: makecli daemon status;盯日志: tail -f " + agentConfig.LogPath)
 	return nil
 }
 
@@ -209,9 +210,14 @@ func buildLaunchdConfig(runConfig daemonRunConfig) (launchd.Config, error) {
 
 	// 全局 flag 在子命令前，与用户手敲的形态一致；--env 不必带——
 	// gateway 地址已解析成绝对值写进参数，不再依赖环境 preset。
+	//
+	// --foreground 不可省：`makecli daemon` 缺省是"托管到 launchd"，
+	// 少了它 launchd 拉起的进程会转头再托管一次自己——无限套娃。
+	// 语义上也正确：launchd 要求被托管的服务进程自身不得 fork 到后台。
 	args := []string{
 		"--profile", Profile,
 		"daemon",
+		"--foreground",
 		"--gateway-server-url", runConfig.ServerURL,
 		"--name", runConfig.RuntimeName,
 		"--work-dir", runConfig.WorkDir,
