@@ -12,5 +12,6 @@ mention.go: 出站 mention 解析——parseMentionBlocks 把 CLI 最终答复�
 execenv.go: v1 最小执行环境——工作目录连续性优先,instructions 渲染为 CLAUDE.md + AGENTS.md 双文件;BuildPrompt 合并触发区间的 user_message
 daemon_test.go / execenv_test.go / mention_test.go: 编排回归(httptest 假 gateway + 桩 backend)、执行环境回归与出站 mention 解析回归
 adapter/: CLI 适配层,见其 CLAUDE.md
+launchd/: macOS 托管层(把前台形态固化成 LaunchAgent,登录自启 + 退出拉起),见其 CLAUDE.md
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

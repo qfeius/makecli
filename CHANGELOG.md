@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Features
+
+- **daemon**: Add `makecli daemon start / stop / restart / status` — macOS only, backed by a user LaunchAgent (`~/Library/LaunchAgents/cn.qfei.makecli.daemon.plist`) so the daemon survives logout and crashes (`RunAtLoad` + `KeepAlive`). `start` runs the real preflight first (detect the local coding CLI, enroll with `--setup-key` when there is no node key yet) so failures surface in the terminal instead of looping inside launchd, then freezes the *resolved* configuration into the plist — launchd inherits no shell environment, so the gateway URL becomes an explicit argument and `PATH` / `HOME` / `MAKE_CLI_CONFIG_DIR` are written into `EnvironmentVariables`. `stop` unloads *and* removes the plist (leaving it behind would silently start the daemon again at next login), `restart` reuses the on-disk plist so the arguments pinned at `start` are preserved, and `status` reports running / stopped / not installed with the PID, command line and log path (`--output table|json`). Logs land in `~/.make/agent/logs/daemon.log`; on non-macOS the four subcommands fail with a message pointing back at the foreground `makecli daemon`
+
 ### Bug Fixes
 
 - **config**: Profile names are validated against a conservative grammar (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`) and every persisted INI value rejects embedded newlines and leading/trailing whitespace, closing an INI section-injection window (e.g. a profile named `evil]\n[other` or a token value smuggling a `[section]` line)
