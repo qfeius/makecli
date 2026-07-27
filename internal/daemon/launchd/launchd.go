@@ -50,6 +50,7 @@ type Status struct {
 	Installed      bool // plist 存在 = 已托管
 	Loaded         bool // launchctl 认得这个 service
 	Running        bool // 有活着的 PID
+	Disabled       bool // 被 Stop 显式停用：登录时不会自启
 	PID            int
 	LastExitStatus int
 	HasLastExit    bool
@@ -189,10 +190,11 @@ func Install(config Config) (string, error) {
 	return plistPath, nil
 }
 
-// Uninstall 停服并移除 plist，返回此前是否处于托管状态。
-// 删文件是 stop 语义的必要一半：只 bootout 不删，下次登录 launchd 扫描
-// ~/Library/LaunchAgents 又会把它拉起来——"停了却自己回来"是最坏的意外。
-func Uninstall() (bool, error) {
+// Stop 停服但保留 plist，返回此前是否处于托管状态。
+// 关键是 disable：光 bootout 的话，下次登录 launchd 扫描 ~/Library/LaunchAgents
+// 又会把它拉起来——"停了却自己回来"是最坏的意外。disable 往 launchd 的
+// override 库写一条持久记录，因而 Install / Restart 必须先 enable 抵消它。
+func Stop() (bool, error) {
 	plistPath, err := PlistPath()
 	if err != nil {
 		return false, err
@@ -207,6 +209,32 @@ func Uninstall() (bool, error) {
 		return false, fmt.Errorf("读取 plist 失败: %w", statErr)
 	}
 	bootout()
+	if output, err := runLaunchctl("disable", serviceTarget()); err != nil {
+		return true, fmt.Errorf("launchctl disable 失败(服务已停但下次登录会自启): %w%s", err, detail(output))
+	}
+	return true, nil
+}
+
+// Uninstall 停服并彻底移除托管：bootout + 删 plist + enable 清掉 disable 记录。
+// 清 override 是不可省的收尾——记录以 Label 为键持久存在，留着的话下次
+// Install 会装出一个"存在但被禁用"的服务，症状是启动无声无息什么也不发生。
+func Uninstall() (bool, error) {
+	plistPath, err := PlistPath()
+	if err != nil {
+		return false, err
+	}
+	_, statErr := os.Stat(plistPath)
+	installed := statErr == nil
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return false, fmt.Errorf("读取 plist 失败: %w", statErr)
+	}
+	bootout()
+	if output, err := runLaunchctl("enable", serviceTarget()); err != nil {
+		return installed, fmt.Errorf("launchctl enable 失败(disable 记录残留,重装后可能起不来): %w%s", err, detail(output))
+	}
+	if !installed {
+		return false, nil
+	}
 	if err := os.Remove(plistPath); err != nil {
 		return true, fmt.Errorf("删除 plist 失败: %w", err)
 	}
@@ -237,10 +265,12 @@ var (
 	bootstrapRetryDelay = 400 * time.Millisecond
 )
 
-// bootstrap 是 bootout → bootstrap → kickstart 三步的收口：
+// bootstrap 是 enable → bootout → bootstrap → kickstart 四步的收口：
+// enable 抵消 Stop 写下的 disable 记录（没停过时是无害的空操作，故失败也忽略），
 // bootout 失败一律忽略（未加载时 launchctl 就报错，这是正常路径），
 // 后两步失败必须上抛并带上 launchctl 原文——用户据此判断是权限还是 plist 问题。
 func bootstrap(plistPath string) error {
+	_, _ = runLaunchctl("enable", serviceTarget())
 	bootout()
 	var lastErr error
 	var lastOutput string
@@ -278,6 +308,8 @@ func detail(output string) string {
 var (
 	launchctlPID      = regexp.MustCompile(`"PID"\s*=\s*(\d+);`)
 	launchctlLastExit = regexp.MustCompile(`"LastExitStatus"\s*=\s*(-?\d+);`)
+	// print-disabled 的行形如 `"cn.qfei.makecli.daemon" => true`。
+	launchctlDisabledEntry = regexp.MustCompile(`"` + regexp.QuoteMeta(Label) + `"\s*=>\s*(\S+)`)
 )
 
 // Query 汇报当前托管状态：plist 提供「配置成什么样」，launchctl list 提供「现在活没活」。
@@ -302,6 +334,7 @@ func Query() (Status, error) {
 	default:
 		return status, fmt.Errorf("读取 plist 失败: %w", err)
 	}
+	status.Disabled = queryDisabled()
 
 	output, err := runLaunchctl("list", Label)
 	if err != nil {
@@ -317,6 +350,26 @@ func Query() (Status, error) {
 		status.HasLastExit = true
 	}
 	return status, nil
+}
+
+// queryDisabled 读 launchd 的 override 库，回答"登录时还会不会自启"。
+// 读不出来一律当未禁用——这一项只是状态展示的补充，不该让 status 整体失败。
+func queryDisabled() bool {
+	output, err := runLaunchctl("print-disabled", domainTarget())
+	if err != nil {
+		return false
+	}
+	match := launchctlDisabledEntry.FindStringSubmatch(output)
+	if match == nil {
+		return false
+	}
+	// 各版本 macOS 分别印过 => true 与 => disabled 两种写法，都认。
+	switch strings.ToLower(strings.Trim(match[1], `";,`)) {
+	case "true", "disabled":
+		return true
+	default:
+		return false
+	}
 }
 
 func intField(pattern *regexp.Regexp, output string) (int, bool) {

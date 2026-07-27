@@ -67,6 +67,13 @@ func stubInstall(t *testing.T, err error) *[]launchd.Config {
 	return captured
 }
 
+func stubStop(t *testing.T, installed bool, err error) {
+	t.Helper()
+	original := launchdStop
+	launchdStop = func() (bool, error) { return installed, err }
+	t.Cleanup(func() { launchdStop = original })
+}
+
 func stubUninstall(t *testing.T, installed bool, err error) {
 	t.Helper()
 	original := launchdUninstall
@@ -170,16 +177,18 @@ func TestDaemonServiceCommandsRejectNonDarwin(t *testing.T) {
 	setHostGOOS(t, "linux")
 	captured := stubInstall(t, nil)
 	stubEnroll(t, nil)
+	stubStop(t, true, nil)
 	stubUninstall(t, true, nil)
 	stubRestart(t, nil)
 	stubQuery(t, launchd.Status{}, nil)
 	setDaemonStatusOutput(t, outputTable)
 
 	actions := map[string]func() error{
-		"start":   func() error { return runDaemonStart(context.Background()) },
-		"stop":    runDaemonStop,
-		"restart": runDaemonRestart,
-		"status":  runDaemonStatus,
+		"start":     func() error { return runDaemonStart(context.Background()) },
+		"stop":      runDaemonStop,
+		"restart":   runDaemonRestart,
+		"status":    runDaemonStatus,
+		"uninstall": runDaemonUninstall,
 	}
 	for name, action := range actions {
 		err := action()
@@ -195,27 +204,65 @@ func TestDaemonServiceCommandsRejectNonDarwin(t *testing.T) {
 	}
 }
 
-func TestDaemonStopRemovesAgent(t *testing.T) {
+func TestDaemonStopKeepsAgent(t *testing.T) {
 	setHostGOOS(t, "darwin")
-	stubUninstall(t, true, nil)
+	stubStop(t, true, nil)
 
 	output := captureStdout(t, func() {
 		if err := runDaemonStop(); err != nil {
 			t.Fatalf("runDaemonStop: %v", err)
 		}
 	})
-	if !strings.Contains(output, "已停止") {
-		t.Fatalf("应回显停止结论，实际: %s", output)
+	if !strings.Contains(output, "已停止") || !strings.Contains(output, "保留") {
+		t.Fatalf("应说明停了但托管配置还在，实际: %s", output)
+	}
+	// stop 与 uninstall 是两个动词，输出要把去向讲清楚。
+	if !strings.Contains(output, "makecli daemon uninstall") {
+		t.Fatalf("应指出彻底移除的走法，实际: %s", output)
 	}
 }
 
 func TestDaemonStopIsIdempotent(t *testing.T) {
 	setHostGOOS(t, "darwin")
-	stubUninstall(t, false, nil)
+	stubStop(t, false, nil)
 
 	output := captureStdout(t, func() {
 		if err := runDaemonStop(); err != nil {
 			t.Fatalf("未托管时 stop 不该报错: %v", err)
+		}
+	})
+	if !strings.Contains(output, "未托管") {
+		t.Fatalf("应说明本就未托管，实际: %s", output)
+	}
+}
+
+func TestDaemonUninstallRemovesAgent(t *testing.T) {
+	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	setHostGOOS(t, "darwin")
+	stubUninstall(t, true, nil)
+
+	output := captureStdout(t, func() {
+		if err := runDaemonUninstall(); err != nil {
+			t.Fatalf("runDaemonUninstall: %v", err)
+		}
+	})
+	if !strings.Contains(output, "已移除") {
+		t.Fatalf("应回显移除结论，实际: %s", output)
+	}
+	// 移除托管 ≠ 删数据：留下什么必须明说，否则用户以为清干净了。
+	if !strings.Contains(output, "保留") || !strings.Contains(output, "node key") {
+		t.Fatalf("应交代保留的数据，实际: %s", output)
+	}
+}
+
+func TestDaemonUninstallIsIdempotent(t *testing.T) {
+	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	setHostGOOS(t, "darwin")
+	stubUninstall(t, false, nil)
+
+	output := captureStdout(t, func() {
+		if err := runDaemonUninstall(); err != nil {
+			t.Fatalf("未托管时 uninstall 不该报错: %v", err)
 		}
 	})
 	if !strings.Contains(output, "未托管") {
@@ -275,10 +322,33 @@ func TestDaemonStatusTableRunning(t *testing.T) {
 			t.Fatalf("runDaemonStatus: %v", err)
 		}
 	})
-	for _, want := range []string{launchd.Label, "running", "4242", "daemon.log", "--name mac-mini"} {
+	for _, want := range []string{launchd.Label, "running", "4242", "daemon.log", "--name mac-mini", "Autostart", "enabled"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("状态输出缺 %q:\n%s", want, output)
 		}
+	}
+}
+
+func TestDaemonStatusDistinguishesStoppedFromDisabled(t *testing.T) {
+	setHostGOOS(t, "darwin")
+	setDaemonStatusOutput(t, outputTable)
+	status := runningStatus()
+	status.Running = false
+	status.PID = 0
+	status.Disabled = true
+	stubQuery(t, status, nil)
+
+	output := captureStdout(t, func() {
+		if err := runDaemonStatus(); err != nil {
+			t.Fatalf("runDaemonStatus: %v", err)
+		}
+	})
+	// 「现在没跑」和「登录也不会自己回来」是两件事，用户要能一眼分开。
+	if !strings.Contains(output, "disabled") {
+		t.Fatalf("被 stop 停用应回显 Autostart disabled:\n%s", output)
+	}
+	if !strings.Contains(output, "daemon stop") || !strings.Contains(output, "daemon start") {
+		t.Fatalf("应说明是被 stop 停用的并给出重新拉起的走法:\n%s", output)
 	}
 }
 
@@ -374,7 +444,7 @@ func TestDaemonStatusRejectsBadFormat(t *testing.T) {
 }
 
 func TestDaemonSubcommandsRegistered(t *testing.T) {
-	want := map[string]bool{"start": false, "stop": false, "restart": false, "status": false}
+	want := map[string]bool{"start": false, "stop": false, "restart": false, "status": false, "uninstall": false}
 	for _, sub := range daemonCmd.Commands() {
 		if _, ok := want[sub.Name()]; ok {
 			want[sub.Name()] = true

@@ -131,19 +131,25 @@ func TestInstallWritesPlistAndBootstraps(t *testing.T) {
 		t.Fatalf("日志目录未创建: %v", err)
 	}
 
-	if len(*calls) != 3 {
-		t.Fatalf("应有 bootout/bootstrap/kickstart 三次调用，实际 %v", *calls)
+	verbs := launchctlVerbs(*calls)
+	// enable 打头：抵消 Stop 可能留下的 disable 记录，否则装完起不来。
+	wantVerbs := []string{"enable", "bootout", "bootstrap", "kickstart"}
+	if strings.Join(verbs, ",") != strings.Join(wantVerbs, ",") {
+		t.Fatalf("launchctl 调用序 = %v, want %v", verbs, wantVerbs)
 	}
-	if (*calls)[0][0] != "bootout" {
-		t.Fatalf("首个调用应为 bootout(覆盖式安装先卸旧)，实际 %v", (*calls)[0])
-	}
-	bootstrapCall := (*calls)[1]
-	if bootstrapCall[0] != "bootstrap" || bootstrapCall[len(bootstrapCall)-1] != plistPath {
+	bootstrapCall := (*calls)[2]
+	if bootstrapCall[len(bootstrapCall)-1] != plistPath {
 		t.Fatalf("bootstrap 调用形状不对: %v", bootstrapCall)
 	}
-	if (*calls)[2][0] != "kickstart" {
-		t.Fatalf("末个调用应为 kickstart，实际 %v", (*calls)[2])
+}
+
+// launchctlVerbs 抽出调用序里的动词，便于断言顺序。
+func launchctlVerbs(calls [][]string) []string {
+	verbs := make([]string, 0, len(calls))
+	for _, call := range calls {
+		verbs = append(verbs, call[0])
 	}
+	return verbs
 }
 
 func TestInstallSurfacesBootstrapFailure(t *testing.T) {
@@ -210,7 +216,65 @@ func noBootstrapDelay(t *testing.T) {
 	t.Cleanup(func() { bootstrapRetryDelay = original })
 }
 
-func TestUninstallRemovesPlist(t *testing.T) {
+func TestStopKeepsPlistAndDisables(t *testing.T) {
+	home := isolateHome(t)
+	stubLaunchctl(t, nil)
+	plistPath, err := Install(testConfig(home))
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	calls := stubLaunchctl(t, nil)
+	installed, err := Stop()
+	if err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if !installed {
+		t.Fatal("此前已托管，应返回 true")
+	}
+	if _, err := os.Stat(plistPath); err != nil {
+		t.Fatalf("stop 保留 plist（配置留着，uninstall 才删）: %v", err)
+	}
+	// disable 不可省：只 bootout 的话下次登录 launchd 又会把它拉起来。
+	verbs := launchctlVerbs(*calls)
+	want := []string{"bootout", "disable"}
+	if strings.Join(verbs, ",") != strings.Join(want, ",") {
+		t.Fatalf("launchctl 调用序 = %v, want %v", verbs, want)
+	}
+}
+
+func TestStopSurfacesDisableFailure(t *testing.T) {
+	home := isolateHome(t)
+	stubLaunchctl(t, nil)
+	if _, err := Install(testConfig(home)); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	stubLaunchctl(t, func(args ...string) (string, error) {
+		if args[0] == "disable" {
+			return "Could not disable service", errors.New("exit status 1")
+		}
+		return "", nil
+	})
+
+	if _, err := Stop(); err == nil {
+		t.Fatal("disable 失败必须上抛——用户会以为停干净了，登录后却自己回来")
+	}
+}
+
+func TestStopWhenNotInstalled(t *testing.T) {
+	isolateHome(t)
+	stubLaunchctl(t, nil)
+
+	installed, err := Stop()
+	if err != nil {
+		t.Fatalf("未托管时 stop 应幂等成功: %v", err)
+	}
+	if installed {
+		t.Fatal("未托管应返回 false")
+	}
+}
+
+func TestUninstallRemovesPlistAndClearsOverride(t *testing.T) {
 	home := isolateHome(t)
 	stubLaunchctl(t, nil)
 	plistPath, err := Install(testConfig(home))
@@ -227,23 +291,54 @@ func TestUninstallRemovesPlist(t *testing.T) {
 		t.Fatal("此前已托管，应返回 true")
 	}
 	if _, err := os.Stat(plistPath); !os.IsNotExist(err) {
-		t.Fatalf("plist 必须删除（否则下次登录 launchd 会重新拉起）: %v", err)
+		t.Fatalf("uninstall 必须删除 plist: %v", err)
 	}
-	if len(*calls) != 1 || (*calls)[0][0] != "bootout" {
-		t.Fatalf("应只调用一次 bootout，实际 %v", *calls)
+	// enable 收尾：disable 记录以 Label 为键持久存在，留着会让下次安装静默起不来。
+	verbs := launchctlVerbs(*calls)
+	want := []string{"bootout", "enable"}
+	if strings.Join(verbs, ",") != strings.Join(want, ",") {
+		t.Fatalf("launchctl 调用序 = %v, want %v", verbs, want)
+	}
+}
+
+func TestUninstallAfterStopIsClean(t *testing.T) {
+	home := isolateHome(t)
+	stubLaunchctl(t, nil)
+	plistPath, err := Install(testConfig(home))
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if _, err := Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	installed, err := Uninstall()
+	if err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	if !installed {
+		t.Fatal("stop 之后 plist 仍在，uninstall 应报告此前已托管")
+	}
+	if _, err := os.Stat(plistPath); !os.IsNotExist(err) {
+		t.Fatalf("plist 必须删除: %v", err)
 	}
 }
 
 func TestUninstallWhenNotInstalled(t *testing.T) {
 	isolateHome(t)
-	stubLaunchctl(t, nil)
+	calls := stubLaunchctl(t, nil)
 
 	installed, err := Uninstall()
 	if err != nil {
-		t.Fatalf("未托管时 stop 应幂等成功: %v", err)
+		t.Fatalf("未托管时 uninstall 应幂等成功: %v", err)
 	}
 	if installed {
 		t.Fatal("未托管应返回 false")
+	}
+	// 即便 plist 早已不在，也要把可能残留的 disable 记录清掉。
+	verbs := launchctlVerbs(*calls)
+	if strings.Join(verbs, ",") != "bootout,enable" {
+		t.Fatalf("launchctl 调用序 = %v", verbs)
 	}
 }
 
@@ -279,8 +374,10 @@ func TestRestartReusesExistingPlist(t *testing.T) {
 	if !bytes.Equal(before, after) {
 		t.Fatal("restart 不得重渲染 plist——start 时敲定的参数须原样保留")
 	}
-	if len(*calls) != 3 {
-		t.Fatalf("restart 应走 bootout/bootstrap/kickstart，实际 %v", *calls)
+	verbs := launchctlVerbs(*calls)
+	// enable 同样打头：stop 停用过的服务，restart 也要能重新拉起来。
+	if strings.Join(verbs, ",") != "enable,bootout,bootstrap,kickstart" {
+		t.Fatalf("restart 的 launchctl 调用序 = %v", verbs)
 	}
 }
 
@@ -357,6 +454,49 @@ func TestQueryStoppedButInstalled(t *testing.T) {
 	}
 	if !status.HasLastExit || status.LastExitStatus != 1 {
 		t.Fatalf("应带上最近退出码 1: %+v", status)
+	}
+}
+
+func TestQueryReportsDisabled(t *testing.T) {
+	home := isolateHome(t)
+	stubLaunchctl(t, nil)
+	if _, err := Install(testConfig(home)); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	// 两种 macOS 印法都要认（=> true 与 => disabled）。
+	for _, printed := range []string{
+		"disabled services = {\n\t\"" + Label + "\" => true\n}",
+		"disabled services = {\n\t\"" + Label + "\" => disabled\n}",
+	} {
+		stubLaunchctl(t, func(args ...string) (string, error) {
+			if args[0] == "print-disabled" {
+				return printed, nil
+			}
+			return launchctlListStopped, nil
+		})
+		status, err := Query()
+		if err != nil {
+			t.Fatalf("Query: %v", err)
+		}
+		if !status.Disabled {
+			t.Fatalf("应识别为已停用，实际 %+v（launchctl 输出: %s）", status, printed)
+		}
+	}
+
+	// 别的服务被禁用不该误伤自己。
+	stubLaunchctl(t, func(args ...string) (string, error) {
+		if args[0] == "print-disabled" {
+			return "disabled services = {\n\t\"com.other.agent\" => true\n}", nil
+		}
+		return launchctlListRunning, nil
+	})
+	status, err := Query()
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if status.Disabled {
+		t.Fatal("只有自己这条 Label 的记录才算停用")
 	}
 }
 

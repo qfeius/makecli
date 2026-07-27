@@ -30,6 +30,7 @@ var hostGOOS = runtime.GOOS
 // launchd 托管原语的可打桩出口——单测据此隔离 launchctl 调用与 ~/Library 写入。
 var (
 	launchdInstall        = launchd.Install
+	launchdStop           = launchd.Stop
 	launchdUninstall      = launchd.Uninstall
 	launchdRestart        = launchd.Restart
 	launchdQuery          = launchd.Query
@@ -64,15 +65,30 @@ launchd 拉起的进程不继承 shell 环境,所以 gateway 地址、PATH 等�
 
 var daemonStopCmd = &cobra.Command{
 	Use:   "stop",
-	Short: "停止 launchd 托管的 daemon 并移除 LaunchAgent",
-	Long: `停止 daemon 并删除 LaunchAgent plist。
+	Short: "停止 launchd 托管的 daemon(保留托管配置)",
+	Long: `停止 daemon,但保留 LaunchAgent plist。
 
-删 plist 是"停"的必要一半:只卸载不删除的话,下次登录 launchd 扫描
-~/Library/LaunchAgents 又会把它拉起来。需要重新常驻请再跑 makecli daemon start。`,
+停用是持久的:光卸载的话,下次登录 launchd 扫描 ~/Library/LaunchAgents
+又会把它拉起来,所以 stop 顺手写下 launchctl disable 记录。
+再次拉起用 makecli daemon start 或 restart;彻底移除托管用 makecli daemon uninstall。`,
 	SilenceUsage: true,
 	Args:         cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runDaemonStop()
+	},
+}
+
+var daemonUninstallCmd = &cobra.Command{
+	Use:   "uninstall",
+	Short: "彻底移除 launchd 托管(停服 + 删除 LaunchAgent)",
+	Long: `停止 daemon 并删除 LaunchAgent plist,同时清掉 stop 留下的 disable 记录。
+
+只移除托管本身,不动 daemon 的数据:日志、工作目录与 ~/.make/credentials 里的
+node key 都原样保留,重新 makecli daemon start 即可续连(不必再拿 setup-key)。`,
+	SilenceUsage: true,
+	Args:         cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runDaemonUninstall()
 	},
 }
 
@@ -100,6 +116,7 @@ var daemonStatusCmd = &cobra.Command{
 type daemonStatusResult struct {
 	Label          string   `json:"label"`
 	State          string   `json:"state"`
+	Disabled       bool     `json:"disabled"` // 被 stop 停用：登录时不会自启
 	PID            int      `json:"pid,omitempty"`
 	LastExitStatus *int     `json:"last_exit_status,omitempty"`
 	PlistPath      string   `json:"plist_path"`
@@ -214,7 +231,7 @@ func runDaemonStop() error {
 	if err := ensureLaunchdSupported("stop"); err != nil {
 		return err
 	}
-	installed, err := launchdUninstall()
+	installed, err := launchdStop()
 	if err != nil {
 		return err
 	}
@@ -222,7 +239,29 @@ func runDaemonStop() error {
 		fmt.Println("daemon 未托管(没有 LaunchAgent),无需停止")
 		return nil
 	}
-	fmt.Println("daemon 已停止,LaunchAgent 已移除(登录不再自启)")
+	fmt.Println("daemon 已停止(LaunchAgent 保留,登录不会自启)")
+	fmt.Println("重新拉起: makecli daemon start;彻底移除: makecli daemon uninstall")
+	return nil
+}
+
+func runDaemonUninstall() error {
+	if err := ensureLaunchdSupported("uninstall"); err != nil {
+		return err
+	}
+	installed, err := launchdUninstall()
+	if err != nil {
+		return err
+	}
+	if !installed {
+		fmt.Println("daemon 未托管(没有 LaunchAgent),无需移除")
+		return nil
+	}
+	fmt.Println("daemon 已停止,LaunchAgent 已移除")
+	// 明说留下了什么：托管没了不等于数据没了，要清得用户自己动手。
+	if logPath, err := daemonLogPath(); err == nil {
+		fmt.Printf("%-10s %s\n", "保留", logPath+"(日志)")
+	}
+	fmt.Printf("%-10s %s\n", "保留", "~/.make/agent/work(工作目录)、credentials 里的 node key")
 	return nil
 }
 
@@ -254,6 +293,7 @@ func runDaemonStatus() error {
 	result := daemonStatusResult{
 		Label:     status.Label,
 		State:     daemonState(status),
+		Disabled:  status.Disabled,
 		PID:       status.PID,
 		PlistPath: status.PlistPath,
 		Command:   status.Command,
@@ -286,6 +326,14 @@ func daemonState(status launchd.Status) string {
 func renderDaemonStatus(result daemonStatusResult, installed bool) {
 	fmt.Printf("%-10s %s\n", "Label", result.Label)
 	fmt.Printf("%-10s %s\n", "State", result.State)
+	if installed {
+		// 「现在活没活」与「登录会不会自己回来」是两件事，分开报。
+		autostart := "enabled"
+		if result.Disabled {
+			autostart = "disabled"
+		}
+		fmt.Printf("%-10s %s\n", "Autostart", autostart)
+	}
 	if result.PID > 0 {
 		fmt.Printf("%-10s %d\n", "PID", result.PID)
 	}
@@ -302,6 +350,8 @@ func renderDaemonStatus(result daemonStatusResult, installed bool) {
 	switch {
 	case !installed:
 		fmt.Println("未托管:运行 `makecli daemon start` 交给 launchd 常驻")
+	case result.State == daemonStateStopped && result.Disabled:
+		fmt.Println("已被 `makecli daemon stop` 停用:`makecli daemon start` 重新拉起")
 	case result.State == daemonStateStopped:
 		fmt.Println("已托管但当前没有进程在跑:看日志定位,或 `makecli daemon restart` 重拉")
 	}
@@ -309,5 +359,5 @@ func renderDaemonStatus(result daemonStatusResult, installed bool) {
 
 func init() {
 	daemonStatusCmd.Flags().StringVarP(&daemonStatusOutput, "output", "o", outputTable, "输出格式(table|json)")
-	daemonCmd.AddCommand(daemonStartCmd, daemonStopCmd, daemonRestartCmd, daemonStatusCmd)
+	daemonCmd.AddCommand(daemonStartCmd, daemonStopCmd, daemonRestartCmd, daemonStatusCmd, daemonUninstallCmd)
 }
