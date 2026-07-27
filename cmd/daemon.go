@@ -4,7 +4,7 @@
  *           包内提供 runDaemon / runDaemonForeground 与 daemonRunConfig / resolveDaemonRunConfig / newEnrolledDaemon（前台与 launchd 托管共用）
  * [POS]: cmd 模块的设备接入入口：外接 brain 的 daemon 模式——注册设备、claim 领工作、驱动本机 CLI 执行；
  *        缺省即后台（转 runDaemonStart 交 launchd），--foreground 才在当前终端阻塞；
- *        配置 flag > env；首次入册走 --setup-key（console 铸），换回 node key 落 credentials；重启读本地 node key 续连
+ *        配置 flag > env；setup-key 与 node key 互斥；首次入册换回 node key 落 credentials，普通重启读本地 node key 续连
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -131,14 +131,18 @@ func resolveDaemonRunConfig() (daemonRunConfig, error) {
 }
 
 // newEnrolledDaemon 构造 daemon 并收口入册副作用：
-// 复用本地已入册的 node key（重启即续连），无则用 --setup-key 首次入册，
-// 换回的新 node key 合并写回 credentials（保留同段 access_token）。
+// 未入册时用 setup-key 换回 node key；已入册时复用本地 node key。
+// 两种凭证严格互斥：彻底移除 runtime 身份走 daemon uninstall，由它清掉
+// 当前 profile 的 node key；重新接入再出示新的 setup-key。
 func newEnrolledDaemon(ctx context.Context, runConfig daemonRunConfig, logger *slog.Logger) (*daemon.Daemon, error) {
 	creds, err := config.Load()
 	if err != nil {
 		return nil, err
 	}
 	nodeKey := creds[Profile].NodeKey
+	if nodeKey != "" && runConfig.SetupKey != "" {
+		return nil, fmt.Errorf("当前 profile %q 已有 node key；请先运行 `makecli daemon uninstall`，再用新的 setup-key 接入", Profile)
+	}
 
 	agentDaemon, err := daemon.New(ctx, daemon.Options{
 		ServerURL:      runConfig.ServerURL,
@@ -186,7 +190,7 @@ func init() {
 	// PersistentFlags：start 子命令要用完全同一套旋钮把前台形态固化进 plist，
 	// 定义一次即父子共享，杜绝两处 flag 定义漂移。
 	daemonCmd.PersistentFlags().StringVar(&daemonGatewayServerURL, "gateway-server-url", "", "Agent 平台 gateway 地址(缺省 MAKE_AGENT_SERVER_URL,再缺省按 --env 环境 preset)")
-	daemonCmd.PersistentFlags().StringVar(&daemonSetupKey, "setup-key", "", "首次入册用的一次性 setup-key(已入册则读本地 node key,无需再传)")
+	daemonCmd.PersistentFlags().StringVar(&daemonSetupKey, "setup-key", "", "首次入册用的一次性 setup-key(与本地 node key 互斥；重新入册前先 daemon uninstall)")
 	daemonCmd.PersistentFlags().StringVar(&daemonRuntimeName, "name", "", "runtime 名(缺省取 hostname)")
 	daemonCmd.PersistentFlags().StringVar(&daemonWorkDir, "work-dir", "", "工作目录根(缺省 ~/.make/agent/work)")
 	daemonCmd.PersistentFlags().DurationVar(&daemonMaxRunDuration, "max-run-duration", daemon.DefaultMaxRunDuration, "单 run 时长兜底")

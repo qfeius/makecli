@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 context、log/slog、sync、time；传输来自 client.go，执行编排来自 run.go，执行契约来自 adapter 包
- * [OUTPUT]: 对外提供 Daemon 与 Options、Run（注册 → 心跳 goroutine → claim 轮询 → 串行执行）
+ * [OUTPUT]: 对外提供 Daemon 与 Options、Run（node key 续连或 setup-key 入册 → 心跳 goroutine → claim 轮询 → 串行执行）
  * [POS]: internal/daemon 的主循环——正确性完全建立在拉取式 claim 上，连接断开只影响延迟；
  *        取消指令随心跳 actions 下发，v1 单设备串行执行（claim max=1）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -31,8 +31,8 @@ const (
 // Options 是 daemon 的启动配置。
 type Options struct {
 	ServerURL      string
-	NodeKey        string // 已入册的 node key（空则用 SetupKey 首次入册）
-	SetupKey       string // 首次入册用的一次性 setup-key
+	NodeKey        string // 已入册 runtime 的长期身份
+	SetupKey       string // 未入册 runtime 使用的一次性 setup-key；与 NodeKey 互斥
 	RuntimeName    string
 	WorkBaseDir    string        // 工作目录根，默认 ~/.make/agent/work
 	MaxRunDuration time.Duration // 0 取 DefaultMaxRunDuration
@@ -66,6 +66,9 @@ func New(ctx context.Context, options Options) (*Daemon, error) {
 	if options.NodeKey == "" && options.SetupKey == "" {
 		return nil, fmt.Errorf("首次接入需 --setup-key；已入册则读本地 node key")
 	}
+	if options.NodeKey != "" && options.SetupKey != "" {
+		return nil, fmt.Errorf("node key 与 setup-key 不能同时使用")
+	}
 	if options.Logger == nil {
 		options.Logger = slog.Default()
 	}
@@ -94,8 +97,8 @@ func New(ctx context.Context, options Options) (*Daemon, error) {
 	if len(daemon.backends) == 0 {
 		return nil, fmt.Errorf("没有可用的 brain CLI（claude / codex 均未探测到）")
 	}
-	// 无 node key：用 setup-key 首次入册换回长期 node key（capabilities 随入册上报）。
-	// 入册幂等由 setup-key 一次性兜底——已入册的机器应带 node key 启动，不再走此路。
+	// 无 node key：用 setup-key 首次入册，换回长期 node key
+	// （capabilities 随入册上报）。setup-key 一次性消费；正常重启不再传它。
 	if daemon.nodeKey == "" {
 		enrolled, err := daemon.client.EnrollRuntime(ctx, CreateRuntimeRequest{
 			SetupKey: options.SetupKey, Name: daemon.runtimeName, Capabilities: daemon.capabilities,

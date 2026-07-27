@@ -1,13 +1,20 @@
 /**
- * [INPUT]: 依赖 daemon.go 的 resolveAgentGatewayServerURL；setEnvFlag（client_test.go）临时覆盖全局 Environment
- * [OUTPUT]: 对外提供 gateway 地址取值链的单元测试——flag > env var > 环境 preset
- * [POS]: cmd 模块的 daemon 测试面——锁定"缺省零配置连对环境"的解析纪律
+ * [INPUT]: 依赖 daemon.go 的地址解析与入册凭证互斥逻辑；setEnvFlag/setProfile 测试辅助；internal/config 隔离 credentials
+ * [OUTPUT]: 对外提供 gateway 地址取值链与 node key/setup-key 互斥状态机的单元测试
+ * [POS]: cmd 模块的 daemon 测试面——锁定"缺省零配置连对环境"与"重新入册必须先 uninstall"纪律
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
 package cmd
 
-import "testing"
+import (
+	"context"
+	"log/slog"
+	"strings"
+	"testing"
+
+	"github.com/qfeius/makecli/internal/config"
+)
 
 func TestResolveAgentServerURLPresetByEnvironment(t *testing.T) {
 	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir()) // 隔离 [settings] environment
@@ -56,5 +63,23 @@ func TestResolveAgentServerURLFlagWins(t *testing.T) {
 	}
 	if url != "http://from-flag:2" {
 		t.Fatalf("flag 应最高优先: %q", url)
+	}
+}
+
+func TestNewEnrolledDaemonRejectsSetupKeyWhenNodeKeyExists(t *testing.T) {
+	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	setProfile(t, "work")
+	if err := config.Save(config.Credentials{
+		"work": {AccessToken: "access", NodeKey: "make_node_existing"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := newEnrolledDaemon(context.Background(), daemonRunConfig{
+		ServerURL: "https://gateway.example.com",
+		SetupKey:  "make_setup_fresh",
+	}, slog.Default())
+	if err == nil || !strings.Contains(err.Error(), "daemon uninstall") {
+		t.Fatalf("已有 node key 时应拒绝 setup-key 并指向 uninstall，实际: %v", err)
 	}
 }
