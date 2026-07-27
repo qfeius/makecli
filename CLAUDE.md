@@ -63,5 +63,6 @@ make local          # 构建并安装到 ~/.local/bin
 ## 安装方式
 ```bash
 brew tap qfeius/makecli
+brew trust qfeius/makecli
 brew install makecli
 ```

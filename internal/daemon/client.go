@@ -52,7 +52,10 @@ func (c *Client) call(ctx context.Context, resource, target string, requestBody,
 		return fmt.Errorf("build request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Bearer "+c.token)
+	if c.token != "" {
+		// 入册（换 node key 前）无 Bearer——gateway 对 runtime Create 免鉴权，setup-key 自证。
+		request.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	request.Header.Set(TargetHeader, target)
 	response, err := c.http.Do(request)
 	if err != nil {
@@ -80,17 +83,20 @@ func (c *Client) call(ctx context.Context, resource, target string, requestBody,
 	return nil
 }
 
-// RegisterDevice 注册（幂等，身份来自 token）。
-func (c *Client) RegisterDevice(ctx context.Context, request CreateDeviceRequest) (CreateDeviceResponse, error) {
-	var response CreateDeviceResponse
-	err := c.call(ctx, ResourceDevice, TargetCreateResource, request, &response)
+// SetToken 设置 Bearer node key（入册换回后调用）。
+func (c *Client) SetToken(token string) { c.token = token }
+
+// EnrollRuntime 自助入册（runtime CreateResource，setup-key 在 body 里自证，免 Bearer）。
+func (c *Client) EnrollRuntime(ctx context.Context, request CreateRuntimeRequest) (CreateRuntimeResponse, error) {
+	var response CreateRuntimeResponse
+	err := c.call(ctx, ResourceRuntime, TargetCreateResource, request, &response)
 	return response, err
 }
 
-// Heartbeat 心跳（15s）；响应 actions 携带取消指令。
-func (c *Client) Heartbeat(ctx context.Context, request CreateDeviceHeartbeatRequest) (CreateDeviceHeartbeatResponse, error) {
-	var response CreateDeviceHeartbeatResponse
-	err := c.call(ctx, ResourceDeviceHeartbeat, TargetCreateResource, request, &response)
+// Heartbeat 心跳（15s，runtime UpdateResource）；响应 actions 携带取消指令。
+func (c *Client) Heartbeat(ctx context.Context, request UpdateRuntimeRequest) (UpdateRuntimeResponse, error) {
+	var response UpdateRuntimeResponse
+	err := c.call(ctx, ResourceRuntime, TargetUpdateResource, request, &response)
 	return response, err
 }
 
