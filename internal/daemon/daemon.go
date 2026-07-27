@@ -98,7 +98,7 @@ func New(ctx context.Context, options Options) (*Daemon, error) {
 		return nil, fmt.Errorf("没有可用的 brain CLI（claude / codex 均未探测到）")
 	}
 	// 无 node key：用 setup-key 首次入册，换回长期 node key
-	//（capabilities 随入册上报）。setup-key 一次性消费；正常重启不再传它。
+	// （capabilities 随入册上报）。setup-key 一次性消费；正常重启不再传它。
 	if daemon.nodeKey == "" {
 		enrolled, err := daemon.client.EnrollRuntime(ctx, CreateRuntimeRequest{
 			SetupKey: options.SetupKey, Name: daemon.runtimeName, Capabilities: daemon.capabilities,
