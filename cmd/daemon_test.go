@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 daemon.go 的 resolveAgentGatewayURL；setEnvFlag（client_test.go）临时覆盖全局 Environment
+ * [INPUT]: 依赖 daemon.go 的 resolveAgentGatewayServerURL；setEnvFlag（client_test.go）临时覆盖全局 Environment
  * [OUTPUT]: 对外提供 gateway 地址取值链的单元测试——flag > env var > 环境 preset
  * [POS]: cmd 模块的 daemon 测试面——锁定"缺省零配置连对环境"的解析纪律
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -9,7 +9,7 @@ package cmd
 
 import "testing"
 
-func TestResolveAgentGatewayURLPresetByEnvironment(t *testing.T) {
+func TestResolveAgentServerURLPresetByEnvironment(t *testing.T) {
 	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir()) // 隔离 [settings] environment
 	tests := []struct {
 		environment string
@@ -21,7 +21,7 @@ func TestResolveAgentGatewayURLPresetByEnvironment(t *testing.T) {
 	}
 	for _, tt := range tests {
 		setEnvFlag(t, tt.environment)
-		url, err := resolveAgentGatewayURL()
+		url, err := resolveAgentGatewayServerURL()
 		if err != nil {
 			t.Fatalf("resolve(%s): %v", tt.environment, err)
 		}
@@ -31,11 +31,11 @@ func TestResolveAgentGatewayURLPresetByEnvironment(t *testing.T) {
 	}
 }
 
-func TestResolveAgentGatewayURLEnvVarOverridesPreset(t *testing.T) {
+func TestResolveAgentServerURLEnvVarOverridesPreset(t *testing.T) {
 	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
-	t.Setenv("MAKE_AGENT_GATEWAY_URL", "http://10.26.2.221:8081")
+	t.Setenv("MAKE_AGENT_SERVER_URL", "http://10.26.2.221:8081")
 	setEnvFlag(t, "production")
-	url, err := resolveAgentGatewayURL()
+	url, err := resolveAgentGatewayServerURL()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,13 +44,13 @@ func TestResolveAgentGatewayURLEnvVarOverridesPreset(t *testing.T) {
 	}
 }
 
-func TestResolveAgentGatewayURLFlagWins(t *testing.T) {
+func TestResolveAgentServerURLFlagWins(t *testing.T) {
 	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
-	t.Setenv("MAKE_AGENT_GATEWAY_URL", "http://from-env:1")
-	original := daemonGatewayURL
-	daemonGatewayURL = "http://from-flag:2"
-	t.Cleanup(func() { daemonGatewayURL = original })
-	url, err := resolveAgentGatewayURL()
+	t.Setenv("MAKE_AGENT_SERVER_URL", "http://from-env:1")
+	original := daemonGatewayServerURL
+	daemonGatewayServerURL = "http://from-flag:2"
+	t.Cleanup(func() { daemonGatewayServerURL = original })
+	url, err := resolveAgentGatewayServerURL()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -30,22 +30,24 @@ const (
 
 // Options 是 daemon 的启动配置。
 type Options struct {
-	GatewayURL     string
-	Token          string
-	DeviceName     string
+	ServerURL      string
+	NodeKey        string // 已入册的 node key（空则用 SetupKey 首次入册）
+	SetupKey       string // 首次入册用的一次性 setup-key
+	RuntimeName    string
 	WorkBaseDir    string        // 工作目录根，默认 ~/.make/agent/work
 	MaxRunDuration time.Duration // 0 取 DefaultMaxRunDuration
 	Backends       []adapter.Backend
 	Logger         *slog.Logger
 }
 
-// Daemon 是外接 brain 的接入点：注册设备、心跳续活、claim 领工作、
+// Daemon 是外接 brain 的接入点：入册 runtime、心跳续活、claim 领工作、
 // 驱动 CLI 执行并回写事件流。
 type Daemon struct {
 	client         *Client
 	backends       map[string]adapter.Backend // provider → backend（已探测可用）
-	capabilities   []DeviceCapability
-	deviceName     string
+	capabilities   []RuntimeCapability
+	runtimeName    string
+	nodeKey        string
 	workBaseDir    string
 	maxRunDuration time.Duration
 	logger         *slog.Logger
@@ -58,8 +60,11 @@ type Daemon struct {
 
 // New 探测各 backend 可用性并构造 Daemon；一个可用 backend 都没有即报错。
 func New(ctx context.Context, options Options) (*Daemon, error) {
-	if options.GatewayURL == "" || options.Token == "" {
-		return nil, fmt.Errorf("gateway URL 与 device token 均必填")
+	if options.ServerURL == "" {
+		return nil, fmt.Errorf("server URL 必填（--gateway-server-url）")
+	}
+	if options.NodeKey == "" && options.SetupKey == "" {
+		return nil, fmt.Errorf("首次接入需 --setup-key；已入册则读本地 node key")
 	}
 	if options.Logger == nil {
 		options.Logger = slog.Default()
@@ -68,9 +73,10 @@ func New(ctx context.Context, options Options) (*Daemon, error) {
 		options.MaxRunDuration = DefaultMaxRunDuration
 	}
 	daemon := &Daemon{
-		client:         NewClient(options.GatewayURL, options.Token),
+		client:         NewClient(options.ServerURL, options.NodeKey),
 		backends:       map[string]adapter.Backend{},
-		deviceName:     options.DeviceName,
+		runtimeName:    options.RuntimeName,
+		nodeKey:        options.NodeKey,
 		workBaseDir:    options.WorkBaseDir,
 		maxRunDuration: options.MaxRunDuration,
 		logger:         options.Logger,
@@ -82,25 +88,36 @@ func New(ctx context.Context, options Options) (*Daemon, error) {
 			continue
 		}
 		daemon.backends[backend.Provider()] = backend
-		daemon.capabilities = append(daemon.capabilities, DeviceCapability{Provider: backend.Provider(), Version: version})
+		daemon.capabilities = append(daemon.capabilities, RuntimeCapability{Provider: backend.Provider(), Version: version})
 		options.Logger.Info("provider 就绪", "provider", backend.Provider(), "version", version)
 	}
 	if len(daemon.backends) == 0 {
 		return nil, fmt.Errorf("没有可用的 brain CLI（claude / codex 均未探测到）")
 	}
+	// 无 node key：用 setup-key 首次入册换回长期 node key（capabilities 随入册上报）。
+	// 入册幂等由 setup-key 一次性兜底——已入册的机器应带 node key 启动，不再走此路。
+	if daemon.nodeKey == "" {
+		enrolled, err := daemon.client.EnrollRuntime(ctx, CreateRuntimeRequest{
+			SetupKey: options.SetupKey, Name: daemon.runtimeName, Capabilities: daemon.capabilities,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("入册失败: %w", err)
+		}
+		daemon.nodeKey = enrolled.NodeKey
+		daemon.client.SetToken(enrolled.NodeKey)
+		daemon.logger.Info("runtime enrolled", "runtime_id", enrolled.RuntimeID)
+	}
 	return daemon, nil
 }
+
+// NodeKey 返回当前 node key——cmd 层据此判断是否需要落盘持久化（入册换回的新 key）。
+func (d *Daemon) NodeKey() string { return d.nodeKey }
 
 // Run 阻塞运行直到 ctx 取消：注册 → 心跳 goroutine → claim 轮询（3s）。
 // v1 单设备串行：执行中不 claim，新消息在平台侧排队为下一个 run。
 func (d *Daemon) Run(ctx context.Context) error {
-	registered, err := d.client.RegisterDevice(ctx, CreateDeviceRequest{
-		Name: d.deviceName, Capabilities: d.capabilities,
-	})
-	if err != nil {
-		return fmt.Errorf("注册设备失败: %w", err)
-	}
-	d.logger.Info("device registered", "device_id", registered.DeviceID, "capabilities", len(d.capabilities))
+	// 入册已在 New 完成（换回 node key）；此处只驱动心跳 + claim 双循环。
+	d.logger.Info("runtime online", "capabilities", len(d.capabilities))
 
 	go d.heartbeatLoop(ctx)
 
@@ -175,7 +192,7 @@ func (d *Daemon) heartbeatLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			response, err := d.client.Heartbeat(ctx, CreateDeviceHeartbeatRequest{Capabilities: d.capabilities})
+			response, err := d.client.Heartbeat(ctx, UpdateRuntimeRequest{Capabilities: d.capabilities})
 			if err != nil {
 				d.logger.Warn("heartbeat", "err", err)
 				continue

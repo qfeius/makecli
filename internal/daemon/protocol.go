@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 encoding/json、time；线上形状真相源是 agent-design/Contract.md（黄金测试锁在 agent-contract 仓库）
- * [OUTPUT]: 对外提供 daemon 协议的 wire 类型——统一调用风格常量（封闭六动词 + 资源域路径）、信封、设备/claim/run/事件类型（camelCase）
+ * [OUTPUT]: 对外提供 daemon 协议的 wire 类型——统一调用风格常量（封闭六动词 + 资源域路径）、信封、runtime 入册/claim/run/事件类型（camelCase）
  * [POS]: internal/daemon 的协议词汇表。makecli 是公开 GitHub 仓库，无法 import 私有 agent-contract 模块，
  *        故在此镜像线上 JSON 形状；字段变更必须与 agent-contract 同步（先 Contract.md，后两边类型）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -28,11 +28,10 @@ const PathPrefix = "/api/make/agent/v1"
 
 // daemon 消费的资源域。
 const (
-	ResourceEvent           = "event"
-	ResourceRunClaim        = "run-claim"
-	ResourceRun             = "run"
-	ResourceDevice          = "device"
-	ResourceDeviceHeartbeat = "device-heartbeat"
+	ResourceEvent    = "event"
+	ResourceRunClaim = "run-claim"
+	ResourceRun      = "run"
+	ResourceRuntime  = "runtime"
 )
 
 // Envelope 是统一响应信封 {code, msg, data}。
@@ -97,38 +96,40 @@ type UserMessagePayload struct {
 	EndUser string  `json:"endUser"`
 }
 
-// DeviceCapability 是设备探测到的一个 CLI。
-type DeviceCapability struct {
+// RuntimeCapability 是 runtime 探测到的一个 CLI 脑。
+type RuntimeCapability struct {
 	Provider string `json:"provider"`
 	Version  string `json:"version,omitempty"`
 }
 
-// CreateDeviceRequest / Response —— 注册幂等，身份来自 token。
-type CreateDeviceRequest struct {
-	Name         string             `json:"name"`
-	Capabilities []DeviceCapability `json:"capabilities"`
+// CreateRuntimeRequest / Response —— 自助入册：出示 setup-key 换回长期 node key。
+type CreateRuntimeRequest struct {
+	SetupKey     string              `json:"setupKey"`
+	Name         string              `json:"name"`
+	Capabilities []RuntimeCapability `json:"capabilities"`
 }
 
-type CreateDeviceResponse struct {
-	DeviceID string `json:"deviceID"`
+type CreateRuntimeResponse struct {
+	RuntimeID string `json:"runtimeID"`
+	NodeKey   string `json:"nodeKey"` // 明文仅入册响应一次
 }
 
-// CreateDeviceHeartbeatRequest / Response —— 15s 周期；actions 是平台→设备指令通道。
-type CreateDeviceHeartbeatRequest struct {
-	Capabilities []DeviceCapability `json:"capabilities,omitempty"`
+// UpdateRuntimeRequest / Response —— 15s 心跳（node key 鉴权）；actions 是平台→runtime 指令通道。
+type UpdateRuntimeRequest struct {
+	Capabilities []RuntimeCapability `json:"capabilities,omitempty"`
 }
 
-type DeviceAction struct {
+type RuntimeAction struct {
 	Kind  string `json:"kind"` // v1 仅 cancel_run
 	RunID string `json:"runID,omitempty"`
 }
 
-type CreateDeviceHeartbeatResponse struct {
-	Ack     bool           `json:"ack"`
-	Actions []DeviceAction `json:"actions,omitempty"`
+type UpdateRuntimeResponse struct {
+	Ack     bool            `json:"ack"`
+	Actions []RuntimeAction `json:"actions,omitempty"`
 }
 
-// CreateRunClaimRequest —— 设备身份来自 token（gateway 注入），请求体不带 deviceID。
+// CreateRunClaimRequest —— runtime 身份来自 node key（gateway 注入 X-Runtime-ID），请求体不带 runtimeID。
 type CreateRunClaimRequest struct {
 	Capabilities []string `json:"capabilities"`
 	Max          int      `json:"max"`

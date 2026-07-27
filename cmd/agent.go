@@ -20,13 +20,13 @@ import (
 )
 
 var (
-	agentGatewayURL   string
-	agentToken        string
-	agentModel        string
-	agentPrompt       string
-	agentSystemPrompt string
-	agentApprove      bool
-	agentNoTools      bool
+	agentGatewayServerURL string
+	agentToken            string
+	agentModel            string
+	agentPrompt           string
+	agentSystemPrompt     string
+	agentApprove          bool
+	agentNoTools          bool
 )
 
 // agentCmd 是 keyless 本地 agent（自营脑设备版，Design.md §8.2）。
@@ -44,9 +44,9 @@ var agentCmd = &cobra.Command{
 		if token == "" {
 			return errAgentTokenMissing
 		}
-		gatewayURL := agentGatewayURL
+		gatewayURL := agentGatewayServerURL
 		if gatewayURL == "" {
-			resolved, err := resolveAgentGatewayURL()
+			resolved, err := resolveAgentGatewayServerURL()
 			if err != nil {
 				return err
 			}
@@ -84,7 +84,7 @@ var agentCmd = &cobra.Command{
 var errAgentTokenMissing = errors.New("缺少平台 token: 传 --token 或设置 MAKE_AGENT_TOKEN")
 
 func init() {
-	agentCmd.Flags().StringVar(&agentGatewayURL, "gateway-url", "", "Agent 平台 gateway 地址(缺省 MAKE_AGENT_GATEWAY_URL,再缺省按 --env 环境 preset)")
+	agentCmd.Flags().StringVar(&agentGatewayServerURL, "gateway-server-url", "", "Agent 平台 gateway 地址(缺省 MAKE_AGENT_SERVER_URL,再缺省按 --env 环境 preset)")
 	agentCmd.Flags().StringVar(&agentToken, "token", "", "平台 token(缺省读 MAKE_AGENT_TOKEN)")
 	agentCmd.Flags().StringVar(&agentModel, "model", "default", "模型别名(平台侧解析,非厂商模型名)")
 	agentCmd.Flags().StringVarP(&agentPrompt, "prompt", "p", "", "一次性模式:发送单条 prompt 后退出")

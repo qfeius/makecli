@@ -19,9 +19,12 @@ import (
 
 // ---------------------------------- 数据结构 ----------------------------------
 
-// Profile 代表一个命名配置块，如 [default] 或 [todo]
+// Profile 代表一个命名配置块，如 [default] 或 [todo]。
+// NodeKey 是 daemon 入册换回的 runtime 长期身份凭证——与 AccessToken 同段共存，
+// 读改写必须两者都保留（daemon 写 node_key 不得抹掉 login 写的 access_token）。
 type Profile struct {
 	AccessToken string
+	NodeKey     string
 }
 
 // Credentials 是所有 profile 的集合，key 为 profile 名
@@ -95,9 +98,14 @@ func parseINI(f *os.File) (Credentials, error) {
 		key := strings.TrimSpace(parts[0])
 		val := strings.TrimSpace(parts[1])
 
-		if key == "access_token" {
+		switch key {
+		case "access_token":
 			p := creds[current]
 			p.AccessToken = val
+			creds[current] = p
+		case "node_key":
+			p := creds[current]
+			p.NodeKey = val
 			creds[current] = p
 		}
 	}
@@ -116,6 +124,9 @@ func Save(creds Credentials) error {
 			return err
 		}
 		if err := validateINIValue(fmt.Sprintf("profile %q 的 access_token", name), p.AccessToken); err != nil {
+			return err
+		}
+		if err := validateINIValue(fmt.Sprintf("profile %q 的 node_key", name), p.NodeKey); err != nil {
 			return err
 		}
 	}
@@ -148,6 +159,9 @@ func Save(creds Credentials) error {
 			}
 			_, _ = fmt.Fprintf(w, "[%s]\n", name)
 			_, _ = fmt.Fprintf(w, "access_token = %s\n", creds[name].AccessToken)
+			if creds[name].NodeKey != "" {
+				_, _ = fmt.Fprintf(w, "node_key = %s\n", creds[name].NodeKey)
+			}
 		}
 		return nil
 	}); err != nil {
