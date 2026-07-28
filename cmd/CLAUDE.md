@@ -91,9 +91,11 @@
 - `schema.go`: schema 顶级子命令，按 appKey 调用 MakeService.GetResource 获取聚合 Schema（App + Entities + Relations），JSON 输出
 - `schema_test.go`: 覆盖 runSchema 的单元测试（成功/无凭证/API错误/未知profile），用 httptest 隔离网络
 - `output.go`: list 命令通用输出辅助（table|json 格式校验 + JSON 编码），被 app list / entity list / relation list / record list / record get 复用
-- `skills.go`: skills 命令组，挂载 list / update / remove 子命令；默认 RunE = list（version.go 同款 gh 模式），组级 --output 供裸 `makecli skills` 使用
+- `skills.go`: skills 命令组，挂载 list / install / update / remove 子命令；默认 RunE = list（version.go 同款 gh 模式），组级 --output 供裸 `makecli skills` 使用
 - `skills_list.go`: skills list 子命令，调 skillsync.List 合并本地 lockfile 与 GitHub 远端状态，tablewriter 输出 NAME/STATUS/DESCRIPTION(60 rune 截断)/UPDATED AT(裁到日期)；汇总行 N installed, M outdated, K available + update 提示；LockWarning/RemoteErr 渲染为 stderr 警告不阻断，退出码恒 0；支持 --output table|json（JSON 保留全文 description 与完整时间戳）；listSkillsFunc 包级可打桩变量
 - `skills_list_test.go`: 覆盖 runSkillsList 的单元测试（table 渲染+汇总行/JSON 全文/空态引导/警告进 stderr 不阻断/非法格式/裸 skills 默认= list/truncateLine），stubListSkills 打桩隔离 lockfile 与网络
+- `skills_install.go`: skills install 子命令——按名选装 / --all 全量互斥（都缺报错指引 skills list），两阶段 skillsync.PlanInstall（npx 门禁 + 远端校验）→ huh confirm 确认（--yes 跳过；非 TTY 拒绝指引 --yes，deploy production 同款护栏）→ skillsync.Install；plan.Warning 渲染 stderr；planInstallFunc / installSkillsFunc / confirmInstallFunc 包级可打桩变量
+- `skills_install_test.go`: 覆盖 skills install 的互斥/无参报错/确认流（先 confirm 后 install、拒绝短路、-y 跳过）/警告出 stderr/plan 与 install 错误透传/非 TTY 真门控/子命令注册，stubSkillsInstall 三点打桩隔离
 - `skills_update.go`: skills update 子命令，复用 update.go 的 runSkillSync（skillsync.Sync 幂等：装缺的 + 升级已有的），与 makecli update 后置同步同一代码路径
 - `skills_update_test.go`: 覆盖 skills update 走 runSkillSync 且 Skip 恒 false，syncSkillsFunc 打桩避免真实执行 npx
 - `skills_remove.go`: skills remove 子命令，名字必填（MinimumNArgs(1)），透传 skillsync.Remove（来源校验挡住误删第三方 skills）；removeSkillsFunc 包级可打桩变量
