@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 fmt、os、path/filepath、strings；协议类型来自 protocol.go
- * [OUTPUT]: 对外提供 PrepareWorkDir（工作目录定位/创建 + instructions 渲染为 CLI 原生上下文文件）与 BuildPrompt（触发区间事件 → prompt）
+ * [OUTPUT]: 对外提供 PrepareWorkDir（工作目录定位/创建 + description 身份职责与 instructions 执行要求渲染为 CLI 原生上下文文件）与 BuildPrompt（触发区间事件 → prompt）
  * [POS]: internal/daemon 的执行环境层——v1 最小版：目录 + 上下文文件（bare-clone 仓库缓存与 worktree 随 v2）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -15,12 +15,13 @@ import (
 	"strings"
 )
 
-// PrepareWorkDir 定位（或创建）run 的工作目录并渲染 agent instructions。
+// PrepareWorkDir 定位（或创建）run 的工作目录并渲染 agent 身份与指令。
 // 连续性优先：claim 下发的 workDir 可用即沿用；不可用（跨设备/跨 OS 的
 // 遗留路径）则回退 baseDir 下按 session 建目录并报告 resumable=false——
 // 调用方须同时放弃 cliSessionID（CLI 会话是设备本地状态，目录都不在，
-// 会话必然也不在）。instructions 渲染为 CLAUDE.md 与 AGENTS.md——两个
-// CLI 的原生发现路径都覆盖，呈现按 provider 适配的差异就止步于文件名。
+// 会话必然也不在）。description 与 instructions 分栏渲染为 CLAUDE.md 与
+// AGENTS.md——两个 CLI 的原生发现路径都覆盖，呈现按 provider 适配的差异
+// 就止步于文件名。
 func PrepareWorkDir(baseDir string, claim RunClaim) (workDir string, resumable bool, err error) {
 	resumable = true
 	workDir = claim.Resume.WorkDir
@@ -31,10 +32,19 @@ func PrepareWorkDir(baseDir string, claim RunClaim) (workDir string, resumable b
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return "", false, fmt.Errorf("create work dir: %w", err)
 	}
-	if instructions := strings.TrimSpace(claim.Agent.Instructions); instructions != "" {
-		content := fmt.Sprintf("# %s\n\n%s\n", claim.Agent.Name, instructions)
+	description := strings.TrimSpace(claim.Agent.Description)
+	instructions := strings.TrimSpace(claim.Agent.Instructions)
+	if description != "" || instructions != "" {
+		var content strings.Builder
+		fmt.Fprintf(&content, "# %s\n", claim.Agent.Name)
+		if description != "" {
+			fmt.Fprintf(&content, "\n## 身份与职责\n\n%s\n", description)
+		}
+		if instructions != "" {
+			fmt.Fprintf(&content, "\n## 执行要求\n\n%s\n", instructions)
+		}
 		for _, name := range []string{"CLAUDE.md", "AGENTS.md"} {
-			if err := os.WriteFile(filepath.Join(workDir, name), []byte(content), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(workDir, name), []byte(content.String()), 0o644); err != nil {
 				return "", false, fmt.Errorf("render %s: %w", name, err)
 			}
 		}
