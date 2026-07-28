@@ -3,7 +3,7 @@
  * [OUTPUT]: 对外提供 agentCmd——`makecli agent` 子命令（Hidden：keyless 通道未公开，不对普通用户展示）
  * [POS]: cmd 模块的自营脑设备版入口（agent-design/Design.md §8.2）：LLM 走平台——
  *        token 只开模型门，设备端零厂商 key；gateway 地址取值链与 daemon 一致。
- *        默认即 code agent（七工具 + 目录信任 + 两层循环）；--no-tools 退回纯聊天 ChatStream
+ *        默认即 code agent（七工具 + 目录信任 + 两层循环）；--chat-only 退回纯聊天 ChatStream
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -26,7 +26,7 @@ var (
 	agentPrompt           string
 	agentSystemPrompt     string
 	agentApprove          bool
-	agentNoTools          bool
+	agentChatOnly         bool
 )
 
 // agentCmd 是 keyless 本地 agent（自营脑设备版，Design.md §8.2）。
@@ -56,8 +56,8 @@ var agentCmd = &cobra.Command{
 		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
 
-		// --no-tools：退回纯聊天通道（既有 ChatStream 路径，无工具无信任门控）。
-		if agentNoTools {
+		// --chat-only：退回纯聊天通道（既有 ChatStream 路径，无工具无信任门控）。
+		if agentChatOnly {
 			client := agent.NewClient(gatewayURL, token, agent.NewSessionID())
 			if agentPrompt != "" {
 				return agent.RunOnce(ctx, client, agentModel, agentSystemPrompt, agentPrompt, cmd.OutOrStdout())
@@ -90,6 +90,6 @@ func init() {
 	agentCmd.Flags().StringVarP(&agentPrompt, "prompt", "p", "", "一次性模式:发送单条 prompt 后退出")
 	agentCmd.Flags().StringVar(&agentSystemPrompt, "system", "", "system prompt")
 	agentCmd.Flags().BoolVar(&agentApprove, "approve", false, "启动即授予当前目录会话信任,副作用工具(bash/write/edit)免逐次确认")
-	agentCmd.Flags().BoolVar(&agentNoTools, "no-tools", false, "禁用工具,退回纯聊天模式")
+	agentCmd.Flags().BoolVar(&agentChatOnly, "chat-only", false, "纯聊天模式")
 	rootCmd.AddCommand(agentCmd)
 }
