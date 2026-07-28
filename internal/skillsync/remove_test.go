@@ -133,6 +133,29 @@ func TestPlanRemoveWithoutNpx(t *testing.T) {
 	}
 }
 
+func TestPlanRemoveDedupesAndSortsNames(t *testing.T) {
+	stubNpxPresent(t)
+	stubLockFile(t, sampleLock)
+
+	plan, err := PlanRemove([]string{"makeui", "makedsl", "makeui"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(plan.Names, []string{"makedsl", "makeui"}) {
+		t.Fatalf("expected deduped sorted names, got %v", plan.Names)
+	}
+}
+
+func TestPlanRemoveRejectsFlagShapedName(t *testing.T) {
+	stubNpxPresent(t)
+	stubLockFile(t, `{"version":3,"skills":{"--all":{"source":"qfeius/make-platform-skills","sourceType":"github","skillFolderHash":"h","installedAt":"2026-07-01T00:00:00.000Z","updatedAt":"2026-07-01T00:00:00.000Z"}}}`)
+
+	_, err := PlanRemove(nil, true)
+	if err == nil || !strings.Contains(err.Error(), `invalid skill name: "--all"`) {
+		t.Fatalf("expected flag-shaped rejection, got: %v", err)
+	}
+}
+
 func TestRemoveExecutesPerName(t *testing.T) {
 	calls := stubRunSkillsCommand(t, "removed", nil)
 

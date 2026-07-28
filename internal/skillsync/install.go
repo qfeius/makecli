@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 context、fmt、maps、slices、strings
  * [OUTPUT]: 对外提供 PlanInstall / Install / InstallPlan / InstallCommand，安装指定或全部 Make platform skills
- * [POS]: internal/skillsync 的安装层，被 cmd/skills_install.go 消费；两阶段：PlanInstall（EnsureNpx 门禁 + 远端校验 + 构造命令）供 cmd 层确认展示，Install 执行；复用 sync.go 的 runSkillsCommand / syncTimeout / trimOutput 与 inventory.go 的 fetchRemoteSkills
+ * [POS]: internal/skillsync 的安装层，被 cmd/skills_install.go 消费；两阶段：PlanInstall（EnsureNpx 门禁 + 远端校验 + 构造命令）供 cmd 层确认展示，Install 执行；按名清单去重排序（Command 由去重后的 plan.Names 构造），并统一拒绝 flag 形状名字；复用 sync.go 的 runSkillsCommand / syncTimeout / trimOutput / dedupSortedNames 与 inventory.go 的 fetchRemoteSkills
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -52,7 +52,7 @@ func PlanInstall(ctx context.Context, names []string, all bool) (InstallPlan, er
 	case all:
 		plan.Warning = fmt.Sprintf("cannot list remote skills: %v", err)
 	case err != nil:
-		plan.Names = names
+		plan.Names = dedupSortedNames(names)
 		plan.Warning = fmt.Sprintf("cannot verify skill names against %s: %v", SkillsSource, err)
 	default:
 		var invalid []string
@@ -65,9 +65,16 @@ func PlanInstall(ctx context.Context, names []string, all bool) (InstallPlan, er
 			return InstallPlan{}, fmt.Errorf("unknown Make platform skills: %s\navailable skills: %s",
 				strings.Join(invalid, ", "), strings.Join(slices.Sorted(maps.Keys(remote)), ", "))
 		}
-		plan.Names = names
+		plan.Names = dedupSortedNames(names)
 	}
-	plan.Command = InstallCommand(names, all)
+
+	// 防御性收口：用户输入若混入形如 "--all" 的名字，绝不能被原样透传给上游 npx 命令。
+	for _, name := range plan.Names {
+		if strings.HasPrefix(name, "-") {
+			return InstallPlan{}, fmt.Errorf("invalid skill name: %q", name)
+		}
+	}
+	plan.Command = InstallCommand(plan.Names, all)
 	return plan, nil
 }
 

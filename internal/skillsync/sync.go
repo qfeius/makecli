@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 context、os/exec、strings、time
+ * [INPUT]: 依赖 context、os/exec、slices、strings、time
  * [OUTPUT]: 对外提供 Sync / Options / Result / SkillsCommand，执行 Make platform skills 默认同步
- * [POS]: internal/skillsync 的编排层，被 cmd/update.go 在二进制更新后调用；Skip 判断后前置 EnsureNpx 环境门禁（Skip 不要求 npx）；隔离 npx 副作用，update 每次刷新 skills
+ * [POS]: internal/skillsync 的编排层，被 cmd/update.go 在二进制更新后调用；Skip 判断后前置 EnsureNpx 环境门禁（Skip 不要求 npx）；隔离 npx 副作用，update 每次刷新 skills；dedupSortedNames 去重排序按名清单，被 remove.go / install.go 复用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -102,6 +103,14 @@ func defaultRunSkillsCommand(ctx context.Context, command []string) (string, err
 	cmd.Stderr = &out
 	err := cmd.Run()
 	return out.String(), err
+}
+
+// dedupSortedNames 返回去重排序后的副本，被 remove.go / install.go 的按名路径共用——
+// 用户在命令行重复传同一个名字（如 `skills remove a a`）不该对上游 npx 发两次同名请求。
+func dedupSortedNames(names []string) []string {
+	sorted := slices.Clone(names)
+	slices.Sort(sorted)
+	return slices.Compact(sorted)
 }
 
 func trimOutput(output string) string {

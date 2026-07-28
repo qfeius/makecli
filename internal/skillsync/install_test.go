@@ -54,6 +54,22 @@ func TestPlanInstallValidNames(t *testing.T) {
 	}
 }
 
+func TestPlanInstallDedupesAndSortsNames(t *testing.T) {
+	stubNpxPresent(t)
+	stubRemoteAPI(t, serveSampleRemote)
+
+	plan, err := PlanInstall(context.Background(), []string{"makeui", "makedsl", "makeui"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Equal(plan.Names, []string{"makedsl", "makeui"}) {
+		t.Fatalf("expected deduped sorted names, got %v", plan.Names)
+	}
+	if !slices.Equal(plan.Command, InstallCommand([]string{"makedsl", "makeui"}, false)) {
+		t.Fatalf("command must be built from deduped names, got %v", plan.Command)
+	}
+}
+
 func TestPlanInstallUnknownNameListsCandidates(t *testing.T) {
 	stubNpxPresent(t)
 	stubRemoteAPI(t, serveSampleRemote)
