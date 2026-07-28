@@ -23,7 +23,7 @@ func serveSampleRemote(w http.ResponseWriter, _ *http.Request) {
 
 func TestInstallCommandByName(t *testing.T) {
 	got := InstallCommand([]string{"makedsl", "makeui"}, false)
-	want := []string{"npx", "-y", "skills", "add", SkillsSource, "-s", "makedsl", "makeui", "-a", "*", "-y"}
+	want := []string{"npx", "-y", "skills", "add", SkillsSource, "-s", "makedsl", "makeui", "-a", "*", "-y", "--global"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("unexpected command:\n got %v\nwant %v", got, want)
 	}

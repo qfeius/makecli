@@ -31,7 +31,7 @@ func InstallCommand(names []string, all bool) []string {
 	}
 	command := []string{"npx", "-y", "skills", "add", SkillsSource, "-s"}
 	command = append(command, names...)
-	return append(command, "-a", "*", "-y")
+	return append(command, "-a", "*", "-y", "--global")
 }
 
 // PlanInstall 解析一次安装：npx 环境门禁 → 远端清单校验/展开 → 构造命令。

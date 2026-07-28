@@ -22,6 +22,13 @@ func setRunSkillsCommand(t *testing.T, f func(context.Context, []string) (string
 	t.Cleanup(func() { runSkillsCommand = old })
 }
 
+func TestSkillsCommandPinsGlobalScope(t *testing.T) {
+	want := []string{"npx", "-y", "skills", "add", SkillsSource, "--all", "-y", "--global"}
+	if got := SkillsCommand(); !slices.Equal(got, want) {
+		t.Fatalf("unexpected command:\n got %v\nwant %v", got, want)
+	}
+}
+
 func TestSyncAlwaysRunsNpx(t *testing.T) {
 	stubNpxPresent(t)
 	var gotCommand []string
@@ -41,7 +48,7 @@ func TestSyncAlwaysRunsNpx(t *testing.T) {
 	if !slices.Equal(gotCommand, SkillsCommand()) {
 		t.Fatalf("command = %#v, want %#v", gotCommand, SkillsCommand())
 	}
-	if result.CommandString() != "npx -y skills add qfeius/make-platform-skills --all -y" {
+	if result.CommandString() != "npx -y skills add qfeius/make-platform-skills --all -y --global" {
 		t.Fatalf("command string = %q", result.CommandString())
 	}
 }

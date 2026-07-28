@@ -48,8 +48,11 @@ func (r Result) CommandString() string {
 }
 
 // SkillsCommand 返回官方 Make platform skills 安装/更新命令。
+// 必须钉死 --global：上游 skills CLI 在项目目录内默认落 project scope（写 cwd 的
+// skills-lock.json），而 makecli 的 lockfile / 清单 / 校验全部锚定全局 ~/.agents，
+// 不钉 scope 会导致执行与清单看到的状态分裂。install.go / remove.go 同款约束。
 func SkillsCommand() []string {
-	return []string{"npx", "-y", "skills", "add", SkillsSource, "--all", "-y"}
+	return []string{"npx", "-y", "skills", "add", SkillsSource, "--all", "-y", "--global"}
 }
 
 var runSkillsCommand = defaultRunSkillsCommand

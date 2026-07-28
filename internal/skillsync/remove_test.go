@@ -30,7 +30,7 @@ func stubRunSkillsCommand(t *testing.T, output string, err error) *[][]string {
 
 func TestRemoveCommandSingle(t *testing.T) {
 	got := RemoveCommand("makedsl")
-	want := []string{"npx", "-y", "skills", "remove", "makedsl", "-y"}
+	want := []string{"npx", "-y", "skills", "remove", "makedsl", "-y", "--global"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("unexpected command:\n got %v\nwant %v", got, want)
 	}
@@ -188,7 +188,7 @@ func TestRemovePartialFailureContinues(t *testing.T) {
 	t.Cleanup(func() { runSkillsCommand = orig })
 
 	results, err := Remove(context.Background(), RemovePlan{Names: []string{"makedsl", "makeui"}})
-	if err == nil || !strings.Contains(err.Error(), "failed to remove 1 of 2 skills") {
+	if err == nil || !strings.Contains(err.Error(), "failed to uninstall 1 of 2 skills") {
 		t.Fatalf("expected summary error, got: %v", err)
 	}
 	if results[0].Err == nil || !strings.Contains(results[0].Err.Error(), "manual fix: npx -y skills remove makedsl -y") {

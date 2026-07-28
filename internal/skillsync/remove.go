@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 context、errors、fmt、maps、slices、strings
  * [OUTPUT]: 对外提供 PlanRemove / Remove / RemovePlan / RemoveResult / RemoveCommand，移除已安装的 Make platform skills
- * [POS]: internal/skillsync 的删除层，被 cmd/skills_remove.go 消费；两阶段：PlanRemove（EnsureNpx 门禁 + lockfile 校验/展开）供 cmd 层确认展示，Remove 逐个执行（每 skill 一次 npx 调用、独立超时、失败不中断）；--all 从 lockfile 展开为按名删除，绝不透传上游 --all（会误删第三方 skills）；按名清单去重排序，并统一拒绝 flag 形状名字（防投毒 lockfile）；复用 sync.go 的 runSkillsCommand / syncTimeout / trimOutput / dedupSortedNames
+ * [POS]: internal/skillsync 的删除层，被 cmd/skills_uninstall.go 消费；两阶段：PlanRemove（EnsureNpx 门禁 + lockfile 校验/展开）供 cmd 层确认展示，Remove 逐个执行（每 skill 一次 npx 调用、独立超时、失败不中断）；--all 从 lockfile 展开为按名删除，绝不透传上游 --all（会误删第三方 skills）；按名清单去重排序，并统一拒绝 flag 形状名字（防投毒 lockfile）；复用 sync.go 的 runSkillsCommand / syncTimeout / trimOutput / dedupSortedNames
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -30,8 +30,10 @@ type RemoveResult struct {
 }
 
 // RemoveCommand 返回删除单个 skill 的非交互命令。
+// --global 与 SkillsCommand 同款约束：不钉 scope 时上游在项目目录内删的是
+// project scope，全局 lockfile 原封不动，造成「报告已删、list 仍在」。
 func RemoveCommand(name string) []string {
-	return []string{"npx", "-y", "skills", "remove", name, "-y"}
+	return []string{"npx", "-y", "skills", "remove", name, "-y", "--global"}
 }
 
 // PlanRemove 解析一次移除：npx 环境门禁 → lockfile 校验按名 / 展开 --all。
@@ -99,7 +101,7 @@ func Remove(ctx context.Context, plan RemovePlan) ([]RemoveResult, error) {
 		}
 	}
 	if failed > 0 {
-		return results, fmt.Errorf("failed to remove %d of %d skills", failed, len(plan.Names))
+		return results, fmt.Errorf("failed to uninstall %d of %d skills", failed, len(plan.Names))
 	}
 	return results, nil
 }
@@ -112,7 +114,7 @@ func removeOne(ctx context.Context, name string) error {
 	command := RemoveCommand(name)
 	output, err := runSkillsCommand(runCtx, command)
 	if err != nil {
-		return fmt.Errorf("failed to remove %s: %w\nmanual fix: %s\n%s",
+		return fmt.Errorf("failed to uninstall %s: %w\nmanual fix: %s\n%s",
 			name, err, strings.Join(command, " "), trimOutput(strings.TrimSpace(output)))
 	}
 	return nil
