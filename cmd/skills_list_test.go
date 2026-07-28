@@ -10,10 +10,12 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/qfeius/makecli/internal/skillsync"
+	"github.com/spf13/cobra"
 )
 
 // stubListSkills 打桩 listSkillsFunc 返回固定 Inventory。
@@ -143,6 +145,22 @@ func TestSkillsDefaultIsList(t *testing.T) {
 
 	if !strings.Contains(out, "makedsl") {
 		t.Errorf("bare 'makecli skills' must render list:\n%s", out)
+	}
+}
+
+func TestSkillsUnknownSubcommandErrors(t *testing.T) {
+	stubListSkills(t, sampleInventory())
+
+	// 必须挂在 parent 下执行：cobra 的 legacyArgs 只对 root 命令做未知子命令
+	// 检查，真实二进制里 skills 有 parent，未知子命令会静默回落到默认 list。
+	root := &cobra.Command{Use: "makecli", SilenceUsage: true, SilenceErrors: true}
+	root.AddCommand(newSkillsCmd())
+	root.SetArgs([]string{"skills", "remove", "makeui"})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("typo subcommand must error, not fall back to list, got: %v", err)
 	}
 }
 

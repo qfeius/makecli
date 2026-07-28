@@ -21,7 +21,7 @@ import (
 )
 
 // planInstallFunc / installSkillsFunc / confirmInstallFunc 为包级可打桩变量，
-// 单测替换以隔离网络、npx 执行与终端交互（参照 skills_remove.go removeSkillsFunc 模式）。
+// 单测替换以隔离网络、npx 执行与终端交互（参照 skills_uninstall.go uninstallSkillsFunc 模式）。
 var planInstallFunc = skillsync.PlanInstall
 var installSkillsFunc = skillsync.Install
 var confirmInstallFunc = confirmInstall
@@ -73,7 +73,7 @@ func runSkillsInstall(ctx context.Context, cmd *cobra.Command, names []string, a
 	}
 
 	if len(plan.Names) > 0 {
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Installed: %s\n", strings.Join(plan.Names, ", "))
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), skillsDoneLine(plan.Names, "installed"))
 	} else {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Installed all Make platform skills")
 	}

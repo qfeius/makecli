@@ -87,7 +87,7 @@ func TestSkillsInstallByName(t *testing.T) {
 	if !slices.Equal(rec.installPlan.Names, plan.Names) {
 		t.Fatalf("plan must pass through unmodified: %+v", rec.installPlan)
 	}
-	if !strings.Contains(out, "Installed: makedsl, makeui") {
+	if !strings.Contains(out, "makedsl, makeui skills installed.") {
 		t.Fatalf("missing success output:\n%s", out)
 	}
 }
@@ -103,7 +103,7 @@ func TestSkillsInstallAll(t *testing.T) {
 	if !rec.planAll || len(rec.planNames) != 0 {
 		t.Fatalf("unexpected plan args: names=%v all=%v", rec.planNames, rec.planAll)
 	}
-	if !strings.Contains(out, "Installed: makedsl, makeui") {
+	if !strings.Contains(out, "makedsl, makeui skills installed.") {
 		t.Fatalf("missing success output:\n%s", out)
 	}
 }
