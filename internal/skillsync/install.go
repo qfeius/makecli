@@ -71,7 +71,7 @@ func PlanInstall(ctx context.Context, names []string, all bool) (InstallPlan, er
 	return plan, nil
 }
 
-// Install 执行已确认的安装计划。
+// Install 执行已确认的安装计划；计划必须来自 PlanInstall（EnsureNpx 门禁在 Plan 层）。
 func Install(ctx context.Context, plan InstallPlan) error {
 	if ctx == nil {
 		ctx = context.Background()
