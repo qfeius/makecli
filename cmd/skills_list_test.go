@@ -10,10 +10,12 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/qfeius/makecli/internal/skillsync"
+	"github.com/spf13/cobra"
 )
 
 // stubListSkills 打桩 listSkillsFunc 返回固定 Inventory。
@@ -36,17 +38,21 @@ func TestRunSkillsListTable(t *testing.T) {
 	stubListSkills(t, sampleInventory())
 
 	out := captureStdout(t, func() {
-		if err := runSkillsList(context.Background(), outputTable); err != nil {
+		if err := runSkillsList(context.Background(), outputTable, false); err != nil {
 			t.Errorf("runSkillsList: %v", err)
 		}
 	})
 
-	for _, want := range []string{"NAME", "STATUS", "makedsl", "outdated", "makeui", "up-to-date", "make-app-auth", "not installed"} {
+	for _, want := range []string{"NAME", "STATUS", "makedsl", "outdated", "makeui", "up-to-date"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
 	}
-	if !strings.Contains(out, "2 installed, 1 outdated, 1 available") {
+	// 默认视图只列已安装：远端可装条目不进表格，汇总行提示 --all
+	if strings.Contains(out, "make-app-auth") || strings.Contains(out, "not installed") {
+		t.Errorf("default view must hide not-installed skills:\n%s", out)
+	}
+	if !strings.Contains(out, "2 installed, 1 outdated (1 more available, --all to show)") {
 		t.Errorf("missing summary line:\n%s", out)
 	}
 	if !strings.Contains(out, "makecli skills update") {
@@ -58,11 +64,54 @@ func TestRunSkillsListTable(t *testing.T) {
 	}
 }
 
+func TestRunSkillsListAllShowsCatalog(t *testing.T) {
+	stubListSkills(t, sampleInventory())
+
+	out := captureStdout(t, func() {
+		if err := runSkillsList(context.Background(), outputTable, true); err != nil {
+			t.Errorf("runSkillsList: %v", err)
+		}
+	})
+
+	for _, want := range []string{"make-app-auth", "not installed", "makedsl", "makeui"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--all view missing %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "2 installed, 1 outdated, 1 available") {
+		t.Errorf("missing catalog summary line:\n%s", out)
+	}
+}
+
 func TestRunSkillsListJSON(t *testing.T) {
 	stubListSkills(t, sampleInventory())
 
 	out := captureStdout(t, func() {
-		if err := runSkillsList(context.Background(), outputJSON); err != nil {
+		if err := runSkillsList(context.Background(), outputJSON, false); err != nil {
+			t.Errorf("runSkillsList: %v", err)
+		}
+	})
+
+	var payload struct {
+		Data []skillsync.SkillInfo `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	// JSON 与表格同一过滤语义：默认只含已安装
+	if len(payload.Data) != 2 {
+		t.Fatalf("expected 2 installed skills, got %d", len(payload.Data))
+	}
+	if payload.Data[0].Description != "DSL 设计与生成" {
+		t.Fatalf("JSON must keep full description: %+v", payload.Data[0])
+	}
+}
+
+func TestRunSkillsListJSONAll(t *testing.T) {
+	stubListSkills(t, sampleInventory())
+
+	out := captureStdout(t, func() {
+		if err := runSkillsList(context.Background(), outputJSON, true); err != nil {
 			t.Errorf("runSkillsList: %v", err)
 		}
 	})
@@ -74,10 +123,7 @@ func TestRunSkillsListJSON(t *testing.T) {
 		t.Fatalf("invalid JSON: %v\n%s", err, out)
 	}
 	if len(payload.Data) != 3 {
-		t.Fatalf("expected 3 skills, got %d", len(payload.Data))
-	}
-	if payload.Data[1].Description != "DSL 设计与生成" {
-		t.Fatalf("JSON must keep full description: %+v", payload.Data[1])
+		t.Fatalf("expected full catalog of 3 skills, got %d", len(payload.Data))
 	}
 }
 
@@ -85,7 +131,7 @@ func TestRunSkillsListEmpty(t *testing.T) {
 	stubListSkills(t, skillsync.Inventory{})
 
 	out := captureStdout(t, func() {
-		if err := runSkillsList(context.Background(), outputTable); err != nil {
+		if err := runSkillsList(context.Background(), outputTable, false); err != nil {
 			t.Errorf("runSkillsList: %v", err)
 		}
 	})
@@ -93,7 +139,7 @@ func TestRunSkillsListEmpty(t *testing.T) {
 	if !strings.Contains(out, "No Make platform skills installed") {
 		t.Errorf("missing empty state:\n%s", out)
 	}
-	if !strings.Contains(out, "makecli skills update") {
+	if !strings.Contains(out, "makecli skills install -y --all") {
 		t.Errorf("empty state must guide installation:\n%s", out)
 	}
 }
@@ -107,7 +153,7 @@ func TestRunSkillsListWarnings(t *testing.T) {
 	var stdout string
 	stderr := captureStderr(t, func() {
 		stdout = captureStdout(t, func() {
-			if err := runSkillsList(context.Background(), outputTable); err != nil {
+			if err := runSkillsList(context.Background(), outputTable, false); err != nil {
 				t.Errorf("warnings must not fail the command: %v", err)
 			}
 		})
@@ -125,7 +171,7 @@ func TestRunSkillsListWarnings(t *testing.T) {
 }
 
 func TestRunSkillsListInvalidOutput(t *testing.T) {
-	if err := runSkillsList(context.Background(), "xml"); err == nil {
+	if err := runSkillsList(context.Background(), "xml", false); err == nil {
 		t.Fatal("expected error for invalid output format")
 	}
 }
@@ -143,6 +189,22 @@ func TestSkillsDefaultIsList(t *testing.T) {
 
 	if !strings.Contains(out, "makedsl") {
 		t.Errorf("bare 'makecli skills' must render list:\n%s", out)
+	}
+}
+
+func TestSkillsUnknownSubcommandErrors(t *testing.T) {
+	stubListSkills(t, sampleInventory())
+
+	// 必须挂在 parent 下执行：cobra 的 legacyArgs 只对 root 命令做未知子命令
+	// 检查，真实二进制里 skills 有 parent，未知子命令会静默回落到默认 list。
+	root := &cobra.Command{Use: "makecli", SilenceUsage: true, SilenceErrors: true}
+	root.AddCommand(newSkillsCmd())
+	root.SetArgs([]string{"skills", "remove", "makeui"})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown command") {
+		t.Fatalf("typo subcommand must error, not fall back to list, got: %v", err)
 	}
 }
 

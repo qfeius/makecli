@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 context、os/exec、strings、time
+ * [INPUT]: 依赖 context、os/exec、slices、strings、time
  * [OUTPUT]: 对外提供 Sync / Options / Result / SkillsCommand，执行 Make platform skills 默认同步
- * [POS]: internal/skillsync 的编排层，被 cmd/update.go 在二进制更新后调用；隔离 npx 副作用，update 每次刷新 skills
+ * [POS]: internal/skillsync 的编排层，被 cmd/update.go 在二进制更新后调用；Skip 判断后前置 EnsureNpx 环境门禁（Skip 不要求 npx）；隔离 npx 副作用，update 每次刷新 skills；dedupSortedNames 去重排序按名清单，被 remove.go / install.go 复用
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -47,8 +48,11 @@ func (r Result) CommandString() string {
 }
 
 // SkillsCommand 返回官方 Make platform skills 安装/更新命令。
+// 必须钉死 --global：上游 skills CLI 在项目目录内默认落 project scope（写 cwd 的
+// skills-lock.json），而 makecli 的 lockfile / 清单 / 校验全部锚定全局 ~/.agents，
+// 不钉 scope 会导致执行与清单看到的状态分裂。install.go / remove.go 同款约束。
 func SkillsCommand() []string {
-	return []string{"npx", "-y", "skills", "add", SkillsSource, "--all", "-y"}
+	return []string{"npx", "-y", "skills", "add", SkillsSource, "--all", "-y", "--global"}
 }
 
 var runSkillsCommand = defaultRunSkillsCommand
@@ -66,6 +70,11 @@ func Sync(ctx context.Context, opts Options) (Result, error) {
 		result.Action = ActionSkipped
 		result.Reason = "disabled by flag"
 		return result, nil
+	}
+
+	if err := EnsureNpx(); err != nil {
+		result.Action = ActionFailed
+		return result, err
 	}
 
 	runCtx := ctx
@@ -97,6 +106,14 @@ func defaultRunSkillsCommand(ctx context.Context, command []string) (string, err
 	cmd.Stderr = &out
 	err := cmd.Run()
 	return out.String(), err
+}
+
+// dedupSortedNames 返回去重排序后的副本，被 remove.go / install.go 的按名路径共用——
+// 用户在命令行重复传同一个名字（如 `skills remove a a`）不该对上游 npx 发两次同名请求。
+func dedupSortedNames(names []string) []string {
+	sorted := slices.Clone(names)
+	slices.Sort(sorted)
+	return slices.Compact(sorted)
 }
 
 func trimOutput(output string) string {

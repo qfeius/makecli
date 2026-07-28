@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 context、fmt、os、github.com/olekukonko/tablewriter、github.com/spf13/cobra、internal/skillsync、cmd/output 辅助
+ * [INPUT]: 依赖 context、fmt、os、slices、github.com/olekukonko/tablewriter、github.com/spf13/cobra、internal/skillsync、cmd/output 辅助
  * [OUTPUT]: 对外提供 newSkillsListCmd 函数；包内 runSkillsList 被 skills 命令组默认行为复用
- * [POS]: cmd/skills 的 list 子命令，合并本地 lockfile 与 GitHub 远端状态，输出列 NAME/STATUS/DESCRIPTION/UPDATED AT；支持 table|json；远端失败降级 unknown + stderr 警告，退出码恒 0
+ * [POS]: cmd/skills 的 list 子命令，合并本地 lockfile 与 GitHub 远端状态，输出列 NAME/STATUS/DESCRIPTION/UPDATED AT；默认只列已安装（包管理器 list 惯例），--all 才含远端 not installed 条目（表格与 JSON 同一过滤语义），默认视图汇总行提示 N more available；支持 table|json；远端失败降级 unknown + stderr 警告，退出码恒 0
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/qfeius/makecli/internal/skillsync"
@@ -22,19 +23,21 @@ var listSkillsFunc = skillsync.List
 
 func newSkillsListCmd() *cobra.Command {
 	var output string
+	var all bool
 	cmd := &cobra.Command{
 		Use:          "list",
-		Short:        "List Make platform skills and their remote status",
+		Short:        "List installed Make platform skills",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSkillsList(cmd.Context(), output)
+			return runSkillsList(cmd.Context(), output, all)
 		},
 	}
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
+	cmd.Flags().BoolVar(&all, "all", false, "include not-installed skills from the remote catalog")
 	return cmd
 }
 
-func runSkillsList(ctx context.Context, output string) error {
+func runSkillsList(ctx context.Context, output string, all bool) error {
 	if err := validateOutputFormat(output); err != nil {
 		return err
 	}
@@ -48,18 +51,26 @@ func runSkillsList(ctx context.Context, output string) error {
 		_, _ = fmt.Fprintf(os.Stderr, "warning: remote check failed: %v\n", inv.RemoteErr)
 	}
 
-	if output == outputJSON {
-		return writeJSON(map[string]any{"data": inv.Skills})
+	// 默认只列已安装（list 的包管理器惯例）；--all 才展示远端完整目录。
+	skills := inv.Skills
+	if !all {
+		skills = slices.DeleteFunc(slices.Clone(inv.Skills), func(s skillsync.SkillInfo) bool {
+			return s.Status == skillsync.StatusNotInstalled
+		})
 	}
 
-	if len(inv.Skills) == 0 {
+	if output == outputJSON {
+		return writeJSON(map[string]any{"data": skills})
+	}
+
+	if len(skills) == 0 {
 		fmt.Println("No Make platform skills installed.")
-		fmt.Println("Run 'makecli skills update' to install.")
+		fmt.Println("Run 'makecli skills install -y --all' to install.")
 		return nil
 	}
 
-	rows := make([][]string, len(inv.Skills))
-	for i, s := range inv.Skills {
+	rows := make([][]string, len(skills))
+	for i, s := range skills {
 		rows[i] = []string{s.Name, s.Status, truncateLine(s.Description, 60), shortDate(s.UpdatedAt)}
 	}
 
@@ -68,12 +79,25 @@ func runSkillsList(ctx context.Context, output string) error {
 	_ = table.Bulk(rows)
 	_ = table.Render()
 
+	// 汇总永远基于全量清单：available 是全局事实，默认视图靠它提示被隐藏的条目。
 	installed, outdated, available := summarizeSkills(inv.Skills)
-	fmt.Printf("\n%d installed, %d outdated, %d available\n", installed, outdated, available)
+	if all {
+		fmt.Printf("\n%d installed, %d outdated, %d available\n", installed, outdated, available)
+	} else {
+		fmt.Printf("\n%d installed, %d outdated%s\n", installed, outdated, availableHint(available))
+	}
 	if outdated+available > 0 {
 		fmt.Println("Run 'makecli skills update' to install/upgrade.")
 	}
 	return nil
+}
+
+// availableHint 在默认视图汇总行尾附上被隐藏的可装数量；0 可装时整段消失。
+func availableHint(available int) string {
+	if available == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%d more available, --all to show)", available)
 }
 
 // summarizeSkills 统计已安装 / 落后 / 远端可装数量。
