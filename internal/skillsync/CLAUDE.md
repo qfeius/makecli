@@ -10,5 +10,7 @@
 - `inventory_test.go`: 覆盖 readLock（缺失/过滤/损坏/版本不匹配）、extractFrontmatter/readDescription、fetchRemoteSkills（正常/HTTP 错误）、List（状态合并/远端下架/远端不可达降级 unknown/已装条目补 description）；stubLockFile/stubSkillsDir/stubRemoteAPI 隔离文件系统与网络
 - `remove.go`: 删除层——入口前置 EnsureNpx 环境门禁；RemoveCommand 返回非交互 npx 删除命令，Remove 读 lockfile 验证所有 skill 都来自 SkillsSource 挡住误删第三方 skill，校验通过后执行删除；复用 readLock / runSkillsCommand / syncTimeout / trimOutput
 - `remove_test.go`: 覆盖 RemoveCommand 构造、Remove 的来源校验/正常执行/第三方 skill 拒绝/未安装名称拒绝/空 lockfile/命令失败等路径；stubRunSkillsCommand 隔离 npx 执行
+- `install.go`: 安装层——两阶段：PlanInstall（EnsureNpx 门禁 → fetchRemoteSkills 校验按名/展开 --all → InstallCommand 构造命令）产出 InstallPlan 供 cmd 层确认展示；Install 执行计划；按名拼错报错列可用名字，远端不可达降级 Warning 放行；--all 复用 SkillsCommand（与 update 同一命令），按名走上游 -s 多值 + -a '*'
+- `install_test.go`: 覆盖 InstallCommand 构造（按名/--all）、PlanInstall（校验通过/拼错列候选/远端不可达降级/--all 展开/--all 降级/缺 npx 不触网）、Install（执行计划命令/失败含 manual fix）；stubNpxPresent + stubRemoteAPI + stubRunSkillsCommand 隔离
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
