@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 encoding/json、time；线上形状真相源是 agent-design/Contract.md（黄金测试锁在 agent-contract 仓库）
- * [OUTPUT]: 对外提供 daemon 协议的 wire 类型——统一调用风格常量（封闭六动词 + 资源域路径）、信封、runtime 入册/claim/run/事件类型（camelCase）
+ * [OUTPUT]: 对外提供 daemon 协议的 wire 类型——统一调用风格常量（封闭六动词 + 资源域路径）、信封、runtime 入册/claim/run/事件类型（AgentBundle 含 description 身份职责，camelCase）
  * [POS]: internal/daemon 的协议词汇表。makecli 是公开 GitHub 仓库，无法 import 私有 agent-contract 模块，
  *        故在此镜像线上 JSON 形状；字段变更必须与 agent-contract 同步（先 Contract.md，后两边类型）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -135,9 +135,11 @@ type CreateRunClaimRequest struct {
 	Max          int      `json:"max"`
 }
 
-// AgentBundle 是 claim 下发的 agent 渲染包，execenv 据此渲染工作目录。
+// AgentBundle 是 claim 下发的 agent 渲染包：Description 定义身份职责，
+// Instructions 定义具体执行要求，execenv 据此渲染工作目录。
 type AgentBundle struct {
 	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
 	Instructions string          `json:"instructions"`
 	RunParams    json.RawMessage `json:"runParams,omitempty"`
 }
