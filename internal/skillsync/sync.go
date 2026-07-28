@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 context、os/exec、strings、time
  * [OUTPUT]: 对外提供 Sync / Options / Result / SkillsCommand，执行 Make platform skills 默认同步
- * [POS]: internal/skillsync 的编排层，被 cmd/update.go 在二进制更新后调用；隔离 npx 副作用，update 每次刷新 skills
+ * [POS]: internal/skillsync 的编排层，被 cmd/update.go 在二进制更新后调用；Skip 判断后前置 EnsureNpx 环境门禁（Skip 不要求 npx）；隔离 npx 副作用，update 每次刷新 skills
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -66,6 +66,11 @@ func Sync(ctx context.Context, opts Options) (Result, error) {
 		result.Action = ActionSkipped
 		result.Reason = "disabled by flag"
 		return result, nil
+	}
+
+	if err := EnsureNpx(); err != nil {
+		result.Action = ActionFailed
+		return result, err
 	}
 
 	runCtx := ctx

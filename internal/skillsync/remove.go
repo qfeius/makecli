@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 context、fmt、maps、slices、strings
  * [OUTPUT]: 对外提供 Remove / RemoveCommand，删除已安装的 Make platform skills
- * [POS]: internal/skillsync 的删除层，被 cmd/skills_remove.go 消费；来源校验挡住误删第三方 skills；复用 sync.go 的 runSkillsCommand seam 与 syncTimeout
+ * [POS]: internal/skillsync 的删除层，被 cmd/skills_remove.go 消费；入口前置 EnsureNpx 环境门禁；来源校验挡住误删第三方 skills；复用 sync.go 的 runSkillsCommand seam 与 syncTimeout
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -26,6 +26,10 @@ func RemoveCommand(names []string) []string {
 // 名字必须都是 lockfile 中 source == SkillsSource 的已安装 skill——
 // 用户机器上可能有几十个第三方 skills，makecli 不越界删除。
 func Remove(ctx context.Context, names []string) error {
+	if err := EnsureNpx(); err != nil {
+		return err
+	}
+
 	installed, warning := readLock()
 
 	var invalid []string

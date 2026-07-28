@@ -37,6 +37,7 @@ func TestRemoveCommand(t *testing.T) {
 }
 
 func TestRemoveExecutesCommand(t *testing.T) {
+	stubNpxPresent(t)
 	stubLockFile(t, sampleLock)
 	calls := stubRunSkillsCommand(t, "removed", nil)
 
@@ -52,6 +53,7 @@ func TestRemoveExecutesCommand(t *testing.T) {
 }
 
 func TestRemoveRejectsThirdPartySkill(t *testing.T) {
+	stubNpxPresent(t)
 	stubLockFile(t, sampleLock) // swiftui-pro 是第三方来源
 	calls := stubRunSkillsCommand(t, "", nil)
 
@@ -72,6 +74,7 @@ func TestRemoveRejectsThirdPartySkill(t *testing.T) {
 }
 
 func TestRemoveNotInstalledName(t *testing.T) {
+	stubNpxPresent(t)
 	stubLockFile(t, sampleLock)
 	calls := stubRunSkillsCommand(t, "", nil)
 
@@ -86,6 +89,7 @@ func TestRemoveNotInstalledName(t *testing.T) {
 }
 
 func TestRemoveEmptyLockfile(t *testing.T) {
+	stubNpxPresent(t)
 	stubLockFile(t, "")
 	stubRunSkillsCommand(t, "", nil)
 
@@ -97,6 +101,7 @@ func TestRemoveEmptyLockfile(t *testing.T) {
 }
 
 func TestRemoveCorruptLockfileSurfacesWarning(t *testing.T) {
+	stubNpxPresent(t)
 	stubLockFile(t, "{not json")
 	calls := stubRunSkillsCommand(t, "", nil)
 
@@ -114,6 +119,7 @@ func TestRemoveCorruptLockfileSurfacesWarning(t *testing.T) {
 }
 
 func TestRemoveCommandFailure(t *testing.T) {
+	stubNpxPresent(t)
 	stubLockFile(t, sampleLock)
 	stubRunSkillsCommand(t, "boom output", errors.New("exit 1"))
 
@@ -124,5 +130,18 @@ func TestRemoveCommandFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "manual fix") || !strings.Contains(err.Error(), "boom output") {
 		t.Fatalf("error must carry manual fix and output: %v", err)
+	}
+}
+
+func TestRemoveFailsWithoutNpx(t *testing.T) {
+	stubNpxMissing(t)
+	calls := stubRunSkillsCommand(t, "", nil)
+
+	err := Remove(context.Background(), []string{"makedsl"})
+	if err == nil || !strings.Contains(err.Error(), "npx not found") {
+		t.Fatalf("expected npx guidance error, got: %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("npx must not be executed when missing, got %d calls", len(*calls))
 	}
 }

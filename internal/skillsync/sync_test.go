@@ -23,6 +23,7 @@ func setRunSkillsCommand(t *testing.T, f func(context.Context, []string) (string
 }
 
 func TestSyncAlwaysRunsNpx(t *testing.T) {
+	stubNpxPresent(t)
 	var gotCommand []string
 	setRunSkillsCommand(t, func(_ context.Context, command []string) (string, error) {
 		gotCommand = append([]string{}, command...)
@@ -46,6 +47,7 @@ func TestSyncAlwaysRunsNpx(t *testing.T) {
 }
 
 func TestSyncRunsNpxEveryTime(t *testing.T) {
+	stubNpxPresent(t)
 	calls := 0
 	setRunSkillsCommand(t, func(context.Context, []string) (string, error) {
 		calls++
@@ -82,6 +84,7 @@ func TestSyncSkipOptionDoesNotRun(t *testing.T) {
 }
 
 func TestSyncCommandFailureIncludesManualCommandAndOutput(t *testing.T) {
+	stubNpxPresent(t)
 	setRunSkillsCommand(t, func(context.Context, []string) (string, error) {
 		return "registry timeout", errors.New("exit status 1")
 	})
@@ -98,5 +101,33 @@ func TestSyncCommandFailureIncludesManualCommandAndOutput(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "registry timeout") {
 		t.Fatalf("error missing command output: %v", err)
+	}
+}
+
+func TestSyncFailsWithoutNpx(t *testing.T) {
+	stubNpxMissing(t)
+	calls := stubRunSkillsCommand(t, "", nil)
+
+	result, err := Sync(context.Background(), Options{Version: "v1.0.0"})
+	if err == nil || !strings.Contains(err.Error(), "npx not found") {
+		t.Fatalf("expected npx guidance error, got: %v", err)
+	}
+	if result.Action != ActionFailed {
+		t.Fatalf("expected action %q, got %q", ActionFailed, result.Action)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("npx must not be executed when missing, got %d calls", len(*calls))
+	}
+}
+
+func TestSyncSkipDoesNotRequireNpx(t *testing.T) {
+	stubNpxMissing(t)
+
+	result, err := Sync(context.Background(), Options{Version: "v1.0.0", Skip: true})
+	if err != nil {
+		t.Fatalf("skip must not require npx: %v", err)
+	}
+	if result.Action != ActionSkipped {
+		t.Fatalf("expected action %q, got %q", ActionSkipped, result.Action)
 	}
 }
