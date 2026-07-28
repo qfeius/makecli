@@ -7,12 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.6] - 2026-07-28
+
+### ⚠ Breaking Changes
+
+- **daemon**: Enrollment is self-service — first start exchanges a `--setup-key` for a per-machine node key, and the former `device` face is renamed `runtime` (#30)
+
 ### Features
 
+- **skills**: Add `skills install` — install Make platform skills by name or `--all`, validated against the remote catalog (a typo lists the available names), behind the same confirmation guard as deploy (`--yes` for CI) and an npx environment gate
+- **skills**: `skills remove` is rewritten and renamed `skills uninstall` to pair with `install` — `--all` expands from the lockfile and never forwards a raw `--all` upstream (third-party skills stay untouched), each skill is deleted in its own npx call so one failure doesn't abort the rest, success reads `name skill uninstalled.` (install mirrors it), and an unknown subcommand under `makecli skills` now errors instead of silently falling back to `list`
+- **skills**: `skills list` shows installed skills only by default (the brew/pip/npm `list` convention); `--all` reveals the full remote catalog, the summary line advertises hidden entries (`N more available, --all to show`), and the empty state guides to `skills install -y --all`
 - **daemon**: `makecli daemon` now runs in the background by default — it writes a user LaunchAgent, hands the loop to launchd and returns to the prompt immediately, the way `netbird` behaves once its service is installed. Pass `--foreground` to block in the current terminal instead (that is exactly the form launchd starts, since a launchd job must not fork itself); on non-macOS the default falls back to the foreground with a note rather than failing. The lifecycle verbs are `makecli daemon start / stop / restart / status / uninstall` — macOS only, backed by that same user LaunchAgent (`~/Library/LaunchAgents/cn.qfei.makecli.daemon.plist`) so the daemon starts at login and is restarted on exit (`RunAtLoad` + `KeepAlive`). No `sudo` anywhere: the plist, logs and credentials all live under `$HOME` and the domain is `gui/$UID`. `start` runs the real preflight first (detect the local coding CLI, enroll with `--setup-key` when there is no node key yet) so failures surface in the terminal instead of looping inside launchd, then freezes the *resolved* configuration into the plist — launchd inherits no shell environment, so the gateway URL becomes an explicit argument and `PATH` / `HOME` / `MAKE_CLI_CONFIG_DIR` are written into `EnvironmentVariables`. `stop` unloads *and* disables the service but keeps the plist (a plist left loadable would silently start the daemon again at next login), `uninstall` unloads, clears that disable record and deletes the plist while leaving logs, the work dir and the node key untouched, `restart` reuses the on-disk plist so the arguments pinned at `start` are preserved, and `status` reports running / stopped / not installed plus a separate `Autostart` line — whether it is alive now and whether it comes back at login are two different questions (`--output table|json`). Logs land in `~/.make/agent/logs/daemon.log`; on non-macOS every lifecycle subcommand fails with a message pointing back at `makecli daemon --foreground`
+- **daemon**: Runtime enrollment flow follow-ups (#34)
+- **daemon**: Six-verb device face with mutual-mention structured blocks (#28)
+- **daemon**: Hidden device-mode subcommand driving local coding CLIs for the agent platform (#26)
+- **agent**: code-agent capability — pigo kernel port + keyless gateway loop (#29)
+- **agent**: Hidden keyless chat subcommand via the platform LLM proxy (#27)
+- **update**: Release channels (stable/beta) across update, notifier and the release pipeline — `makecli configure set channel beta` opts into pre-releases (#23)
 
 ### Bug Fixes
 
+- **skillsync**: Pin `--global` on every delegated npx command (install / update / uninstall). The upstream skills CLI defaults to project scope inside a project directory, so operations landed in the cwd `.claude/skills` and a cwd lockfile while `skills list` read the global one — an uninstall reported success yet the skill stayed listed
+- **skills**: Requested names are deduped and sorted before reaching the upstream CLI, and flag-shaped names (leading `-`) are rejected so a poisoned lockfile cannot smuggle `--all` upstream
+- **daemon**: Clear the node key on `uninstall` (#33)
 - **config**: Profile names are validated against a conservative grammar (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`) and every persisted INI value rejects embedded newlines and leading/trailing whitespace, closing an INI section-injection window (e.g. a profile named `evil]\n[other` or a token value smuggling a `[section]` line)
 - **config**: Atomic file replacement is platform-aware — on Windows the single-step overwrite rename (`MoveFileEx` + `REPLACE_EXISTING`) is retried with backoff when the destination is held open by another process, never touching the existing destination on failure; POSIX keeps plain atomic rename semantics
 
@@ -199,7 +217,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.5...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.6...HEAD
+[v0.5.6]: https://github.com/qfeius/makecli/releases/tag/v0.5.6
 [v0.5.5]: https://github.com/qfeius/makecli/releases/tag/v0.5.5
 [v0.5.4]: https://github.com/qfeius/makecli/releases/tag/v0.5.4
 [v0.5.3]: https://github.com/qfeius/makecli/releases/tag/v0.5.3
