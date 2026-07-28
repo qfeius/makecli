@@ -16,6 +16,7 @@ import (
 
 func newSkillsCmd() *cobra.Command {
 	var output string
+	var all bool
 	cmd := &cobra.Command{
 		Use:          "skills",
 		Short:        "Manage Make platform skills",
@@ -24,10 +25,11 @@ func newSkillsCmd() *cobra.Command {
 		// cobra 的 legacyArgs 只对 root 命令做此检查，非 root 需显式声明。
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSkillsList(cmd.Context(), output)
+			return runSkillsList(cmd.Context(), output, all)
 		},
 	}
 	cmd.Flags().StringVar(&output, "output", outputTable, "output format (table|json)")
+	cmd.Flags().BoolVar(&all, "all", false, "include not-installed skills from the remote catalog")
 	cmd.AddCommand(newSkillsListCmd())
 	cmd.AddCommand(newSkillsInstallCmd())
 	cmd.AddCommand(newSkillsUpdateCmd())

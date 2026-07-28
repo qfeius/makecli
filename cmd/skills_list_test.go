@@ -38,17 +38,21 @@ func TestRunSkillsListTable(t *testing.T) {
 	stubListSkills(t, sampleInventory())
 
 	out := captureStdout(t, func() {
-		if err := runSkillsList(context.Background(), outputTable); err != nil {
+		if err := runSkillsList(context.Background(), outputTable, false); err != nil {
 			t.Errorf("runSkillsList: %v", err)
 		}
 	})
 
-	for _, want := range []string{"NAME", "STATUS", "makedsl", "outdated", "makeui", "up-to-date", "make-app-auth", "not installed"} {
+	for _, want := range []string{"NAME", "STATUS", "makedsl", "outdated", "makeui", "up-to-date"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
 	}
-	if !strings.Contains(out, "2 installed, 1 outdated, 1 available") {
+	// 默认视图只列已安装：远端可装条目不进表格，汇总行提示 --all
+	if strings.Contains(out, "make-app-auth") || strings.Contains(out, "not installed") {
+		t.Errorf("default view must hide not-installed skills:\n%s", out)
+	}
+	if !strings.Contains(out, "2 installed, 1 outdated (1 more available, --all to show)") {
 		t.Errorf("missing summary line:\n%s", out)
 	}
 	if !strings.Contains(out, "makecli skills update") {
@@ -60,11 +64,54 @@ func TestRunSkillsListTable(t *testing.T) {
 	}
 }
 
+func TestRunSkillsListAllShowsCatalog(t *testing.T) {
+	stubListSkills(t, sampleInventory())
+
+	out := captureStdout(t, func() {
+		if err := runSkillsList(context.Background(), outputTable, true); err != nil {
+			t.Errorf("runSkillsList: %v", err)
+		}
+	})
+
+	for _, want := range []string{"make-app-auth", "not installed", "makedsl", "makeui"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--all view missing %q:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "2 installed, 1 outdated, 1 available") {
+		t.Errorf("missing catalog summary line:\n%s", out)
+	}
+}
+
 func TestRunSkillsListJSON(t *testing.T) {
 	stubListSkills(t, sampleInventory())
 
 	out := captureStdout(t, func() {
-		if err := runSkillsList(context.Background(), outputJSON); err != nil {
+		if err := runSkillsList(context.Background(), outputJSON, false); err != nil {
+			t.Errorf("runSkillsList: %v", err)
+		}
+	})
+
+	var payload struct {
+		Data []skillsync.SkillInfo `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, out)
+	}
+	// JSON 与表格同一过滤语义：默认只含已安装
+	if len(payload.Data) != 2 {
+		t.Fatalf("expected 2 installed skills, got %d", len(payload.Data))
+	}
+	if payload.Data[0].Description != "DSL 设计与生成" {
+		t.Fatalf("JSON must keep full description: %+v", payload.Data[0])
+	}
+}
+
+func TestRunSkillsListJSONAll(t *testing.T) {
+	stubListSkills(t, sampleInventory())
+
+	out := captureStdout(t, func() {
+		if err := runSkillsList(context.Background(), outputJSON, true); err != nil {
 			t.Errorf("runSkillsList: %v", err)
 		}
 	})
@@ -76,10 +123,7 @@ func TestRunSkillsListJSON(t *testing.T) {
 		t.Fatalf("invalid JSON: %v\n%s", err, out)
 	}
 	if len(payload.Data) != 3 {
-		t.Fatalf("expected 3 skills, got %d", len(payload.Data))
-	}
-	if payload.Data[1].Description != "DSL 设计与生成" {
-		t.Fatalf("JSON must keep full description: %+v", payload.Data[1])
+		t.Fatalf("expected full catalog of 3 skills, got %d", len(payload.Data))
 	}
 }
 
@@ -87,7 +131,7 @@ func TestRunSkillsListEmpty(t *testing.T) {
 	stubListSkills(t, skillsync.Inventory{})
 
 	out := captureStdout(t, func() {
-		if err := runSkillsList(context.Background(), outputTable); err != nil {
+		if err := runSkillsList(context.Background(), outputTable, false); err != nil {
 			t.Errorf("runSkillsList: %v", err)
 		}
 	})
@@ -109,7 +153,7 @@ func TestRunSkillsListWarnings(t *testing.T) {
 	var stdout string
 	stderr := captureStderr(t, func() {
 		stdout = captureStdout(t, func() {
-			if err := runSkillsList(context.Background(), outputTable); err != nil {
+			if err := runSkillsList(context.Background(), outputTable, false); err != nil {
 				t.Errorf("warnings must not fail the command: %v", err)
 			}
 		})
@@ -127,7 +171,7 @@ func TestRunSkillsListWarnings(t *testing.T) {
 }
 
 func TestRunSkillsListInvalidOutput(t *testing.T) {
-	if err := runSkillsList(context.Background(), "xml"); err == nil {
+	if err := runSkillsList(context.Background(), "xml", false); err == nil {
 		t.Fatal("expected error for invalid output format")
 	}
 }
