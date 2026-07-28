@@ -84,6 +84,9 @@ func TestSkillsInstallByName(t *testing.T) {
 	if rec.installCalls != 1 {
 		t.Fatalf("expected 1 install call, got %d", rec.installCalls)
 	}
+	if !slices.Equal(rec.installPlan.Names, plan.Names) {
+		t.Fatalf("plan must pass through unmodified: %+v", rec.installPlan)
+	}
 	if !strings.Contains(out, "Installed: makedsl, makeui") {
 		t.Fatalf("missing success output:\n%s", out)
 	}
