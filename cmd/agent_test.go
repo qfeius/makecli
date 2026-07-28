@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 agent.go；stdout_test.go 的隔离 helper
  * [OUTPUT]: 对外提供 agent 命令回归——Hidden 不进 help、缺 token 可操作报错、
- *           code agent 新 flag（--approve/--no-tools）注册与缺省值
+ *           code agent 新 flag（--approve/--chat-only）注册与缺省值
  * [POS]: cmd 模块的测试面（agent 命令）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -33,9 +33,9 @@ func TestAgentCommandHiddenFromHelp(t *testing.T) {
 
 func TestAgentCodeFlagsRegistered(t *testing.T) {
 	for name, wantDefault := range map[string]string{
-		"approve":  "false",
-		"no-tools": "false",
-		"model":    "default",
+		"approve":   "false",
+		"chat-only": "false",
+		"model":     "default",
 	} {
 		flag := agentCmd.Flags().Lookup(name)
 		if flag == nil {
@@ -45,6 +45,9 @@ func TestAgentCodeFlagsRegistered(t *testing.T) {
 		if flag.DefValue != wantDefault {
 			t.Errorf("flag --%s 缺省值 = %q, want %q", name, flag.DefValue, wantDefault)
 		}
+	}
+	if flag := agentCmd.Flags().Lookup("no-tools"); flag != nil {
+		t.Error("旧 flag --no-tools 不应继续注册")
 	}
 }
 
