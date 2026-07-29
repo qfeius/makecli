@@ -73,9 +73,9 @@ func RunCodeOnce(ctx context.Context, opts CodeOptions, prompt string, output io
 }
 
 // RunCodeREPL 交互循环：读一行发一轮，历史随进程存续（内存态，不落盘）；
-// /exit /quit 退出、/clear 清空历史。副作用工具在未信任目录逐次确认
-// （y=允许一次 / n=拒绝 / a=本会话全允许），确认与主循环共用同一 Reader，
-// 预输入不会被劈开。单轮失败打印 error 不退出循环。
+// /exit /quit 退出、/clear 清空历史、`!<cmd>` 本地直通（不发 LLM 请求，见 bang.go）。
+// 副作用工具在未信任目录逐次确认（y=允许一次 / n=拒绝 / a=本会话全允许），
+// 确认与主循环共用同一 Reader，预输入不会被劈开。单轮失败打印 error 不退出循环。
 func RunCodeREPL(ctx context.Context, opts CodeOptions, input io.Reader, output io.Writer) error {
 	reader := bufio.NewReaderSize(input, 64<<10)
 	confirm := func(call core.AgentToolCall) (bool, bool) {
@@ -85,7 +85,7 @@ func RunCodeREPL(ctx context.Context, opts CodeOptions, input io.Reader, output 
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(output, "makecli agent (model: %s, cwd: %s) — /exit 退出, /clear 清空历史\n", opts.Model, session.dir)
+	_, _ = fmt.Fprintf(output, "makecli agent (model: %s, cwd: %s) — /exit 退出, /clear 清空历史, !<cmd> 执行本地命令\n", opts.Model, session.dir)
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -110,9 +110,7 @@ func RunCodeREPL(ctx context.Context, opts CodeOptions, input io.Reader, output 
 			_, _ = fmt.Fprintln(output, "(历史已清空)")
 			continue
 		default:
-			if runErr := session.runPrompt(ctx, trimmed, output); runErr != nil {
-				_, _ = fmt.Fprintf(output, "error: %v\n", runErr)
-			}
+			session.handleInput(ctx, trimmed, output)
 		}
 		if readErr != nil {
 			// 最后一行无换行（EOF）：处理完即收。
@@ -191,13 +189,35 @@ func newCodeSession(opts CodeOptions, output io.Writer, confirm confirmFunc) (*c
 	}, nil
 }
 
+// handleInput 分发 REPL 的一行输入：`!cmd` 走本地 shell 直通——不发起任何 LLM
+// 请求，转录进历史供后续轮次引用（bang.go）；其余作为 prompt 驱动一轮循环，
+// 单轮失败打印 error 不中断 REPL。
+func (s *codeSession) handleInput(ctx context.Context, line string, output io.Writer) {
+	if command, isBang := bangCommand(line); isBang {
+		if command == "" {
+			_, _ = fmt.Fprintln(output, bangHint)
+			return
+		}
+		s.appendUserText(runBangCommand(ctx, s.dir, command, output))
+		return
+	}
+	if err := s.runPrompt(ctx, line, output); err != nil {
+		_, _ = fmt.Fprintf(output, "error: %v\n", err)
+	}
+}
+
+// appendUserText 往会话历史追加一条 user 文本消息。
+func (s *codeSession) appendUserText(text string) {
+	s.agentCtx.Messages = append(s.agentCtx.Messages, core.UserMessage{
+		RoleField: core.RoleUser,
+		Content:   core.ContentList{core.NewTextContent(text)},
+	})
+}
+
 // runPrompt 追加一条 user 消息并驱动一轮完整循环，事件经 runRenderer 行式
 // 渲染到 output。返回终结失败（stopReason=error/aborted）；自然收尾返回 nil。
 func (s *codeSession) runPrompt(ctx context.Context, prompt string, output io.Writer) error {
-	s.agentCtx.Messages = append(s.agentCtx.Messages, core.UserMessage{
-		RoleField: core.RoleUser,
-		Content:   core.ContentList{core.NewTextContent(prompt)},
-	})
+	s.appendUserText(prompt)
 	stream := loop.StartRun(ctx, s.agentCtx, s.cfg)
 	renderer := newRunRenderer(output)
 	for ev := range stream.Events() {
