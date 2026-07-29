@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 execenv.go 的 PrepareWorkDir/BuildPrompt
- * [OUTPUT]: 对外提供执行环境回归——工作目录连续性优先、instructions 双文件渲染、触发区间 prompt 合并
+ * [OUTPUT]: 对外提供执行环境回归——工作目录连续性优先、description 身份职责与 instructions 执行要求双文件渲染、触发区间 prompt 合并
  * [POS]: internal/daemon 的 execenv 测试面
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -18,7 +18,10 @@ func TestPrepareWorkDirRendersInstructions(t *testing.T) {
 	base := t.TempDir()
 	claim := RunClaim{
 		SessionID: "session_1",
-		Agent:     AgentBundle{Name: "助手", Instructions: "永远说中文"},
+		Agent: AgentBundle{
+			Name: "助手", Description: "SRE 专家，精通 Kubernetes 与云原生。",
+			Instructions: "永远说中文",
+		},
 	}
 	workDir, resumable, err := PrepareWorkDir(base, claim)
 	if err != nil {
@@ -32,9 +35,29 @@ func TestPrepareWorkDirRendersInstructions(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}
-		if string(content) != "# 助手\n\n永远说中文\n" {
+		want := "# 助手\n\n## 身份与职责\n\nSRE 专家，精通 Kubernetes 与云原生。\n\n## 执行要求\n\n永远说中文\n"
+		if string(content) != want {
 			t.Fatalf("%s = %q", name, content)
 		}
+	}
+}
+
+func TestPrepareWorkDirRendersDescriptionWithoutInstructions(t *testing.T) {
+	base := t.TempDir()
+	claim := RunClaim{
+		SessionID: "session_description",
+		Agent:     AgentBundle{Name: "SRE", Description: "负责 k8s 运维。"},
+	}
+	workDir, _, err := PrepareWorkDir(base, claim)
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(workDir, "AGENTS.md"))
+	if err != nil {
+		t.Fatalf("read AGENTS.md: %v", err)
+	}
+	if want := "# SRE\n\n## 身份与职责\n\n负责 k8s 运维。\n"; string(content) != want {
+		t.Fatalf("AGENTS.md = %q, want %q", content, want)
 	}
 }
 

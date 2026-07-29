@@ -42,7 +42,6 @@ const summaryMaxChars = 120
 // （stopReason=error/aborted）记入 runErr 由调用方呈现。
 type runRenderer struct {
 	out     io.Writer
-	color   bool
 	printed int  // 当前 assistant 消息已打印的文本长度（增量流式的水位）
 	atLine  bool // 光标是否位于行首
 	runErr  error
@@ -50,11 +49,21 @@ type runRenderer struct {
 
 // newRunRenderer builds a renderer for one run.
 func newRunRenderer(out io.Writer) *runRenderer {
-	color := false
-	if f, ok := out.(*os.File); ok {
-		color = isatty.IsTerminal(f.Fd())
+	return &runRenderer{out: out, atLine: true}
+}
+
+// supportsColor 判定 out 是否是终端（管道/测试 buffer 保持纯文本）。
+func supportsColor(out io.Writer) bool {
+	f, ok := out.(*os.File)
+	return ok && isatty.IsTerminal(f.Fd())
+}
+
+// errorMark 是失败行的 ✗ 前缀（终端上染红），工具结果预览与本地命令直通共用。
+func errorMark(out io.Writer) string {
+	if supportsColor(out) {
+		return ansiRed + "✗" + ansiReset
 	}
-	return &runRenderer{out: out, color: color, atLine: true}
+	return "✗"
 }
 
 // handle dispatches one loop event to the matching renderer.
@@ -113,10 +122,7 @@ func (r *runRenderer) ensureNewline() {
 func (r *runRenderer) renderToolResult(e core.ToolExecutionEndEvent) {
 	text := strings.TrimSpace(core.ContentToText(e.Result.Content))
 	if e.IsError {
-		prefix := "✗"
-		if r.color {
-			prefix = ansiRed + "✗" + ansiReset
-		}
+		prefix := errorMark(r.out)
 		if text == "" {
 			text = e.ToolName + " failed"
 		}
