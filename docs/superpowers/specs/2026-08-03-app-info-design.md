@@ -126,9 +126,12 @@ Created At:  2026-01-01T10:00:00Z
 - JSON 输出（含 deployment: null 形态）
 - 非法 output / 非法 appKey / 无凭证 / 未知 profile
 
-## 风险与待验证
+## dev 环境实测结论（2026-08-03）
 
-- **「从未部署」的实际返回形态是推测**（404 业务码或 200 + 空环境字段）。设计两种都兜住（404 → ErrNotFound → 占位；200 + 环境缺失 → nil → 占位）；若实测是其他形态（如非 404 错误码），实现时以 dev 环境实测为准回调此节。
+- **未部署环境的真实形态 = 200 + 环境字段缺失**：`dino_run`（tenant 87）preview 已部署、production 从未部署，接口返回 `production` 缺失 → 解码为 nil → 表格 `Not deployed` 占位行、JSON `"production": null`，退出码 0。指针设计命中实际形态，无需代码调整。
+- 404 → ErrNotFound 路径保留为兜底（整 App 无部署记录时的可能形态），两种形态均有单测覆盖。
+- 附带发现（非本命令问题）：对无管理员权限的 App，Meta 的 `GetResource` 直接返回业务码 `10000003 无应用管理员权限`，`app info` 在 GetApp 一步即失败并原样呈现——平台既有权限模型，错误路径干净。
+- 真实部署可能出现 `status: Ready` 但 `commitSha` 为空（早期部署无 commit 记录），表格该列留空，属数据现状而非渲染缺陷。
 
 ## 文档同步
 
