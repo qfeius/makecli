@@ -335,7 +335,7 @@ func (c *Client) GetEntity(appKey, key string) (*Entity, error) {
 	if err := c.do("MakeService.GetResource", "/meta/v1/entity", reqBody, &result); err != nil {
 		return nil, err
 	}
-	if err := checkGetResult(result.Code, result.Message, result.Data.Key); err != nil {
+	if err := checkGetResult(result.Code, result.Message, result.Data.Key != ""); err != nil {
 		return nil, err
 	}
 	return &result.Data, nil
@@ -353,7 +353,7 @@ func (c *Client) GetApp(key string) (*App, error) {
 	if err := c.do("MakeService.GetResource", "/meta/v1/app", reqBody, &result); err != nil {
 		return nil, err
 	}
-	if err := checkGetResult(result.Code, result.Message, result.Data.Key); err != nil {
+	if err := checkGetResult(result.Code, result.Message, result.Data.Key != ""); err != nil {
 		return nil, err
 	}
 	return &result.Data, nil
@@ -430,7 +430,7 @@ func (c *Client) GetRelation(appKey, key string) (*Relation, error) {
 	if err := c.do("MakeService.GetResource", "/meta/v1/relation", reqBody, &result); err != nil {
 		return nil, err
 	}
-	if err := checkGetResult(result.Code, result.Message, result.Data.Key); err != nil {
+	if err := checkGetResult(result.Code, result.Message, result.Data.Key != ""); err != nil {
 		return nil, err
 	}
 	return &result.Data, nil
@@ -438,20 +438,21 @@ func (c *Client) GetRelation(appKey, key string) (*Relation, error) {
 
 // checkGetResult 把 GetResource 的业务码/数据收敛成统一的"存在/不存在/出错"三态：
 //   - code == 404（not-found 业务码）        → ErrNotFound
-//   - code == 200 且 data.key 为空（软空响应） → ErrNotFound
+//   - code == 200 且 !exists（软空响应）      → ErrNotFound
 //   - code != 200 且非 404                    → 原样业务错误（不映射为 not-found）
-//   - code == 200 且 data.key 非空            → nil（存在）
+//   - code == 200 且 exists                   → nil（存在）
 //
 // 软空响应分支保留了服务端"200 + 空 data"表示不存在的现实约定，
-// 让"不存在"语义被 ErrNotFound 这一个哨兵收口，消除调用方的 Key != "" 启发式。
-func checkGetResult(code int, message, dataKey string) error {
+// 让"不存在"语义被 ErrNotFound 这一个哨兵收口。exists 由调用方按资源主键
+// 判定（Meta 资源 data.key 非空、构建任务 data.id 非零），字符串/数字主键统一收敛。
+func checkGetResult(code int, message string, exists bool) error {
 	if code == notFoundCode {
 		return fmt.Errorf("%w: %s", ErrNotFound, message)
 	}
 	if code != 200 {
 		return fmt.Errorf("API 错误 [%d]: %s", code, message)
 	}
-	if dataKey == "" {
+	if !exists {
 		return ErrNotFound
 	}
 	return nil

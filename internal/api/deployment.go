@@ -1,8 +1,8 @@
 /**
  * [INPUT]: 依赖 client.go 的 Client.do / notFoundCode / ErrNotFound、fmt
- * [OUTPUT]: 对外提供 EnvDeployment / DeploymentOverview 类型、Client.GetDeploymentOverview(appKey) 方法
+ * [OUTPUT]: 对外提供 EnvDeployment / DeploymentOverview 类型（含 Env(name) 环境选择器）、Client.GetDeploymentOverview(appKey) 方法
  * [POS]: internal/api 的部署服务（make-deployment）调用层，POST /deployment/v1/deployment/overview，
- *        与 client.go 的 Meta 操作共用 Client 与 do 原语；被 cmd/app_info 消费
+ *        与 client.go 的 Meta 操作共用 Client 与 do 原语；被 cmd/app_info 与 cmd/deploy（成功后带出环境 URL）消费
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -30,6 +30,19 @@ type DeploymentOverview struct {
 	AppKey     string         `json:"appKey"`
 	Preview    *EnvDeployment `json:"preview"`
 	Production *EnvDeployment `json:"production"`
+}
+
+// Env 按环境名（preview/production）选取对应环境的部署状态；未知名或该环境从未部署返回 nil。
+// 把「环境名 → 字段」的分支收口在类型内部，调用方免于 preview/production 双路 if。
+func (o *DeploymentOverview) Env(name string) *EnvDeployment {
+	switch name {
+	case "preview":
+		return o.Preview
+	case "production":
+		return o.Production
+	default:
+		return nil
+	}
 }
 
 // GetDeploymentOverview 查询指定 App 的双环境部署总览。

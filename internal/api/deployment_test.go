@@ -163,3 +163,23 @@ func TestGetDeploymentOverview(t *testing.T) {
 		}
 	})
 }
+
+// TestDeploymentOverviewEnv 覆盖环境选择器：按名取 preview/production，未知名与缺失环境返回 nil。
+func TestDeploymentOverviewEnv(t *testing.T) {
+	preview := &EnvDeployment{URL: "https://p.example"}
+	production := &EnvDeployment{URL: "https://prod.example"}
+	o := &DeploymentOverview{Preview: preview, Production: production}
+
+	if got := o.Env("preview"); got != preview {
+		t.Errorf("Env(preview) = %v, want preview entry", got)
+	}
+	if got := o.Env("production"); got != production {
+		t.Errorf("Env(production) = %v, want production entry", got)
+	}
+	if got := o.Env("staging"); got != nil {
+		t.Errorf("Env(staging) = %v, want nil", got)
+	}
+	if got := (&DeploymentOverview{}).Env("preview"); got != nil {
+		t.Errorf("Env on never-deployed overview = %v, want nil", got)
+	}
+}
