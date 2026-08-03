@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 bytes、errors、fmt、strings、testing，依赖 internal/api 的 ErrAuthFailed；用 setProfile/setEnvFlag 隔离全局态
- * [OUTPUT]: 覆盖 reportExecuteError 各分支（nil/退出码哨兵静默/真实错误打印/鉴权升级）+ authFailedHint 文案
- * [POS]: cmd 模块错误呈现单一出口的测试，守护退出码哨兵静默、真实错误打印、鉴权引导升级三态
+ * [OUTPUT]: 覆盖 reportExecuteError 各分支（nil/退出码哨兵静默/真实错误打印/鉴权升级）+ authFailedHint 文案 + ExitCode 退出码映射（0/2/124/1）
+ * [POS]: cmd 模块错误呈现单一出口的测试，守护退出码哨兵静默、真实错误打印、鉴权引导升级三态与退出码契约
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -70,5 +70,28 @@ func TestAuthFailedHintShowsContext(t *testing.T) {
 		if !strings.Contains(hint, want) {
 			t.Errorf("hint missing %q\ngot:\n%s", want, hint)
 		}
+	}
+}
+
+// TestExitCode 锁定退出码契约：0 成功、2 构建未成功、124 等待超时（GNU timeout 惯例）、其余 1。
+// CI 与 agent 靠退出码区分「构建失败」与「超时未完成」，不必解析文本。
+func TestExitCode(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"nil is success", nil, 0},
+		{"build failed maps to 2", fmt.Errorf("%w（status: FAILED）", errBuildFailed), 2},
+		{"wait timeout maps to 124", fmt.Errorf("%w（5m0s）", errWaitTimeout), 124},
+		{"generic error maps to 1", errors.New("boom"), 1},
+		{"diff sentinel keeps 1", errDiffFound, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ExitCode(c.err); got != c.want {
+				t.Errorf("ExitCode(%v) = %d, want %d", c.err, got, c.want)
+			}
+		})
 	}
 }

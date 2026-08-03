@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd 包内的 runDeploy / pushCurrentHead / gitPushFunc / initGitRepo / stageAndCommit（包内白盒）、enterAppDir(写 apps/dsl/app.yaml + chdir)、gitCommitAll(init+commit 当前目录)，encoding/json、errors、fmt、net/http、net/http/httptest、os、path/filepath、strings、testing、github.com/go-git/go-git/v5（及 plumbing/object 子包）
- * [OUTPUT]: 覆盖 deploy 子命令核心逻辑的单元测试（runDeploy 编排：本地真仓库门控 + Meta 注册门控（GetApp）+ production 确认门控 + gitPushFunc 桩隔离推送；app 未注册/校验错误/production abort 均短路在触达仓库服务之前且不 push；--yes 与 preview 不触发确认；非交互真门控拒绝 production 并指引 --yes；默认 env=preview；pushCurrentHead 真 go-git 推到本地裸仓库；fail-fast 脏/无仓库/无提交报错且不触网）
- * [POS]: cmd 模块 deploy.go 的配套测试，用 httptest 隔离网络（newAppExistsMeta 放行注册门控、stubMetaServer 临时指向 Meta、newMockRepoServer 答仓库地址、noNetRepoServer 证短路不触网）、gitPushFunc 打桩隔离推送、stubConfirmDeploy 打桩 confirmDeployFunc 隔离终端确认、临时裸仓库做本地 remote 验证真实 go-git 行为
+ * [INPUT]: 依赖 cmd 包内的 runDeploy / runDeployStatus / pushCurrentHead / gitPushFunc / buildPollInterval / errBuildFailed / errWaitTimeout / initGitRepo / stageAndCommit（包内白盒）、enterAppDir(写 apps/dsl/app.yaml + chdir)、gitCommitAll(init+commit 当前目录)，encoding/json、errors、fmt、net/http、net/http/httptest、os、path/filepath、strings、testing、time、github.com/go-git/go-git/v5（及 plumbing/object 子包）
+ * [OUTPUT]: 覆盖 deploy 子命令核心逻辑的单元测试（runDeploy 编排：本地真仓库门控 + Meta 注册门控（GetApp）+ production 确认门控 + gitPushFunc 桩隔离推送；app 未注册/校验错误/production abort 均短路在触达仓库服务之前且不 push；--yes 与 preview 不触发确认；非交互真门控拒绝 production 并指引 --yes；默认 env=preview；pushCurrentHead 真 go-git 推到本地裸仓库；fail-fast 脏/无仓库/无提交报错且不触网；--wait 等待：轮询至 SUCCESS/FAILED/CANCELED 终态、跃迁行去重、not-found 窗口期容忍、errBuildFailed/errWaitTimeout 哨兵、查询错误即刻失败、json 模式 stdout 纯 JSON 进度走 stderr；成功带出环境 URL：preview/production 按 task.Environment 选址、失败不渲染 URL、总览失败降级为空不阻断、json 平铺 url 字段、快照同路径；--output json 快照；旗标组合校验先于门控）
+ * [POS]: cmd 模块 deploy.go 的配套测试，用 httptest 隔离网络（newAppExistsMeta 放行注册门控、newBuildSeqMeta 按序答复构建快照模拟状态推进且兼答注册门控与部署总览 URL 夹具（previewURLFixture/productionURLFixture）、stubMetaServer 临时指向 Meta、newMockRepoServer 答仓库地址、noNetRepoServer 证短路不触网）、gitPushFunc 打桩隔离推送、stubPollInterval 调小轮询间隔、stubConfirmDeploy 打桩 confirmDeployFunc 隔离终端确认、临时裸仓库做本地 remote 验证真实 go-git 行为
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -17,10 +17,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/qfeius/makecli/internal/api"
 )
 
 // pushCall 打桩 gitPushFunc：记录 runDeploy 传入的推送参数，按 err 返回。
@@ -639,6 +641,588 @@ func newBareRemote(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// ---------------------------------- runDeployStatus（--status 构建进度查询） ----------------------------------
+
+// newBuildTaskMeta 启动答复构建任务详情的 Meta mock，透传 data 并记录请求供断言。
+func newBuildTaskMeta(t *testing.T, data map[string]any) (srv *httptest.Server, gotPath, gotTarget *string, gotBody *map[string]any) {
+	t.Helper()
+	gotPath, gotTarget, gotBody = new(string), new(string), new(map[string]any)
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*gotPath = r.URL.Path
+		*gotTarget = r.Header.Get("X-Make-Target")
+		_ = json.NewDecoder(r.Body).Decode(gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "success", "data": data})
+	}))
+	t.Cleanup(srv.Close)
+	return srv, gotPath, gotTarget, gotBody
+}
+
+// headSha 取 cwd 仓库当前 HEAD 的完整 sha
+func headSha(t *testing.T) string {
+	t.Helper()
+	repo, err := git.PlainOpen(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := repo.Head()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return head.Hash().String()
+}
+
+func TestRunDeployStatus(t *testing.T) {
+	t.Run("queries build task by current HEAD sha and renders it", func(t *testing.T) {
+		enterAppDir(t, "myapp")
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		gitCommitAll(t)
+		sha := headSha(t)
+		srv, gotPath, gotTarget, gotBody := newBuildTaskMeta(t, map[string]any{
+			"id": 582, "appKey": "myapp", "environment": "preview",
+			"deploymentVersion": "deploy_myapp_20260722_004",
+			"commitSha":         sha, "commitMessage": "test commit",
+			"status": "RUNNING", "phase": "BUILD",
+			"createTime": "2026-07-22T14:35:24+08:00",
+			"startTime":  "2026-07-22T14:35:25+08:00",
+		})
+		stubMetaServer(t, srv.URL)
+
+		out := captureStdout(t, func() {
+			if err := runDeployStatus(false, 0, outputTable); err != nil {
+				t.Errorf("runDeployStatus: %v", err)
+			}
+		})
+
+		if *gotPath != "/api/make/build/v1/build" {
+			t.Errorf("path = %q, want /api/make/build/v1/build", *gotPath)
+		}
+		if *gotTarget != "MakeService.GetResource" {
+			t.Errorf("X-Make-Target = %q, want MakeService.GetResource", *gotTarget)
+		}
+		if (*gotBody)["commitSha"] != sha {
+			t.Errorf("request commitSha = %v, want HEAD %s", (*gotBody)["commitSha"], sha)
+		}
+		for _, want := range []string{"App:", "myapp", "Build:", "#582", "Status:", "RUNNING", "Phase:", "BUILD", shortSha(sha)} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q, got: %q", want, out)
+			}
+		}
+		if strings.Contains(out, "Error:") || strings.Contains(out, "Finished:") {
+			t.Errorf("empty optional rows must not render, got: %q", out)
+		}
+	})
+
+	t.Run("reports missing build task with deploy guidance", func(t *testing.T) {
+		enterAppDir(t, "myapp")
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		gitCommitAll(t)
+		srv, _, _, _ := newBuildTaskMeta(t, map[string]any{}) // 软空响应 → ErrNotFound
+		stubMetaServer(t, srv.URL)
+
+		err := runDeployStatus(false, 0, outputTable)
+		if err == nil {
+			t.Fatal("expected error when build task is missing")
+		}
+		if !strings.Contains(err.Error(), "尚无构建任务") || !strings.Contains(err.Error(), "app deploy") {
+			t.Errorf("error should guide to deploy, got: %v", err)
+		}
+	})
+
+	t.Run("fails when app.yaml missing", func(t *testing.T) {
+		chdir(t, t.TempDir())
+
+		if err := runDeployStatus(false, 0, outputTable); err == nil {
+			t.Fatal("expected error when app.yaml is missing")
+		}
+	})
+
+	t.Run("fails fast when no git repository", func(t *testing.T) {
+		enterAppDir(t, "myapp") // 未 init
+
+		err := runDeployStatus(false, 0, outputTable)
+		if err == nil {
+			t.Fatal("expected error when no git repository")
+		}
+		if !strings.Contains(err.Error(), "app init") {
+			t.Errorf("error should guide to `app init`, got: %v", err)
+		}
+	})
+
+	t.Run("fails fast when nothing committed", func(t *testing.T) {
+		enterAppDir(t, "myapp")
+		if _, err := initGitRepo("."); err != nil { // init 但不 commit
+			t.Fatal(err)
+		}
+
+		err := runDeployStatus(false, 0, outputTable)
+		if err == nil {
+			t.Fatal("expected error when nothing committed")
+		}
+		if !strings.Contains(err.Error(), "commit") {
+			t.Errorf("error should ask to commit first, got: %v", err)
+		}
+	})
+
+	t.Run("fails without credentials", func(t *testing.T) {
+		enterAppDir(t, "myapp")
+		t.Setenv("HOME", t.TempDir())
+		gitCommitAll(t)
+
+		if err := runDeployStatus(false, 0, outputTable); err == nil {
+			t.Fatal("expected error for missing credentials")
+		}
+	})
+}
+
+// TestDeployStatusFlagShortCircuitsDeploy 走真实 cobra 解析：--status 只查进度，
+// 不碰仓库服务、不推送——查询是只读操作，绝不能顺手触发一次部署。
+func TestDeployStatusFlagShortCircuitsDeploy(t *testing.T) {
+	enterAppDir(t, "myapp")
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	gitCommitAll(t)
+	srv, _, _, _ := newBuildTaskMeta(t, map[string]any{
+		"id": 7, "appKey": "myapp", "environment": "preview",
+		"commitSha": headSha(t), "status": "SUCCESS", "phase": "DEPLOY",
+	})
+	stubMetaServer(t, srv.URL)
+	RepoServerURL = noNetRepoServer(t).URL // --status 不得触达仓库服务
+	t.Cleanup(func() { RepoServerURL = "" })
+	p := &pushCall{}
+	p.install(t)
+
+	cmd := newDeployCmd()
+	cmd.SetArgs([]string{"--status"})
+	out := captureStdout(t, func() {
+		if err := cmd.Execute(); err != nil {
+			t.Errorf("`app deploy --status` should not error: %v", err)
+		}
+	})
+
+	if p.called {
+		t.Error("push must not run with --status")
+	}
+	if !strings.Contains(out, "Status:") || !strings.Contains(out, "SUCCESS") {
+		t.Errorf("output should render build status, got: %q", out)
+	}
+}
+
+// ---------------------------------- --wait 阻塞等待构建终态 ----------------------------------
+
+// stubPollInterval 把 --wait 轮询间隔调到 1ms，让等待类测试瞬时完成。
+func stubPollInterval(t *testing.T) {
+	t.Helper()
+	old := buildPollInterval
+	buildPollInterval = time.Millisecond
+	t.Cleanup(func() { buildPollInterval = old })
+}
+
+// taskSnap 构造一份最小构建任务快照（--wait 轮询序列的单帧）。
+func taskSnap(sha, status, phase string) map[string]any {
+	return map[string]any{
+		"id": 654, "appKey": "myapp", "environment": "preview",
+		"commitSha": sha, "status": status, "phase": phase,
+	}
+}
+
+// 双环境访问地址夹具（newBuildSeqMeta 的 overview 路由答复，URL 断言与此对照）
+const (
+	previewURLFixture    = "https://myapp-preview-87.dev-make.example"
+	productionURLFixture = "https://myapp-production-87.make.example"
+)
+
+// newBuildSeqMeta 启动按序答复构建任务快照的 Meta mock（超出序列后重复最后一帧，模拟状态推进）；
+// 部署总览路径答双环境 URL 夹具，其余路径一律答「app 已注册」放行 deploy 的注册门控。
+// 返回 build 查询计数指针。
+func newBuildSeqMeta(t *testing.T, seq ...map[string]any) (*httptest.Server, *int) {
+	t.Helper()
+	calls := new(int)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "/build/v1/build"):
+			i := min(*calls, len(seq)-1)
+			*calls++
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "success", "data": seq[i]})
+		case strings.Contains(r.URL.Path, "/deployment/v1/deployment/overview"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200, "msg": "success",
+				"data": map[string]any{
+					"appKey":     "myapp",
+					"preview":    map[string]any{"status": "Ready", "url": previewURLFixture},
+					"production": map[string]any{"status": "Ready", "url": productionURLFixture},
+				},
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200, "msg": "ok",
+				"data": map[string]any{"key": "myapp", "name": "myapp", "type": "Make.App"},
+			})
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return srv, calls
+}
+
+func TestRunDeployStatusWait(t *testing.T) {
+	// setup 进入可查询的已提交工程并调小轮询间隔，返回 HEAD sha。
+	setup := func(t *testing.T) string {
+		t.Helper()
+		enterAppDir(t, "myapp")
+		t.Setenv("HOME", t.TempDir())
+		saveDefaultToken(t)
+		gitCommitAll(t)
+		stubPollInterval(t)
+		return headSha(t)
+	}
+
+	t.Run("polls until success and renders final detail", func(t *testing.T) {
+		sha := setup(t)
+		srv, calls := newBuildSeqMeta(t,
+			taskSnap(sha, "RUNNING", "BUILD"),
+			taskSnap(sha, "RUNNING", "DEPLOY"),
+			taskSnap(sha, "SUCCESS", "DEPLOY"),
+		)
+		stubMetaServer(t, srv.URL)
+
+		out := captureStdout(t, func() {
+			if err := runDeployStatus(true, time.Minute, outputTable); err != nil {
+				t.Errorf("runDeployStatus --wait: %v", err)
+			}
+		})
+
+		if *calls < 3 {
+			t.Errorf("expected >=3 polls, got %d", *calls)
+		}
+		for _, want := range []string{"RUNNING / BUILD", "RUNNING / DEPLOY", "SUCCESS / DEPLOY", "Status:", "SUCCESS", "URL:", previewURLFixture} {
+			if !strings.Contains(out, want) {
+				t.Errorf("output missing %q, got: %q", want, out)
+			}
+		}
+	})
+
+	t.Run("production build renders production url", func(t *testing.T) {
+		sha := setup(t)
+		snap := taskSnap(sha, "SUCCESS", "DEPLOY")
+		snap["environment"] = "production"
+		srv, _ := newBuildSeqMeta(t, snap)
+		stubMetaServer(t, srv.URL)
+
+		out := captureStdout(t, func() {
+			if err := runDeployStatus(true, time.Minute, outputTable); err != nil {
+				t.Errorf("runDeployStatus --wait: %v", err)
+			}
+		})
+		if !strings.Contains(out, productionURLFixture) {
+			t.Errorf("output should carry production url, got: %q", out)
+		}
+		if strings.Contains(out, previewURLFixture) {
+			t.Errorf("preview url must not leak into production build, got: %q", out)
+		}
+	})
+
+	t.Run("overview failure degrades to no url row", func(t *testing.T) {
+		sha := setup(t)
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			if strings.Contains(r.URL.Path, "/deployment/v1/deployment/overview") {
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 500, "msg": "overview exploded"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "success", "data": taskSnap(sha, "SUCCESS", "DEPLOY")})
+		}))
+		t.Cleanup(srv.Close)
+		stubMetaServer(t, srv.URL)
+
+		out := captureStdout(t, func() {
+			if err := runDeployStatus(true, time.Minute, outputTable); err != nil {
+				t.Errorf("url is decoration, overview failure must not fail deploy result: %v", err)
+			}
+		})
+		if strings.Contains(out, "URL:") {
+			t.Errorf("URL row must not render when overview unavailable, got: %q", out)
+		}
+	})
+
+	t.Run("progress prints only on state transitions", func(t *testing.T) {
+		sha := setup(t)
+		srv, _ := newBuildSeqMeta(t,
+			taskSnap(sha, "RUNNING", "BUILD"),
+			taskSnap(sha, "RUNNING", "BUILD"),
+			taskSnap(sha, "RUNNING", "BUILD"),
+			taskSnap(sha, "SUCCESS", "DEPLOY"),
+		)
+		stubMetaServer(t, srv.URL)
+
+		out := captureStdout(t, func() {
+			if err := runDeployStatus(true, time.Minute, outputTable); err != nil {
+				t.Errorf("runDeployStatus --wait: %v", err)
+			}
+		})
+
+		if n := strings.Count(out, "RUNNING / BUILD"); n != 1 {
+			t.Errorf("transition line printed %d times, want 1: %q", n, out)
+		}
+	})
+
+	t.Run("tolerates task not yet created", func(t *testing.T) {
+		sha := setup(t)
+		srv, _ := newBuildSeqMeta(t,
+			map[string]any{}, // 软空 → ErrNotFound：push 后 webhook 尚未建任务的窗口期
+			taskSnap(sha, "SUCCESS", "DEPLOY"),
+		)
+		stubMetaServer(t, srv.URL)
+
+		out := captureStdout(t, func() {
+			if err := runDeployStatus(true, time.Minute, outputTable); err != nil {
+				t.Errorf("not-found during wait must not fail: %v", err)
+			}
+		})
+		if !strings.Contains(out, "not created yet") {
+			t.Errorf("output should mention pending task creation, got: %q", out)
+		}
+	})
+
+	t.Run("failed build returns errBuildFailed with detail", func(t *testing.T) {
+		sha := setup(t)
+		snap := taskSnap(sha, "FAILED", "BUILD")
+		snap["errorCode"], snap["errorMessage"] = "BUILD_FAILED", "npm install failed"
+		srv, _ := newBuildSeqMeta(t, snap)
+		stubMetaServer(t, srv.URL)
+
+		var err error
+		out := captureStdout(t, func() { err = runDeployStatus(true, time.Minute, outputTable) })
+		if !errors.Is(err, errBuildFailed) {
+			t.Fatalf("expected errBuildFailed, got %v", err)
+		}
+		if !strings.Contains(out, "[BUILD_FAILED] npm install failed") {
+			t.Errorf("final detail should carry error line, got: %q", out)
+		}
+		if strings.Contains(out, "URL:") {
+			t.Errorf("failed build must not render URL (old release still serving), got: %q", out)
+		}
+	})
+
+	t.Run("canceled build is also not-success", func(t *testing.T) {
+		sha := setup(t)
+		srv, _ := newBuildSeqMeta(t, taskSnap(sha, "CANCELED", "BUILD"))
+		stubMetaServer(t, srv.URL)
+
+		var err error
+		_ = captureStdout(t, func() { err = runDeployStatus(true, time.Minute, outputTable) })
+		if !errors.Is(err, errBuildFailed) {
+			t.Fatalf("expected errBuildFailed for CANCELED, got %v", err)
+		}
+	})
+
+	t.Run("times out with errWaitTimeout while still running", func(t *testing.T) {
+		sha := setup(t)
+		srv, _ := newBuildSeqMeta(t, taskSnap(sha, "RUNNING", "BUILD"))
+		stubMetaServer(t, srv.URL)
+
+		var err error
+		_ = captureStdout(t, func() { err = runDeployStatus(true, 30*time.Millisecond, outputTable) })
+		if !errors.Is(err, errWaitTimeout) {
+			t.Fatalf("expected errWaitTimeout, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "--status") {
+			t.Errorf("timeout error should guide to --status, got: %v", err)
+		}
+	})
+
+	t.Run("query error fails wait immediately", func(t *testing.T) {
+		setup(t)
+		meta := newMockMeta(t, 500, "boom")
+		t.Cleanup(meta.Close)
+		stubMetaServer(t, meta.URL)
+
+		var err error
+		_ = captureStdout(t, func() { err = runDeployStatus(true, time.Minute, outputTable) })
+		if err == nil || errors.Is(err, errWaitTimeout) || errors.Is(err, errBuildFailed) {
+			t.Fatalf("expected plain query error, got %v", err)
+		}
+	})
+
+	t.Run("json wait keeps stdout pure JSON with progress on stderr", func(t *testing.T) {
+		sha := setup(t)
+		srv, _ := newBuildSeqMeta(t,
+			taskSnap(sha, "RUNNING", "BUILD"),
+			taskSnap(sha, "SUCCESS", "DEPLOY"),
+		)
+		stubMetaServer(t, srv.URL)
+
+		var err error
+		var stdout string
+		stderr := captureStderr(t, func() {
+			stdout = captureStdout(t, func() { err = runDeployStatus(true, time.Minute, outputJSON) })
+		})
+		if err != nil {
+			t.Fatalf("runDeployStatus --wait --output json: %v", err)
+		}
+		var view struct {
+			api.BuildTask
+			URL string `json:"url"`
+		}
+		if uerr := json.Unmarshal([]byte(stdout), &view); uerr != nil {
+			t.Fatalf("stdout is not pure JSON: %v\nstdout: %q", uerr, stdout)
+		}
+		if view.ID != 654 || view.Status != "SUCCESS" {
+			t.Errorf("unexpected task in JSON: %+v", view)
+		}
+		if view.URL != previewURLFixture {
+			t.Errorf("json url = %q, want %q", view.URL, previewURLFixture)
+		}
+		if !strings.Contains(stderr, "RUNNING / BUILD") {
+			t.Errorf("progress should stream to stderr, got: %q", stderr)
+		}
+	})
+}
+
+// TestDeployFlagValidation 走真实 cobra 解析：非法/无意义的旗标组合在触达任何门控之前被拒绝
+// （测试目录无工程文件，校验若未先行会先撞上 app.yaml 缺失的错误文案）。
+func TestDeployFlagValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"output json requires status", []string{"--output", "json"}, "--status"},
+		{"timeout requires wait", []string{"--timeout", "10s"}, "--wait"},
+		{"non-positive timeout rejected", []string{"--wait", "--timeout", "0s"}, "positive"},
+		{"unsupported output format", []string{"--status", "--output", "yaml"}, "unsupported output format"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			chdir(t, t.TempDir())
+			cmd := newDeployCmd()
+			cmd.SetArgs(c.args)
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("args %v: want error containing %q, got %v", c.args, c.want, err)
+			}
+		})
+	}
+}
+
+// TestDeployWaitAfterPush 走真实 cobra：--wait 先推送、后阻塞至终态——一次调用 = 一个部署结果。
+func TestDeployWaitAfterPush(t *testing.T) {
+	p := setupDeployEnv(t)
+	stubPollInterval(t)
+	sha := headSha(t)
+	srv, _ := newBuildSeqMeta(t,
+		taskSnap(sha, "PENDING", ""),
+		taskSnap(sha, "RUNNING", "BUILD"),
+		taskSnap(sha, "SUCCESS", "DEPLOY"),
+	)
+	stubMetaServer(t, srv.URL) // 覆盖 setupDeployEnv 的 app-exists mock（本 mock 兼答注册门控）
+
+	cmd := newDeployCmd()
+	cmd.SetArgs([]string{"--wait"})
+	out := captureStdout(t, func() {
+		if err := cmd.Execute(); err != nil {
+			t.Errorf("deploy --wait: %v", err)
+		}
+	})
+
+	if !p.called {
+		t.Error("--wait must still push first")
+	}
+	for _, want := range []string{"Deployed 'myapp' to preview", "Waiting for build", "SUCCESS / DEPLOY", "Status:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q, got: %q", want, out)
+		}
+	}
+}
+
+// TestDeployStatusJSONSnapshot 快照模式 --output json：stdout 是单个可解析的 BuildTask 对象。
+func TestDeployStatusJSONSnapshot(t *testing.T) {
+	enterAppDir(t, "myapp")
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	gitCommitAll(t)
+	srv, _, _, _ := newBuildTaskMeta(t, map[string]any{
+		"id": 582, "appKey": "myapp", "environment": "preview",
+		"commitSha": headSha(t), "status": "RUNNING", "phase": "BUILD",
+	})
+	stubMetaServer(t, srv.URL)
+
+	out := captureStdout(t, func() {
+		if err := runDeployStatus(false, 0, outputJSON); err != nil {
+			t.Errorf("runDeployStatus json: %v", err)
+		}
+	})
+
+	var task api.BuildTask
+	if err := json.Unmarshal([]byte(out), &task); err != nil {
+		t.Fatalf("stdout is not pure JSON: %v\nstdout: %q", err, out)
+	}
+	if task.ID != 582 || task.Status != "RUNNING" || task.Phase != "BUILD" {
+		t.Errorf("unexpected task in JSON: %+v", task)
+	}
+}
+
+// TestDeployStatusSnapshotURL 快照模式下成功任务同样带出对应环境 URL（与 --wait 同一渲染路径）。
+func TestDeployStatusSnapshotURL(t *testing.T) {
+	enterAppDir(t, "myapp")
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	gitCommitAll(t)
+	srv, _ := newBuildSeqMeta(t, taskSnap(headSha(t), "SUCCESS", "DEPLOY"))
+	stubMetaServer(t, srv.URL)
+
+	out := captureStdout(t, func() {
+		if err := runDeployStatus(false, 0, outputTable); err != nil {
+			t.Errorf("runDeployStatus: %v", err)
+		}
+	})
+	if !strings.Contains(out, "URL:") || !strings.Contains(out, previewURLFixture) {
+		t.Errorf("snapshot of finished build should carry url, got: %q", out)
+	}
+}
+
+// TestRenderBuildStatus 直测渲染：失败任务出 Error 行、空可选字段不渲染、URL 行随值出现。
+func TestRenderBuildStatus(t *testing.T) {
+	t.Run("failed task renders error line", func(t *testing.T) {
+		out := captureStdout(t, func() {
+			renderBuildStatus(&api.BuildTask{
+				ID: 7, AppKey: "myapp", Environment: "preview",
+				CommitSha: "abc1234def", Status: "FAILED", Phase: "BUILD",
+				ErrorCode: "BUILD_FAILED", ErrorMessage: "npm install failed",
+			}, "")
+		})
+		if !strings.Contains(out, "[BUILD_FAILED] npm install failed") {
+			t.Errorf("output missing error detail, got: %q", out)
+		}
+		if strings.Contains(out, "Image:") || strings.Contains(out, "Version:") || strings.Contains(out, "URL:") {
+			t.Errorf("empty optional rows must not render, got: %q", out)
+		}
+	})
+
+	t.Run("url renders as trailing row when present", func(t *testing.T) {
+		out := captureStdout(t, func() {
+			renderBuildStatus(&api.BuildTask{ID: 7, AppKey: "myapp", Status: "SUCCESS"}, "https://myapp.example")
+		})
+		if !strings.Contains(out, "URL:") || !strings.Contains(out, "https://myapp.example") {
+			t.Errorf("URL row missing, got: %q", out)
+		}
+	})
+
+	t.Run("formatBuildError single-sided fields", func(t *testing.T) {
+		if got := formatBuildError(&api.BuildTask{ErrorMessage: "boom"}); got != "boom" {
+			t.Errorf("message only = %q, want boom", got)
+		}
+		if got := formatBuildError(&api.BuildTask{ErrorCode: "E1"}); got != "E1" {
+			t.Errorf("code only = %q, want E1", got)
+		}
+		if got := formatBuildError(&api.BuildTask{}); got != "" {
+			t.Errorf("no error fields = %q, want empty", got)
+		}
+	})
 }
 
 // devTree 取裸仓库 deployBranch 分支最新提交的文件树
