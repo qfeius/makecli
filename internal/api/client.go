@@ -78,8 +78,13 @@ type conflictData struct {
 
 // writeStatusErr 把写操作的非 200 业务码翻译成错误：409 唯一性冲突翻译为 UniqueConstraintError
 // （携带约束名与字段），其余沿用通用「API 错误」。收口原本散落各写方法的非 200 翻译重复。
-func writeStatusErr(code int, msg string, conflict conflictData) error {
+//
+// data 以原始字节传入、只在 409 分支解析：成功响应的 data 形态由各端点自定
+// （对象 / 布尔 / 数组皆有），写路径不该对它提任何要求。解析失败退回 msg 兜底。
+func writeStatusErr(code int, msg string, data json.RawMessage) error {
 	if code == conflictCode {
+		var conflict conflictData
+		_ = json.Unmarshal(data, &conflict)
 		return &UniqueConstraintError{Constraint: conflict.Constraint, Fields: conflict.Fields, Message: msg}
 	}
 	return fmt.Errorf("API 错误 [%d]: %s", code, msg)
@@ -589,13 +594,13 @@ func (c *Client) request(method, target, path string, body, result any) error {
 }
 
 // post 是 do 的便捷包装，用于只需检查 code == 200 的写操作。
-// data 顺带解码 409 唯一性冲突形态（constraint/fields），非冲突响应忽略；
-// 非 200 经 writeStatusErr 翻译——409 → UniqueConstraintError，其余 → 通用错误。
+// data 原样收着不解析（各端点成功形态不一，DeleteApp 就回 true），
+// 非 200 经 writeStatusErr 翻译——409 → UniqueConstraintError（届时才解析 data），其余 → 通用错误。
 func (c *Client) post(target, path string, body any) error {
 	var result struct {
-		Code    int          `json:"code"`
-		Message string       `json:"msg"`
-		Data    conflictData `json:"data"`
+		Code    int             `json:"code"`
+		Message string          `json:"msg"`
+		Data    json.RawMessage `json:"data"`
 	}
 	if err := c.do(target, path, body, &result); err != nil {
 		return err

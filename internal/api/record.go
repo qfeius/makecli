@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 fmt，依赖同包 Client.do / Client.post 方法、writeStatusErr / conflictData（409 唯一性冲突翻译，收口于 client.go）
+ * [INPUT]: 依赖 encoding/json、fmt，依赖同包 Client.do / Client.post 方法、writeStatusErr（非 200 翻译，含 409 唯一性冲突，收口于 client.go）
  * [OUTPUT]: 对外提供 DeleteRecordResult / SortField / ListRecordOpts 类型、CreateRecord / GetRecord / UpdateRecord / UpdateRecordsBatch / DeleteRecords / ListRecords 方法（写方法违反唯一性约束时返回 UniqueConstraintError）
  * [POS]: internal/api 的 Data Service 层，封装 Record CRUD 操作，与 client.go 的 Meta Service 层平级
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -7,7 +7,10 @@
 
 package api
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // ---------------------------------- 数据类型 ----------------------------------
 
@@ -45,20 +48,23 @@ func (c *Client) CreateRecord(appKey, entityKey string, data map[string]any) (st
 		"data":      data,
 	}
 	var result struct {
-		Code    int    `json:"code"`
-		Message string `json:"msg"`
-		Data    struct {
-			RecordID     string `json:"recordID"`
-			conflictData        // 409 时携带 constraint/fields；成功响应无此键，零值忽略
-		} `json:"data"`
+		Code    int             `json:"code"`
+		Message string          `json:"msg"`
+		Data    json.RawMessage `json:"data"` // 成败两种形态，判完 code 再按需解析
 	}
 	if err := c.do("MakeService.CreateResource", "/data/v1/record", reqBody, &result); err != nil {
 		return "", err
 	}
 	if result.Code != 200 {
-		return "", writeStatusErr(result.Code, result.Message, result.Data.conflictData)
+		return "", writeStatusErr(result.Code, result.Message, result.Data)
 	}
-	return result.Data.RecordID, nil
+	var created struct {
+		RecordID string `json:"recordID"`
+	}
+	if err := json.Unmarshal(result.Data, &created); err != nil {
+		return "", fmt.Errorf("无效的响应格式: %w", err)
+	}
+	return created.RecordID, nil
 }
 
 // GetRecord 调用 MakeService.GetResource 获取单条记录
