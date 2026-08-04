@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 internal/api 包内的 Client（包内白盒），encoding/json、errors、net/http、net/http/httptest、testing
- * [OUTPUT]: 覆盖 Client.CreateApp / ListApps / DeleteApp / WithHeaders / WithDebug / WithDryRun（X-Dry-Run 注入/缺席）/ GetApp / GetEntity / GetRelation（含 ErrNotFound 语义）/ ErrAuthFailed 鉴权语义 / Traceparent+X-Log-Id 出站头 的单元测试
+ * [OUTPUT]: 覆盖 Client.CreateApp / ListApps / DeleteApp（含成功 data 为标量 true 的写路径）/ WithHeaders / WithDebug / WithDryRun（X-Dry-Run 注入/缺席）/ GetApp / GetEntity / GetRelation（含 ErrNotFound 语义）/ ErrAuthFailed 鉴权语义 / Traceparent+X-Log-Id 出站头 的单元测试
  * [POS]: internal/api client.go 的配套测试，用 httptest 隔离网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -70,6 +70,19 @@ func TestDeleteApp(t *testing.T) {
 				t.Errorf("unexpected body: %v", body)
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "delete app success"})
+		}))
+		defer srv.Close()
+
+		if err := New(srv.URL, "test-token").DeleteApp("myapp"); err != nil {
+			t.Fatalf("DeleteApp: %v", err)
+		}
+	})
+
+	// 写操作成功响应的 data 形态由各端点自定：DeleteApp 回 true。
+	// 写路径不得对成功 data 的形态提任何要求（409 冲突形态只在冲突分支解析）。
+	t.Run("success with scalar data", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "success", "data": true})
 		}))
 		defer srv.Close()
 
