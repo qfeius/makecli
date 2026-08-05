@@ -8,9 +8,11 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -50,6 +52,138 @@ func PrepareWorkDir(baseDir string, claim RunClaim) (workDir string, resumable b
 		}
 	}
 	return workDir, resumable, nil
+}
+
+// skillRootNames 是各 CLI 的原生技能发现路径（Design.md §8.1「skills 写入各
+// CLI 原生发现路径」）。两个都写：呈现按 provider 适配的差异就止步于目录名，
+// 与 CLAUDE.md/AGENTS.md 双写同一裁决。
+var skillRootNames = []string{
+	filepath.Join(".claude", "skills"),
+	filepath.Join(".agents", "skills"),
+}
+
+// BlobFetcher 由 daemon 的 Client 实现，按 ref 取附件内容。
+type BlobFetcher interface {
+	FetchBlob(ctx context.Context, ref string, limit int64) ([]byte, error)
+}
+
+// maximumSkillFileBytes 与服务端契约上限一致（Contract.md §9.2）。
+const maximumSkillFileBytes = 1 << 20
+
+// RenderSkills 把 claim 下发的技能快照物化进工作目录。
+//
+// **整组重写**：先清空技能根目录再写。workDir 跨 run 复用（连续性优先），
+// 增量补写会让上一轮解绑的技能阴魂不散——CLI 仍会发现它、仍会照着它行事，
+// 而管理台上它已经不在了。清空是唯一能让"解绑"真正生效的做法。
+//
+// 附件回源失败不打断 run：正文仍然写下去，缺的文件在返回的 warnings 里，
+// 由调用方决定怎么呈现。
+func RenderSkills(ctx context.Context, workDir string, skills []SkillBundle, fetcher BlobFetcher) (warnings []string, err error) {
+	for _, root := range skillRootNames {
+		absoluteRoot := filepath.Join(workDir, root)
+		// 先清后写：解绑的技能必须从磁盘上消失。
+		if err := os.RemoveAll(absoluteRoot); err != nil {
+			return nil, fmt.Errorf("clear skill root %s: %w", absoluteRoot, err)
+		}
+		if len(skills) == 0 {
+			continue
+		}
+		if err := os.MkdirAll(absoluteRoot, 0o755); err != nil {
+			return nil, fmt.Errorf("create skill root %s: %w", absoluteRoot, err)
+		}
+	}
+	if len(skills) == 0 {
+		return nil, nil
+	}
+
+	for i := range skills {
+		skill := &skills[i]
+		if !safeSkillSegment(skill.Name) {
+			warnings = append(warnings, "技能名形状非法，已跳过: "+skill.Name)
+			continue
+		}
+		// 附件只回源一次，两个根目录共用同一份内容——省掉一半网络往返。
+		contents := make(map[string][]byte, len(skill.Files))
+		for j := range skill.Files {
+			file := &skill.Files[j]
+			if !safeSkillRelativePath(file.Path) {
+				warnings = append(warnings, skill.Name+" 的附件路径形状非法，已跳过: "+file.Path)
+				continue
+			}
+			content, fetchErr := fetcher.FetchBlob(ctx, file.BlobRef, maximumSkillFileBytes)
+			if fetchErr != nil {
+				warnings = append(warnings, skill.Name+" 的附件回源失败: "+file.Path)
+				continue
+			}
+			contents[file.Path] = content
+		}
+		for _, root := range skillRootNames {
+			directory := filepath.Join(workDir, root, skill.Name)
+			if err := os.MkdirAll(directory, 0o755); err != nil {
+				return warnings, fmt.Errorf("create skill dir %s: %w", directory, err)
+			}
+			if err := os.WriteFile(filepath.Join(directory, "SKILL.md"),
+				[]byte(renderSkillMarkdown(skill)), 0o644); err != nil {
+				return warnings, fmt.Errorf("render SKILL.md for %s: %w", skill.Name, err)
+			}
+			for relative, content := range contents {
+				target := filepath.Join(directory, filepath.FromSlash(relative))
+				if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+					return warnings, fmt.Errorf("create skill file dir %s: %w", target, err)
+				}
+				if err := os.WriteFile(target, content, 0o644); err != nil {
+					return warnings, fmt.Errorf("write skill file %s: %w", target, err)
+				}
+			}
+		}
+	}
+	return warnings, nil
+}
+
+// renderSkillMarkdown 产出带 frontmatter 的 SKILL.md——name/description 是各
+// CLI 渐进披露的索引层，正文才是按需读取的第二层。
+func renderSkillMarkdown(skill *SkillBundle) string {
+	var content strings.Builder
+	content.WriteString("---\n")
+	content.WriteString("name: ")
+	content.WriteString(skill.Name)
+	content.WriteString("\n")
+	if description := strings.TrimSpace(skill.Description); description != "" {
+		content.WriteString("description: ")
+		// frontmatter 是单行标量：换行会把文档结构撑破，压平成空格。
+		content.WriteString(strings.Join(strings.Fields(description), " "))
+		content.WriteString("\n")
+	}
+	content.WriteString("---\n\n")
+	content.WriteString(skill.Body)
+	if !strings.HasSuffix(skill.Body, "\n") {
+		content.WriteString("\n")
+	}
+	return content.String()
+}
+
+// safeSkillSegment 校验单个目录名（技能名）。
+func safeSkillSegment(candidate string) bool {
+	if candidate == "" || candidate == "." || candidate == ".." {
+		return false
+	}
+	return !strings.ContainsAny(candidate, "/\\\x00")
+}
+
+// safeSkillRelativePath 校验附件相对路径：写入侧已收口，此处贴着拼接点复核。
+func safeSkillRelativePath(candidate string) bool {
+	if candidate == "" || strings.ContainsAny(candidate, "\\\x00") {
+		return false
+	}
+	if path.IsAbs(candidate) || path.Clean(candidate) != candidate {
+		return false
+	}
+	for _, segment := range strings.Split(candidate, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 // BuildPrompt 把触发区间的 user_message 事件拼为 prompt 文本。

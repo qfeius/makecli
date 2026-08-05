@@ -59,6 +59,14 @@ func (d *Daemon) executeRun(ctx context.Context, backend adapter.Backend, claim 
 		fail(RunStatusFailed, FailReasonCLICrash, "准备工作目录失败: "+err.Error())
 		return
 	}
+	// 技能物化：整组重写 CLI 原生发现路径（Contract.md §9.2）。附件回源失败
+	// 只降级为"这轮少几个文件"，不打断 run——正文本身仍然有用。
+	if warnings, skillErr := RenderSkills(ctx, workDir, claim.Agent.Skills, d.client); skillErr != nil {
+		logger.Warn("技能物化失败,本轮以无技能执行", "err", skillErr)
+	} else if len(warnings) > 0 {
+		logger.Warn("技能部分未就位", "warnings", warnings)
+	}
+
 	resumeSessionID := claim.Resume.CLISessionID
 	if !resumable {
 		// resume 目录不可用（跨设备遗留路径）：连续性整体放弃，新会话起步。

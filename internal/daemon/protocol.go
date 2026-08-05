@@ -142,6 +142,24 @@ type AgentBundle struct {
 	Description  string          `json:"description,omitempty"`
 	Instructions string          `json:"instructions"`
 	RunParams    json.RawMessage `json:"runParams,omitempty"`
+	Skills       []SkillBundle   `json:"skills,omitempty"`
+}
+
+// SkillBundle 是 claim 下发的技能快照（Contract.md §9.2）：正文全量，附件
+// 只给清单，内容按 BlobRef 回源。execenv 据此物化进各 CLI 的原生发现路径。
+type SkillBundle struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Body        string            `json:"body"`
+	Files       []SkillFileBundle `json:"files,omitempty"`
+}
+
+// SkillFileBundle 是一条附件的寻址与校验信息。
+type SkillFileBundle struct {
+	Path      string `json:"path"`
+	BlobRef   string `json:"blobRef"`
+	SizeBytes int64  `json:"sizeBytes"`
+	SHA256    string `json:"sha256"`
 }
 
 // SeqRange 是触发事件区间 [FromSeq, ToSeq]。

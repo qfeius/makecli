@@ -125,3 +125,38 @@ func (c *Client) ListEvents(ctx context.Context, request ListEventsRequest) ([]E
 	err := c.call(ctx, ResourceEvent, TargetListResources, request, &events)
 	return events, err
 }
+
+// FetchBlob 按 ref 取外置内容（skill 附件回源）。
+//
+// 这是本 client 唯一的非信封调用：blob 下载是统一调用风格的例外白名单端点
+// （GET + 裸字节流），经 gateway 透传到 context。
+func (c *Client) FetchBlob(ctx context.Context, ref string, limit int64) ([]byte, error) {
+	if ref == "" {
+		return nil, fmt.Errorf("blob ref 必填")
+	}
+	if limit <= 0 {
+		limit = 1 << 20
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.baseURL+PathPrefix+"/blob/"+ref, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build blob request: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+c.token)
+	response, err := c.http.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("fetch blob: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch blob %s: HTTP %d", ref, response.StatusCode)
+	}
+	content, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read blob: %w", err)
+	}
+	if int64(len(content)) > limit {
+		return nil, fmt.Errorf("blob %s 超过 %d 字节上限", ref, limit)
+	}
+	return content, nil
+}
