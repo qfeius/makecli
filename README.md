@@ -98,12 +98,10 @@ makecli configure get X-Tenant-ID
 配置保存在 `~/.make/config`，格式：
 ```ini
 [default]
-meta-server-url = https://dev-make.qtech.cn
 X-Tenant-ID = tenant_abc
 X-Operator-ID = op_123
 ```
 
-- `meta-server-url` — Meta Server **主机地址**（只填到主机名，无需路径），优先级：`--meta-server-url` 命令行参数 > config 文件 > 环境 preset。网关前缀 `/api/make` 由 CLI 自动补齐（若误填了完整 URL 也不会重复）
 - `X-Tenant-ID` 和 `X-Operator-ID` 会自动作为 HTTP Header 附加到所有 API 请求中
 
 ### 全局参数
