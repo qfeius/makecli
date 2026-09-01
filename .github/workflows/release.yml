@@ -29,3 +29,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 需在仓库 Settings → Secrets 中配置，用于推送 Homebrew Tap
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          # 毕业发布时正式 tag 与 beta tag 指向同一 commit，GoReleaser 自动探测会
+          # 按版本排序误选 beta（v0.5.8-beta.1 排在 v0.5.8 之上），钉死为触发本次
+          # workflow 的 tag
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
