@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.8] - 2026-09-01
+
+### Features
+
+- **configure**: `configure verify` now decodes the token's JWT claims locally and fails closed on expiry — an expired token is reported invalid before any network call, so a lenient server endpoint returning 200 can no longer disguise an expired credential as valid. The message carries a ready-to-run `makecli login --profile <name>` hint, and the JSON output gains full `issued_at` / `expires_at` timestamps (RFC3339). Tokens without an `exp` claim still fall through to the online check
+
+### Bug Fixes
+
+- **configure**: `configure verify` built its own API client and dropped the global `--debug` flag, so no curl debug output was printed; it now injects the debug option like every other command
+- **api**: Defer decoding of the `data` field on write paths, fixing a decode failure in `app delete` (#39)
+
+### Documentation
+
+- Fix docs
+
 ## [v0.5.7] - 2026-08-03
 
 ### ⚠ Breaking Changes
@@ -216,7 +231,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.7...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.8...HEAD
+[v0.5.8]: https://github.com/qfeius/makecli/releases/tag/v0.5.8
 [v0.5.7]: https://github.com/qfeius/makecli/releases/tag/v0.5.7
 [v0.5.5]: https://github.com/qfeius/makecli/releases/tag/v0.5.5
 [v0.5.4]: https://github.com/qfeius/makecli/releases/tag/v0.5.4
