@@ -1,15 +1,19 @@
 /**
- * [INPUT]: 依赖 internal/config（Load/LoadConfig）、internal/api（New/WithHeaders）、cmd/client（resolveEnvironment）、cmd/output（outputJSON/validateOutputFormat/writeJSON）、fmt、os
- * [OUTPUT]: 对外提供 newConfigureVerifyCmd 函数
- * [POS]: cmd/configure 的 verify 子命令，在线验证 token 有效性并输出 profile 状态
+ * [INPUT]: 依赖 internal/config（Load/LoadConfig）、internal/api（New/WithHeaders）、cmd/client（resolveEnvironment）、cmd/output（outputJSON/validateOutputFormat/writeJSON）、encoding/base64、encoding/json、fmt、os、strings、time
+ * [OUTPUT]: 对外提供 newConfigureVerifyCmd 函数；包内 parseJWTTimeClaims 免验签提取 iat/exp
+ * [POS]: cmd/configure 的 verify 子命令，本地 exp fail-closed 判定 + 在线验证 token 有效性并输出 profile 状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
 package cmd
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/qfeius/makecli/internal/api"
 	"github.com/qfeius/makecli/internal/config"
@@ -44,10 +48,40 @@ type verifyResult struct {
 	Profile       string `json:"profile"`
 	Valid         bool   `json:"valid"`
 	Token         string `json:"token"`
+	IssuedAt      string `json:"issued_at"`
+	ExpiresAt     string `json:"expires_at"`
 	MetaServerURL string `json:"meta_server_url"`
 	TenantID      string `json:"tenant_id"`
 	OperatorID    string `json:"operator_id"`
 	Message       string `json:"message"`
+}
+
+// parseJWTTimeClaims 免验签提取 JWT payload 中的 iat/exp——过期判定不依赖签名真伪：
+// exp 已过则无论签名是否有效 token 都不可用，这正是 fail-closed 的依据；
+// 缺失的 claim 返回零值 time.Time，由调用方按「无法判定」处理
+func parseJWTTimeClaims(token string) (issuedAt, expiresAt time.Time, err error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return time.Time{}, time.Time{}, fmt.Errorf("not a JWT")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	var claims struct {
+		Iat int64 `json:"iat"`
+		Exp int64 `json:"exp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	if claims.Iat > 0 {
+		issuedAt = time.Unix(claims.Iat, 0)
+	}
+	if claims.Exp > 0 {
+		expiresAt = time.Unix(claims.Exp, 0)
+	}
+	return issuedAt, expiresAt, nil
 }
 
 func runConfigureVerify(output string) (*verifyResult, error) {
@@ -88,6 +122,22 @@ func runConfigureVerify(output string) (*verifyResult, error) {
 		result.Message = "token invalid (malformed JWT)"
 		outputVerifyResult(&result, output)
 		return &result, nil
+	}
+
+	// 本地 exp 判定（fail-closed）：已过期不触网直接判无效；
+	// payload 不可解析或无 exp claim 时不下本地结论，交给在线验证
+	if issuedAt, expiresAt, err := parseJWTTimeClaims(p.AccessToken); err == nil {
+		if !issuedAt.IsZero() {
+			result.IssuedAt = issuedAt.Format(time.RFC3339)
+		}
+		if !expiresAt.IsZero() {
+			result.ExpiresAt = expiresAt.Format(time.RFC3339)
+			if time.Now().After(expiresAt) {
+				result.Message = fmt.Sprintf("token expired. `makecli login --profile %s` to renew token", Profile)
+				outputVerifyResult(&result, output)
+				return &result, nil
+			}
+		}
 	}
 
 	// 在线验证：调用 app list(page=1, size=1)；server 取值链 flag > profile config > 环境 preset
