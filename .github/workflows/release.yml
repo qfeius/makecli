@@ -33,3 +33,25 @@ jobs:
           # 按版本排序误选 beta（v0.5.8-beta.1 排在 v0.5.8 之上），钉死为触发本次
           # workflow 的 tag
           GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+
+      # -----------------------------------------------------------------
+      # npm：主包 @qfeius/makecli 通过 optionalDependencies 钉住 6 个平台子包，
+      # 子包携带 GoReleaser 刚构建的二进制；先发子包后发主包，主包永远不指向缺失的子包。
+      # beta tag（含 "-"）发到 dist-tag beta，正式 tag 发到 latest，与 [settings] channel 语义一致。
+      # -----------------------------------------------------------------
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish npm packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          dist_tag=latest
+          [[ "$version" != *-* ]] || dist_tag=beta
+          for dir in $(node npm/build.js --version "$version"); do
+            npm publish "$dir" --tag "$dist_tag"
+          done

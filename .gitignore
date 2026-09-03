@@ -35,3 +35,6 @@ bin
 
 # Vendored reference source (not part of this repo)
 deps/
+
+# GoReleaser 本地 snapshot 产物
+dist/

@@ -2,9 +2,14 @@
 makecli 是 make 平台管理的命令行工具
 
 ## 安装
+Homebrew：
 ```bash
 brew tap qfeius/makecli
 brew install makecli
+```
+npm（macOS / Linux / Windows，x64 与 arm64；安装时不下载，二进制随平台子包一起装入）：
+```bash
+npm install -g @qfeius/makecli
 ```
 ## 强制升级到最新版本
 ```
@@ -22,13 +27,14 @@ makecli update --skip-skills
 ```
 git -C $(brew --repo qfeius/makecli) pull && brew upgrade makecli
 ```
+npm 安装的 makecli 执行 `makecli update` 时会自动委托给 `npm install -g @qfeius/makecli@<版本>`（pnpm 安装则委托 `pnpm add -g`），不会绕过包管理器原地替换二进制。
 
 ## 发布通道（stable / beta）
 
 makecli 有两个发布通道：
 
 - **stable**（默认）：正式版本，Homebrew 与 `makecli update` 默认追踪
-- **beta**：`vX.Y.Z-beta.N` 预发布版本，先行体验新功能；不进 Homebrew，仅通过 `makecli update` 自更新分发
+- **beta**：`vX.Y.Z-beta.N` 预发布版本，先行体验新功能；不进 Homebrew，通过 `makecli update` 自更新或 `npm install -g @qfeius/makecli@beta` 分发
 
 ```bash
 # 切入 beta 通道：之后裸 update 与后台更新提示自动追踪 beta

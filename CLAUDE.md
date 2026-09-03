@@ -14,6 +14,7 @@ Go 1.25.8 + github.com/spf13/cobra + github.com/go-git/go-git/v5（app init/crea
 - `internal/skillsync/` - Make platform skills 同步/清单/删除/安装（Sync 默认每次 npx 安装/升级 qfeius/make-platform-skills --all，--skip-skills 跳过；List 合并 lockfile + SKILL.md + GitHub Contents API 做 outdated 比对；Remove 两阶段逐个删除（PlanRemove lockfile 校验/--all 展开，绝不透传上游 --all）；PlanInstall 两阶段按名/全量安装（npx 环境门禁与远端校验）；Install 执行 npx 安装），被 cmd/update 与 cmd/skills 消费
 - `internal/daemon/` - Agent 平台设备接入（隐藏命令 `makecli daemon`）：注册/心跳/claim 轮询驱动本机 coding CLI（claude-code / codex adapter），claim 的 description 身份职责与 instructions 执行要求渲染进 CLI 原生上下文文件，最终答复经 @Name 解析产出结构化 mention 块（互@触发，agent-design/Design.md §7.5），协议 wire 类型镜像 agent-design/Contract.md（公开仓库无法 import 私有 agent-contract）；子包 `launchd/` 是 macOS 托管层——把前台形态固化成用户级 LaunchAgent（登录自启 + 退出拉起），供 `daemon start/stop/restart/status` 驱动
 - `internal/agent/` - keyless 本地 code agent（隐藏命令 `makecli agent`，agent-design/Design.md §8.2）：默认即 code agent——gateway Provider（llm/gateway.go，OpenAI 兼容 SSE 指向 /v1/chat/completions，平台 token 只开模型门、设备端零厂商 key）+ 七工具注册表（root=cwd）+ 目录信任确认钩子（副作用工具 bash/write/edit 逐次 y/n/a，--approve 免确认）+ 两层循环行式渲染（一次性 -p / 交互 REPL，历史进程内存续）+ REPL 的 `!<cmd>` 本地命令直通（bang.go，对齐 Claude Code：不发起 LLM 请求，直接跑本机 shell，转录进历史；用户亲手敲的命令不过目录信任门控）；--chat-only 退回纯聊天 ChatStream（同样带直通）；内核五子包 core（叶子类型/事件流）、tool（read/write/edit/grep/find/ls/bash + Schema 校验执行器）、llm（StreamFn 流式抽象 + GatewayProvider）、loop（两层循环 + 提示词组装）、trust（目录信任持久化）移植自 github.com/smallnest/pigo（MIT，剥离 compaction/subagent/todo/webfetch）
+- `npm/` - npm 分发层（`@qfeius/makecli`）：bin/makecli.js 是主包唯一 JS——用 require.resolve 定位 `@qfeius/makecli-<platform>-<arch>` 子包内的 Go 二进制并 spawnSync 透传；build.js 读 GoReleaser 的 dist/artifacts.json 生成 6 个平台子包（携带二进制、声明 os/cpu）+ 1 个主包（optionalDependencies 精确钉住同版本子包），stdout 按发布顺序输出目录供 release.yml 逐个 `npm publish`；安装时零下载、零 postinstall，镜像与代理全由 npm 自身处理
 - `internal/notifier/` - 自动更新提示（读本地缓存零延迟判定，过期或跨通道后台 goroutine 刷新，stderr+仅TTY 提示；三态开关 env MAKE_CLI_UPDATE_NOTIFIER > config [settings] > 默认开；按 [settings] channel 检查与提示，缓存带 channel 字段跨通道失效，beta.N 白名单拒 git-describe 伪版本）
 
 </directory>
@@ -30,8 +31,8 @@ Go 1.25.8 + github.com/spf13/cobra + github.com/go-git/go-git/v5（app init/crea
 - `Makefile` - 本地构建脚本（build/test/vet/clean），通过 ldflags 注入版本和日期
 - `CHANGELOG.md` - 版本变更记录（Keep a Changelog 格式）；`update --check` 链接指向此文件；发版时由 /ship Step 5 从 git log 重生成并提交回 main
 - `.goreleaser.yml` - 发布流水线：多平台构建 + 自动推送 Homebrew Tap
-- `.github/workflows/release.yml` - 打 v* tag 时触发 GoReleaser 发布
-- `.github/workflows/ci.yml` - push main / PR 时运行 golangci-lint + vet + test（PR 另跑 Claude 安全扫描）
+- `.github/workflows/release.yml` - 打 v* tag 时触发 GoReleaser 发布，随后同 job 内 `node npm/build.js` 生成包并用 org secret NPM_TOKEN 逐个 `npm publish`（beta tag → dist-tag beta，正式 → latest）
+- `.github/workflows/ci.yml` - push main / PR 时运行 golangci-lint + vet + test + `node --test npm/`（PR 另跑 Claude 安全扫描）
 
 </config>
 
@@ -41,6 +42,7 @@ git tag v1.0.0 && git push --tags
 → GitHub Actions 触发 GoReleaser
 → 构建 linux/darwin/windows × amd64/arm64 二进制
 → 推送 formula 到 qfeius/homebrew-makecli
+→ npm publish @qfeius/makecli + 6 个平台子包（NPM_TOKEN 为 qfeius org secret，已授权本仓库）
 ```
 
 ## 常用命令
@@ -65,4 +67,6 @@ make local          # 构建并安装到 ~/.local/bin
 brew tap qfeius/makecli
 brew trust qfeius/makecli
 brew install makecli
+# 或
+npm install -g @qfeius/makecli
 ```

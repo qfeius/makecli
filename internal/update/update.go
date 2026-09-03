@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 net/http、time、archive/tar、archive/zip、compress/gzip、encoding/json、github.com/Masterminds/semver/v3；依赖同包 checksum.go 的 fetchChecksums/verifyChecksum 做完整性校验
+ * [INPUT]: 依赖 net/http、time、archive/tar、archive/zip、compress/gzip、encoding/json、github.com/Masterminds/semver/v3；依赖同包 checksum.go 的 fetchChecksums/verifyChecksum 做完整性校验、install_method.go 的 detectInstallMethod/applyViaPackageManager 做安装方式分流
  * [OUTPUT]: 对外提供 CheckLatest / ListReleases / NormalizeTag / GetRelease / CompareVersions / Apply 函数、Release / Asset 结构体
- * [POS]: internal/update 的核心引擎，被 cmd/update.go 消费；Apply 在替换二进制前强制 SHA-256 校验（fail-closed）
+ * [POS]: internal/update 的核心引擎，被 cmd/update.go 消费；Apply 先按安装方式分流（npm/pnpm 安装交还包管理器），裸二进制在替换前强制 SHA-256 校验（fail-closed）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -233,6 +233,11 @@ func fetchJSON(url string, target any) (int, error) {
 // Apply 下载指定 release 的 asset 并替换当前二进制
 func Apply(release *Release) error {
 	version := strings.TrimPrefix(release.TagName, "v")
+
+	// 包管理器安装的二进制交还给包管理器升级，不原地替换
+	if m := detectInstallMethod(); m != InstallBinary {
+		return applyViaPackageManager(m, version)
+	}
 
 	asset, err := findAsset(release.Assets, version)
 	if err != nil {
