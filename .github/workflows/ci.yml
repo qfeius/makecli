@@ -38,7 +38,7 @@ jobs:
         with:
           node-version: 22
 
-      - run: node --test npm/
+      - run: node --test "npm/*.test.js"
 
   security:
     # Skip on fork PRs: GitHub forces a read-only token and withholds secrets +

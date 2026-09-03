@@ -19,6 +19,7 @@ local: build
 
 test:
 	go test ./...
+	node --test "npm/*.test.js"
 
 vet:
 	go vet ./...

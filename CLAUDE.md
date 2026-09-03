@@ -28,11 +28,11 @@ Go 1.25.8 + github.com/spf13/cobra + github.com/go-git/go-git/v5（app init/crea
 <config>
 
 - `go.mod` - 模块声明，module github.com/qfeius/makecli
-- `Makefile` - 本地构建脚本（build/test/vet/clean），通过 ldflags 注入版本和日期
+- `Makefile` - 本地构建脚本（build/test/vet/clean），通过 ldflags 注入版本和日期；test 同时跑 Go 测试与 npm/ 的 node:test，与 CI 门禁一致
 - `CHANGELOG.md` - 版本变更记录（Keep a Changelog 格式）；`update --check` 链接指向此文件；发版时由 /ship Step 5 从 git log 重生成并提交回 main
 - `.goreleaser.yml` - 发布流水线：多平台构建 + 自动推送 Homebrew Tap
 - `.github/workflows/release.yml` - 打 v* tag 时触发 GoReleaser 发布，随后同 job 内 `node npm/build.js` 生成包并用 org secret NPM_TOKEN 逐个 `npm publish`（beta tag → dist-tag beta，正式 → latest）
-- `.github/workflows/ci.yml` - push main / PR 时运行 golangci-lint + vet + test + `node --test npm/`（PR 另跑 Claude 安全扫描）
+- `.github/workflows/ci.yml` - push main / PR 时运行 golangci-lint + vet + test + `node --test "npm/*.test.js"`（PR 另跑 Claude 安全扫描）
 
 </config>
 

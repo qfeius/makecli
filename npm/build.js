@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 node:fs / node:path；输入 GoReleaser 产出的 dist/artifacts.json 与其中的 Binary 条目
- * [OUTPUT]: 导出 buildManifests / platformPackageName / parseArgs 供测试；作为 CLI 运行时在 --out 下写出 7 个可 publish 的包目录，stdout 按发布顺序逐行打印目录（平台子包在前、主包最后）
+ * [OUTPUT]: 导出 buildManifests / platformPackageName / parseArgs 供测试；作为 CLI 运行时在 --out 下写出 7 个可 publish 的包目录，全部包写出成功后 stdout 才按发布顺序逐行打印目录（平台子包在前、主包最后），任一失败则无输出
  * [POS]: 发布流水线的 npm 打包步骤（release.yml 调用）；平台子包携带二进制并声明 os/cpu，主包用 optionalDependencies 精确钉住同版本子包
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -108,9 +108,9 @@ function main() {
   const artifacts = JSON.parse(fs.readFileSync(path.join(opts.dist, 'artifacts.json'), 'utf8'))
   const binaries = artifacts.filter((a) => a.type === 'Binary')
   if (binaries.length === 0) throw new Error(`no Binary artifacts in ${opts.dist}/artifacts.json`)
-  for (const m of buildManifests(opts.version, binaries, __dirname)) {
-    process.stdout.write(writePackage(opts.out, m) + '\n')
-  }
+  // 全部写完再输出：任何一个包生成失败都不会留下可供发布的半成品清单
+  const dirs = buildManifests(opts.version, binaries, __dirname).map((m) => writePackage(opts.out, m))
+  process.stdout.write(dirs.join('\n') + '\n')
 }
 
 if (require.main === module) main()

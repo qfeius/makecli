@@ -30,7 +30,7 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
-bin
+/bin/
 .claude/
 
 # Vendored reference source (not part of this repo)

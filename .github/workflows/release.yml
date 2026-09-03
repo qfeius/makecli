@@ -52,6 +52,8 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           dist_tag=latest
           [[ "$version" != *-* ]] || dist_tag=beta
-          for dir in $(node npm/build.js --version "$version"); do
+          # 先完整生成再发布：$(...) 直接放进 for 会吞掉 build 的失败，赋值给变量则受 set -e 保护
+          dirs=$(node npm/build.js --version "$version")
+          for dir in $dirs; do
             npm publish "$dir" --tag "$dist_tag"
           done
