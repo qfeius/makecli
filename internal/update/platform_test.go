@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 archive/zip、bytes、net/http、os、path/filepath、testing；internal/update 自身
+ * [INPUT]: 依赖 archive/zip、bytes、net/http、net/http/httptest、os、path/filepath、testing；internal/update 自身
  * [OUTPUT]: 单元测试，无导出
  * [POS]: internal/update 的跨平台资产/解压测试，覆盖 Windows zip 与下载客户端超时
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -11,6 +11,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,7 +57,7 @@ func TestExtractBinaryFromZip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	binPath, err := extractBinary(archivePath)
+	binPath, err := extractBinary(archivePath, "makecli_1.0.0_windows_amd64.zip")
 	if err != nil {
 		t.Fatalf("extractBinary(zip): %v", err)
 	}
@@ -83,5 +84,50 @@ func TestDownloadClientHasResponseHeaderTimeout(t *testing.T) {
 	}
 	if tr.ResponseHeaderTimeout <= 0 {
 		t.Error("downloadClient transport must carry a positive ResponseHeaderTimeout to bound a stalled server")
+	}
+}
+
+// TestDownloadThenExtractZip 走 download → extractBinary 全链路：
+// download 落盘的临时文件无扩展名，分派必须依据 asset 名而非磁盘路径，
+// 否则 Windows zip 会被误送进 gzip 解码（回归：gzip: invalid header）。
+func TestDownloadThenExtractZip(t *testing.T) {
+	payload := []byte("fake-windows-binary")
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("makecli.exe")
+	if err != nil {
+		t.Fatalf("zip create: %v", err)
+	}
+	if _, err := w.Write(payload); err != nil {
+		t.Fatalf("zip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip close: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+
+	const assetName = "makecli_1.0.0_windows_amd64.zip"
+	archivePath, err := download(srv.URL + "/" + assetName)
+	if err != nil {
+		t.Fatalf("download: %v", err)
+	}
+	defer func() { _ = os.Remove(archivePath) }()
+
+	binPath, err := extractBinary(archivePath, assetName)
+	if err != nil {
+		t.Fatalf("extractBinary after download: %v", err)
+	}
+	defer func() { _ = os.Remove(binPath) }()
+
+	got, err := os.ReadFile(binPath)
+	if err != nil {
+		t.Fatalf("read extracted: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Errorf("extracted content = %q, want %q", got, payload)
 	}
 }

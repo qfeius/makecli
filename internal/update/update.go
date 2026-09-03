@@ -256,8 +256,8 @@ func Apply(release *Release) error {
 		return err
 	}
 
-	// 从归档中提取二进制
-	newBinaryPath, err := extractBinary(archivePath)
+	// 从归档中提取二进制：格式由 asset 名决定，临时文件路径不携带扩展名
+	newBinaryPath, err := extractBinary(archivePath, asset.Name)
 	if err != nil {
 		return err
 	}
@@ -322,10 +322,11 @@ func download(url string) (string, error) {
 	return tmp.Name(), nil
 }
 
-// extractBinary 从归档中提取 makecli 二进制到临时文件，按扩展名分派：
+// extractBinary 从归档中提取 makecli 二进制到临时文件，按 assetName 的扩展名分派：
 // .zip（Windows）走 extractFromZip，其余走 extractFromTarGz。
-func extractBinary(archivePath string) (string, error) {
-	if strings.HasSuffix(archivePath, ".zip") {
+// 分派依据必须是 release asset 名而非磁盘路径——download() 落盘的临时文件无扩展名。
+func extractBinary(archivePath, assetName string) (string, error) {
+	if strings.HasSuffix(assetName, ".zip") {
 		return extractFromZip(archivePath)
 	}
 	return extractFromTarGz(archivePath)
