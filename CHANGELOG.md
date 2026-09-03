@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.9] - 2026-09-03
+
+### Bug Fixes
+
+- **update**: `makecli update` on Windows always failed with `gzip: invalid header` — the downloaded archive was saved to an extension-less temp file, so the `.zip` check on the path never matched and the zip was fed to the gzip decoder. Archive format is now decided by the release asset name; a download→extract regression test covers the full path
+
 ## [v0.5.8] - 2026-09-01
 
 ### Features
@@ -231,7 +237,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.8...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.9...HEAD
+[v0.5.9]: https://github.com/qfeius/makecli/releases/tag/v0.5.9
 [v0.5.8]: https://github.com/qfeius/makecli/releases/tag/v0.5.8
 [v0.5.7]: https://github.com/qfeius/makecli/releases/tag/v0.5.7
 [v0.5.5]: https://github.com/qfeius/makecli/releases/tag/v0.5.5
