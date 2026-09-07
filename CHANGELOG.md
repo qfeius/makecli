@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.10] - 2026-09-07
+
+### Features
+
+- **npm**: makecli is now distributed on npm as `@qfeius/makecli` — `npm install -g @qfeius/makecli` on macOS / Linux / Windows (x64 and arm64). The main package pins six platform sub-packages via `optionalDependencies`; npm installs only the matching one, with no download or postinstall script. `makecli update` detects npm and pnpm installs and delegates to `npm install -g` / `pnpm add -g` instead of replacing the binary in place
+
+### Bug Fixes
+
+- **npm**: The main package's launcher script was excluded from the repository by the bare `bin` rule in `.gitignore`, and the publish loop swallowed the resulting build failure, so the first beta shipped platform packages without the main package. Only the root `/bin/` is ignored now, and the packaging script emits nothing unless every package was written
+
+### CI
+
+- **release**: npm publishing switched to Trusted Publishing (OIDC): the workflow authenticates with its GitHub Actions identity instead of a long-lived `NPM_TOKEN`, and every package carries a signed provenance attestation
+
+### Documentation
+
+- **readme**: Installation lists npm before Homebrew
+
 ## [v0.5.9] - 2026-09-03
 
 ### Bug Fixes
@@ -237,7 +255,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.9...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.10...HEAD
+[v0.5.10]: https://github.com/qfeius/makecli/releases/tag/v0.5.10
 [v0.5.9]: https://github.com/qfeius/makecli/releases/tag/v0.5.9
 [v0.5.8]: https://github.com/qfeius/makecli/releases/tag/v0.5.8
 [v0.5.7]: https://github.com/qfeius/makecli/releases/tag/v0.5.7
