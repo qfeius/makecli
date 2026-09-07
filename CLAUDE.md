@@ -31,7 +31,7 @@ Go 1.25.8 + github.com/spf13/cobra + github.com/go-git/go-git/v5（app init/crea
 - `Makefile` - 本地构建脚本（build/test/vet/clean），通过 ldflags 注入版本和日期；test 同时跑 Go 测试与 npm/ 的 node:test，与 CI 门禁一致
 - `CHANGELOG.md` - 版本变更记录（Keep a Changelog 格式）；`update --check` 链接指向此文件；发版时由 /ship Step 5 从 git log 重生成并提交回 main
 - `.goreleaser.yml` - 发布流水线：多平台构建 + 自动推送 Homebrew Tap
-- `.github/workflows/release.yml` - 打 v* tag 时触发 GoReleaser 发布，随后同 job 内 `node npm/build.js` 生成包并用 org secret NPM_TOKEN 逐个 `npm publish`（beta tag → dist-tag beta，正式 → latest）
+- `.github/workflows/release.yml` - 打 v* tag 时触发 GoReleaser 发布，随后同 job 内 `node npm/build.js` 生成包并逐个 `npm publish`，认证走 npm Trusted Publishing（OIDC，`id-token: write`，无长期 token；7 个包在 npmjs.com 各配 qfeius/makecli + release.yml 的 publisher）；beta tag → dist-tag beta，正式 → latest
 - `.github/workflows/ci.yml` - push main / PR 时运行 golangci-lint + vet + test + `node --test "npm/*.test.js"`（PR 另跑 Claude 安全扫描）
 
 </config>
@@ -42,7 +42,7 @@ git tag v1.0.0 && git push --tags
 → GitHub Actions 触发 GoReleaser
 → 构建 linux/darwin/windows × amd64/arm64 二进制
 → 推送 formula 到 qfeius/homebrew-makecli
-→ npm publish @qfeius/makecli + 6 个平台子包（NPM_TOKEN 为 qfeius org secret，已授权本仓库）
+→ npm publish @qfeius/makecli + 6 个平台子包（Trusted Publishing OIDC，自动附 provenance）
 ```
 
 ## 常用命令
