@@ -64,9 +64,9 @@ make local          # 构建并安装到 ~/.local/bin
 
 ## 安装方式
 ```bash
+npm install -g @qfeius/makecli
+# 或
 brew tap qfeius/makecli
 brew trust qfeius/makecli
 brew install makecli
-# 或
-npm install -g @qfeius/makecli
 ```

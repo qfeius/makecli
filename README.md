@@ -2,14 +2,14 @@
 makecli 是 make 平台管理的命令行工具
 
 ## 安装
+npm（macOS / Linux / Windows，x64 与 arm64；安装时不下载，二进制随平台子包一起装入）：
+```bash
+npm install -g @qfeius/makecli
+```
 Homebrew：
 ```bash
 brew tap qfeius/makecli
 brew install makecli
-```
-npm（macOS / Linux / Windows，x64 与 arm64；安装时不下载，二进制随平台子包一起装入）：
-```bash
-npm install -g @qfeius/makecli
 ```
 ## 强制升级到最新版本
 ```
