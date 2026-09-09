@@ -15,6 +15,7 @@ Go 1.25.8 + github.com/spf13/cobra + github.com/go-git/go-git/v5（app init/crea
 - `internal/daemon/` - Agent 平台设备接入（隐藏命令 `makecli daemon`）：注册/心跳/claim 轮询驱动本机 coding CLI（claude-code / codex adapter），claim 的 description 身份职责与 instructions 执行要求渲染进 CLI 原生上下文文件，最终答复经 @Name 解析产出结构化 mention 块（互@触发，agent-design/Design.md §7.5），协议 wire 类型镜像 agent-design/Contract.md（公开仓库无法 import 私有 agent-contract）；子包 `launchd/` 是 macOS 托管层——把前台形态固化成用户级 LaunchAgent（登录自启 + 退出拉起），供 `daemon start/stop/restart/status` 驱动
 - `internal/agent/` - keyless 本地 code agent（隐藏命令 `makecli agent`，agent-design/Design.md §8.2）：默认即 code agent——gateway Provider（llm/gateway.go，OpenAI 兼容 SSE 指向 /v1/chat/completions，平台 token 只开模型门、设备端零厂商 key）+ 七工具注册表（root=cwd）+ 目录信任确认钩子（副作用工具 bash/write/edit 逐次 y/n/a，--approve 免确认）+ 两层循环行式渲染（一次性 -p / 交互 REPL，历史进程内存续）+ REPL 的 `!<cmd>` 本地命令直通（bang.go，对齐 Claude Code：不发起 LLM 请求，直接跑本机 shell，转录进历史；用户亲手敲的命令不过目录信任门控）；--chat-only 退回纯聊天 ChatStream（同样带直通）；内核五子包 core（叶子类型/事件流）、tool（read/write/edit/grep/find/ls/bash + Schema 校验执行器）、llm（StreamFn 流式抽象 + GatewayProvider）、loop（两层循环 + 提示词组装）、trust（目录信任持久化）移植自 github.com/smallnest/pigo（MIT，剥离 compaction/subagent/todo/webfetch）
 - `npm/` - npm 分发层（`@qfeius/makecli`）：bin/makecli.js 是主包唯一 JS——用 require.resolve 定位 `@qfeius/makecli-<platform>-<arch>` 子包内的 Go 二进制并 spawnSync 透传；build.js 读 GoReleaser 的 dist/artifacts.json 生成 6 个平台子包（携带二进制、声明 os/cpu）+ 1 个主包（optionalDependencies 精确钉住同版本子包），stdout 按发布顺序输出目录供 release.yml 逐个 `npm publish`；安装时零下载、零 postinstall，镜像与代理全由 npm 自身处理
+- `internal/skillcontent/` - 二进制内嵌的 skill 内容（`makecli skills read <skill>[/<path>]`，对齐 lark-cli skills read）：子目录 make-platform-skills/ 是 git submodule → qfeius/make-platform-skills（超项目钉住 commit、跟踪 main，`make sync` 拉齐，发版前 /ship Step 0 自动 bump 并提交，build/test/vet/lint 均以 sync 为前置；CI/release checkout 开 submodules），embed.go 白名单嵌入 skills/*/SKILL.md + references/（scripts/ agents/ 不嵌入），reader.go Read 解析目标：path 缺省 SKILL.md、目录则列一层、错误自带导航（未知 skill 附嵌入清单 / 未找到附顶层条目）
 - `internal/notifier/` - 自动更新提示（读本地缓存零延迟判定，过期或跨通道后台 goroutine 刷新，stderr+仅TTY 提示；三态开关 env MAKE_CLI_UPDATE_NOTIFIER > config [settings] > 默认开；按 [settings] channel 检查与提示，缓存带 channel 字段跨通道失效，beta.N 白名单拒 git-describe 伪版本）
 
 </directory>
@@ -47,6 +48,7 @@ git tag v1.0.0 && git push --tags
 
 ## 常用命令
 ```bash
+make sync           # 拉齐 skills submodule（build/test/vet/lint 自动前置）
 make build          # 构建到 bin/makecli（自动注入版本和日期）
 make test           # 运行全部测试
 make vet            # 静态检查

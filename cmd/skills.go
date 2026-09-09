@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 fmt、strings、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newSkillsCmd 函数；包内 skillsDoneLine 被 install / uninstall 复用
- * [POS]: cmd 模块的 skills 命令组，挂载 list / install / update / uninstall 子命令；默认 RunE = list（参考 version.go 的 gh 模式）
+ * [POS]: cmd 模块的 skills 命令组，挂载 list / install / update / uninstall / read 子命令；默认 RunE = list（参考 version.go 的 gh 模式）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -34,6 +34,7 @@ func newSkillsCmd() *cobra.Command {
 	cmd.AddCommand(newSkillsInstallCmd())
 	cmd.AddCommand(newSkillsUpdateCmd())
 	cmd.AddCommand(newSkillsUninstallCmd())
+	cmd.AddCommand(newSkillsReadCmd())
 	return cmd
 }
 

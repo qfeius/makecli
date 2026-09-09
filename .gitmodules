@@ -1,0 +1,4 @@
+[submodule "internal/skillcontent/make-platform-skills"]
+	path = internal/skillcontent/make-platform-skills
+	url = https://github.com/qfeius/make-platform-skills.git
+	branch = main
