@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra、github.com/spf13/pflag、os、strings、internal/config（EnvironmentNames/DefaultEnvironment）、internal/notifier
- * [OUTPUT]: 对外提供 Execute 函数、rootCmd 根命令、全局变量 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode；包内 commandName 解析器
+ * [OUTPUT]: 对外提供 Execute 函数、rootCmd 根命令、全局变量 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode；包内 commandName 解析器、installUsageTemplate（usageTemplate + 模板函数装配，根 help 尾附 skills 安装引导）
  * [POS]: cmd 模块的入口，挂载 version / configure / login / whoami / app / entity / relation / record / apply / diff / update / skills / schema / integration / preflight 子命令；定义全局 --profile / --meta-server-url / --repo-server-url / --env / --debug PersistentFlag；后端 URL 兜底交给 config.Environment preset；错误呈现经 reportExecuteError 单一出口（SilenceErrors，见 errors.go）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -39,7 +39,7 @@ var rootCmd = &cobra.Command{
 	Short: "makecli — agentic development platform cli",
 }
 
-// usageTemplate 对齐 GitHub CLI 风格：段落标题全大写
+// usageTemplate 对齐 GitHub CLI 风格：段落标题全大写；根命令尾部附 skills 一次性安装引导（对齐 lark-cli，仅根级）
 // 不含命令描述——描述由 cobra 默认 HelpTemplate 的 (or .Long .Short) 负责，
 // 此处再印一遍会与 --help 重复（曾因所有命令只设 Short 而未暴露）
 const usageTemplate = `USAGE
@@ -61,15 +61,17 @@ EXAMPLES
 {{.Example}}
 {{end}}{{if .HasAvailableSubCommands}}
 Use "{{.CommandPath}} [command] --help" for more information about a command.
+{{end}}{{if not .HasParent}}
+Skills setup (one-time, humans): {{.CommandPath}} skills install --all --yes
 {{end}}`
 
-// Execute 是程序入口，由 main.go 调用
-func Execute(version, buildDate string) error {
-	// 注册模板函数：拆分 InheritedFlags 为 global（root 级）和 parent（中间命令级）
+// installUsageTemplate 给 root 装上 usageTemplate 及其依赖的模板函数：
+// 拆分 InheritedFlags 为 global（root 级）和 parent（中间命令级）。
+func installUsageTemplate(root *cobra.Command) {
 	cobra.AddTemplateFunc("globalFlags", func(cmd *cobra.Command) string {
 		fs := pflag.NewFlagSet("global", pflag.ContinueOnError)
 		cmd.InheritedFlags().VisitAll(func(f *pflag.Flag) {
-			if rootCmd.PersistentFlags().Lookup(f.Name) != nil {
+			if root.PersistentFlags().Lookup(f.Name) != nil {
 				fs.AddFlag(f)
 			}
 		})
@@ -78,15 +80,20 @@ func Execute(version, buildDate string) error {
 	cobra.AddTemplateFunc("parentFlags", func(cmd *cobra.Command) string {
 		fs := pflag.NewFlagSet("parent", pflag.ContinueOnError)
 		cmd.InheritedFlags().VisitAll(func(f *pflag.Flag) {
-			if rootCmd.PersistentFlags().Lookup(f.Name) == nil {
+			if root.PersistentFlags().Lookup(f.Name) == nil {
 				fs.AddFlag(f)
 			}
 		})
 		return fs.FlagUsages()
 	})
+	root.SetUsageTemplate(usageTemplate)
+}
+
+// Execute 是程序入口，由 main.go 调用
+func Execute(version, buildDate string) error {
 	rootCmd.Version = formatVersion(version, buildDate)
 	rootCmd.SetVersionTemplate(`{{.Version}}`)
-	rootCmd.SetUsageTemplate(usageTemplate)
+	installUsageTemplate(rootCmd)
 	// 错误呈现收口到 Execute 出口的 reportExecuteError 单一出口：
 	// 抑制 cobra 自动打印，让鉴权失败能升级为引导、退出码哨兵能保持静默。
 	rootCmd.SilenceErrors = true
