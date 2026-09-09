@@ -20,10 +20,11 @@
 - 单测需要切换 profile 时用 `setProfile(t, "name")`（stdout_test.go），t.Cleanup 自动还原
 
 ## 成员清单
-- `root.go`: 根命令入口，挂载所有顶级子命令（login / whoami / schema / apply / diff / update / skills / integration / preflight 等；deploy 已下沉为 app 子命令），对外暴露 Execute(version, date)；定义全局 PersistentFlag --profile / --meta-server-url / --repo-server-url / --env / --debug，分别绑定全局变量 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode；后端 URL 兜底交给 config.Environment preset（不再持 default*Server 常量）；钩入 notifier.Start/Finish 生命周期；包内 commandName 解析顶级命令名；rootCmd.SilenceErrors=true 把错误呈现收口到 Execute 出口的 reportExecuteError（errors.go）单一出口
+- `root.go`: 根命令入口，挂载所有顶级子命令（login / whoami / schema / apply / diff / update / skills / integration / preflight 等；deploy 已下沉为 app 子命令），对外暴露 Execute(version, date)；定义全局 PersistentFlag --profile / --meta-server-url / --repo-server-url / --env / --debug，分别绑定全局变量 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode；后端 URL 兜底交给 config.Environment preset（不再持 default*Server 常量）；钩入 notifier.Start/Finish 生命周期；包内 commandName 解析顶级命令名；rootCmd.SilenceErrors=true 把错误呈现收口到 Execute 出口的 reportExecuteError（errors.go）单一出口；installUsageTemplate(root) 装配 GitHub CLI 风格 usageTemplate 与 globalFlags/parentFlags 模板函数，根命令 help 尾附 `Skills setup (one-time, humans): makecli skills install --all --yes` 引导（仅根级，对齐 lark-cli）
 - `errors.go`: CLI 错误呈现单一出口：reportExecuteError(w, err) 把退出码哨兵（errDiffFound/errPreflightFailed）静默、api.ErrAuthFailed 升级为带 makecli login next-step + profile/env 回显的引导（authFailedHint）、其余复刻 cobra 的 `error: <msg>`；终结了原 diff/preflight 各自 SilenceErrors+自打印的特例；ExitCode(err) 对外收口错误→退出码翻译（0 成功 / errBuildFailed→2 / errWaitTimeout→124 / 其余 1，被 main 消费），语义化退出码让 CI/agent 免解析文本判定 deploy --wait 结果
 - `errors_test.go`: 覆盖 reportExecuteError 各分支（nil/退出码哨兵静默/真实错误打印/鉴权升级）+ authFailedHint 回显 profile/env + ExitCode 退出码映射（nil→0/构建未成功→2/等待超时→124/普通错误与 diff 哨兵→1），用 setProfile/setEnvFlag 隔离全局态
 - `root_test.go`: 覆盖 commandName 顶级命令解析的单元测试（version/version list/update/app create/空 args/未知命令）
+- `root_help_test.go`: 覆盖 installUsageTemplate 的 help 渲染测试（根 help 以 skills 安装引导行结尾 / 子命令 help 不含该行），独立构造 root 不依赖包级 rootCmd
 - `version.go`: version 子命令组，默认 Run 打印当前版本（参考 GitHub CLI 模式），挂载 list 子命令
 - `version_test.go`: 覆盖 formatVersion / changelogURL 的纯函数测试
 - `version_list.go`: version list 子命令，调 internal/update.ListReleases 拉取 GitHub 最近 N 条 release，tablewriter 输出 CURRENT/VERSION/TYPE/PUBLISHED/URL（TYPE 经 releaseTypeLabel 标注 Pre-release 对齐 gh release list，正式版留空；JSON 输出保留 name 与 prerelease 字段）；CURRENT 列对比 build.Version 标记当前安装版本；支持 --limit（默认20，1-100）/ --output（table|json）
