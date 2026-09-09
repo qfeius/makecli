@@ -40,7 +40,7 @@ func newSkillsReadCmd() *cobra.Command {
 }
 
 // runSkillsRead 把文件原文逐字节写 stdout（与源文件一致，便于 agent 直接消费）；
-// 目录列举每行一项；主文件读毕在 stderr 附一行引用文件的读取指引。
+// 目录列举每行一项；主文件读毕在 stderr 附引用文件的读取指引（前置空行与正文分隔）。
 func runSkillsRead(stdout, stderr io.Writer, target string) error {
 	res, err := skillcontent.Read(skillContentFS, target)
 	if err != nil {
@@ -54,7 +54,7 @@ func runSkillsRead(stdout, stderr io.Writer, target string) error {
 		return err
 	}
 	if res.IsMain() {
-		_, _ = fmt.Fprintf(stderr, "> Tip: files this skill references (e.g. references/...) are embedded too: "+
+		_, _ = fmt.Fprintf(stderr, "\n> Tip: files this skill references (e.g. references/...) are embedded too: "+
 			"`makecli skills read %s <relative-path>`; another skill's files: `makecli skills read <skill> <path>`.\n", res.Skill)
 	}
 	return nil
