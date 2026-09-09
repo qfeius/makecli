@@ -34,7 +34,7 @@ func newSkillsUninstallCmd() *cobra.Command {
 		Short: "Uninstall Make platform skills",
 		Example: `  makecli skills uninstall makedsl makeui    # 按名移除
   makecli skills uninstall --all             # 移除全部已装 Make platform skills
-  makecli skills uninstall --all -y          # 跳过确认（CI / 非交互）`,
+  makecli skills uninstall --all --yes       # 跳过确认（CI / 非交互）`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSkillsUninstall(cmd.Context(), cmd, args, all, yes)

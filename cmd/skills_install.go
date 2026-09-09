@@ -34,7 +34,7 @@ func newSkillsInstallCmd() *cobra.Command {
 		Short: "Install Make platform skills",
 		Example: `  makecli skills install makedsl makeui    # 按名选装
   makecli skills install --all             # 全量安装（装缺的 + 升级已有）
-  makecli skills install --all -y          # 跳过确认（CI / 非交互）`,
+  makecli skills install --all --yes       # 跳过确认（CI / 非交互）`,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSkillsInstall(cmd.Context(), cmd, args, all, yes)

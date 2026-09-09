@@ -41,7 +41,7 @@ func newDiffCmd() *cobra.Command {
 		Long: `Compare local YAML resource definitions with the remote App on Meta Server.
 The app name is inferred from the Make.App manifest or entity's app field in the YAML files.`,
 		Example: `  makecli diff -f ./dsl/
-  makecli diff -f app.yaml --output json`,
+  makecli diff --file app.yaml --output json`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {

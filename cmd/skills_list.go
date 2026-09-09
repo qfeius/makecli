@@ -65,7 +65,7 @@ func runSkillsList(ctx context.Context, output string, all bool) error {
 
 	if len(skills) == 0 {
 		fmt.Println("No Make platform skills installed.")
-		fmt.Println("Run 'makecli skills install -y --all' to install.")
+		fmt.Println("Run 'makecli skills install --all --yes' to install.")
 		return nil
 	}
 

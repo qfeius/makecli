@@ -139,7 +139,7 @@ func TestRunSkillsListEmpty(t *testing.T) {
 	if !strings.Contains(out, "No Make platform skills installed") {
 		t.Errorf("missing empty state:\n%s", out)
 	}
-	if !strings.Contains(out, "makecli skills install -y --all") {
+	if !strings.Contains(out, "makecli skills install --all --yes") {
 		t.Errorf("empty state must guide installation:\n%s", out)
 	}
 }

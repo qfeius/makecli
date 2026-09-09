@@ -81,13 +81,13 @@ func newDeployCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy",
 		Short: "Deploy an app to Make Platform",
-		Example: `  makecli app deploy                       # 默认部署到 preview
-  makecli app deploy --wait                # 部署并阻塞至构建终态（退出码 0 成功 / 2 失败 / 124 超时）
-  makecli app deploy --env production      # 部署到 production（需确认）
-  makecli app deploy --env production -y   # 跳过确认（CI / 非交互）
-  makecli app deploy --status              # 查询当前 HEAD 提交的构建/部署进度
-  makecli app deploy --status --wait       # 只等待构建终态，不推送
-  makecli app deploy --status --output json # 机器可读的进度快照`,
+		Example: `  makecli app deploy                         # 默认部署到 preview
+  makecli app deploy --wait                  # 部署并阻塞至构建终态（退出码 0 成功 / 2 失败 / 124 超时）
+  makecli app deploy --env production        # 部署到 production（需确认）
+  makecli app deploy --env production --yes  # 跳过确认（CI / 非交互）
+  makecli app deploy --status                # 查询当前 HEAD 提交的构建/部署进度
+  makecli app deploy --status --wait         # 只等待构建终态，不推送
+  makecli app deploy --status --output json  # 机器可读的进度快照`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
