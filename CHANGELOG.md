@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.11] - 2026-09-09
+
+### Features
+
+- **skills**: New `makecli skills read <skill>[/<path>] [path]` prints skill content embedded in the binary — the skill's `SKILL.md` by default, any file under `references/`, or a directory listing. The content is compiled in at build time from the `make-platform-skills` git submodule, so it always matches the CLI version and works offline; error messages carry the list of embedded skills or the skill's top-level entries so an agent can navigate without a separate `list` verb. Machine resources (`scripts/`) are not embedded
+- **help**: The root `--help` ends with a one-time skills setup hint for humans (`makecli skills install --all --yes`), mirroring lark-cli
+
+### Documentation
+
+- **help**: Examples and hints consistently use long options instead of mixing `-y` with `--all` on one line
+- **cmd**: `CLAUDE.md` registers `root_help_test.go` and `installUsageTemplate`
+
 ## [v0.5.10] - 2026-09-07
 
 ### Features
@@ -255,7 +267,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.10...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.11...HEAD
+[v0.5.11]: https://github.com/qfeius/makecli/releases/tag/v0.5.11
 [v0.5.10]: https://github.com/qfeius/makecli/releases/tag/v0.5.10
 [v0.5.9]: https://github.com/qfeius/makecli/releases/tag/v0.5.9
 [v0.5.8]: https://github.com/qfeius/makecli/releases/tag/v0.5.8
