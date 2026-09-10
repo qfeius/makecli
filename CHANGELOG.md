@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.12] - 2026-09-10
+
+### Features
+
+- **auth**: New global `--access-token` / `-t` flag and `$MAKE_ACCESS_TOKEN` environment variable override the token stored in the credentials file, resolved as flag > env > credentials through a single entry point shared by `configure verify`, `whoami`, and every authenticated command. The override replaces only the credential itself — tenant, operator, and server URLs still come from the `--profile` config. When the token comes from a flag or env, an auth failure no longer triggers an automatic re-login (the stored token would be shadowed anyway), `configure verify` reports a `source` field (`flag` / `env` / `credentials`) in JSON, and the auth-failure hint names where the token came from (#40)
+- **config**: `$MAKE_META_SERVER_URL` and `$MAKE_REPO_SERVER_URL` join the host-address resolution chain, so all three override flags share the same configurable sources: flag > env > profile config > built-in environment preset. `configure resolve` and `configure verify` use the same chain instead of a hand-written copy (#40)
+
+### Documentation
+
+- **help**: Global URL flag hints mirror `--access-token`, naming both overridden sources as `(overrides $ENV and the profile <file>)` (#40)
+- **skills**: `skills read` prints a blank line before its stderr navigation hint so it stays visually separate from the content
+
 ## [v0.5.11] - 2026-09-09
 
 ### Features
@@ -267,7 +279,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.11...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.12...HEAD
+[v0.5.12]: https://github.com/qfeius/makecli/releases/tag/v0.5.12
 [v0.5.11]: https://github.com/qfeius/makecli/releases/tag/v0.5.11
 [v0.5.10]: https://github.com/qfeius/makecli/releases/tag/v0.5.10
 [v0.5.9]: https://github.com/qfeius/makecli/releases/tag/v0.5.9
