@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd 包内的 resolveEnvironment / 全局 Environment（白盒），internal/config（SetSetting）、testing
- * [OUTPUT]: 覆盖环境解析优先级（flag > settings > 默认）与 withGateway 网关前缀拼接的单元测试
- * [POS]: cmd 模块 client.go resolveEnvironment / withGateway 的配套测试，t.Setenv 隔离配置
+ * [INPUT]: 依赖 cmd 包内的 resolveAccessToken / metaServerURL / repoServerURL / resolveEnvironment / 全局 AccessToken / MetaServerURL / RepoServerURL / Environment（白盒），internal/config（Save/SetSetting）、testing
+ * [OUTPUT]: 覆盖 token 取值链（--access-token > $MAKE_ACCESS_TOKEN > credentials）、主机地址取值链（flag > $MAKE_*_SERVER_URL > profile config > 环境内置地址）、环境解析优先级（flag > settings > 默认）与 withGateway 网关前缀拼接的单元测试
+ * [POS]: cmd 模块 client.go resolveAccessToken / resolveEnvironment / withGateway 的配套测试，t.Setenv 隔离配置
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -21,6 +21,89 @@ func setEnvFlag(t *testing.T, name string) {
 	old := Environment
 	Environment = name
 	t.Cleanup(func() { Environment = old })
+}
+
+// setAccessTokenFlag 临时覆盖全局 AccessToken（--access-token），结束自动还原。
+func setAccessTokenFlag(t *testing.T, token string) {
+	t.Helper()
+	old := AccessToken
+	AccessToken = token
+	t.Cleanup(func() { AccessToken = old })
+}
+
+// TestResolveAccessToken 锁定 token 取值链契约：flag > env > credentials，
+// 以及每一级的 source 标识——configure verify 与鉴权引导都靠它回答「token 从哪来」。
+func TestResolveAccessToken(t *testing.T) {
+	cases := []struct {
+		name       string
+		flag, env  string
+		file       string
+		wantToken  string
+		wantSource string
+	}{
+		{"flag over env and file", "from-flag", "from-env", "from-file", "from-flag", tokenSourceFlag},
+		{"env over file", "", "from-env", "from-file", "from-env", tokenSourceEnv},
+		{"file when nothing overrides", "", "", "from-file", "from-file", tokenSourceCredentials},
+		{"empty everywhere", "", "", "", "", tokenSourceCredentials},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv(EnvAccessToken, tc.env)
+			setAccessTokenFlag(t, tc.flag)
+			if tc.file != "" {
+				if err := config.Save(config.Credentials{"default": config.Profile{AccessToken: tc.file}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			token, source, err := resolveAccessToken()
+			if err != nil {
+				t.Fatalf("resolveAccessToken: %v", err)
+			}
+			if token != tc.wantToken || source != tc.wantSource {
+				t.Errorf("got (%q, %s), want (%q, %s)", token, source, tc.wantToken, tc.wantSource)
+			}
+		})
+	}
+}
+
+// setServerURLFlags 临时覆盖全局 MetaServerURL / RepoServerURL，结束自动还原。
+func setServerURLFlags(t *testing.T, meta, repo string) {
+	t.Helper()
+	oldMeta, oldRepo := MetaServerURL, RepoServerURL
+	MetaServerURL, RepoServerURL = meta, repo
+	t.Cleanup(func() { MetaServerURL, RepoServerURL = oldMeta, oldRepo })
+}
+
+// TestServerURLChain 锁定主机地址取值链契约：flag > env > profile config > 环境内置地址，
+// meta / repo 两条链同构，与 access token 的三级可配置来源对齐。
+func TestServerURLChain(t *testing.T) {
+	cp := config.ConfigProfile{MetaServerURL: "https://cfg-meta", RepoServerURL: "https://cfg-repo"}
+	env := config.Environment{MetaServerURL: "https://preset-meta", RepoServerURL: "https://preset-repo"}
+	cases := []struct {
+		name               string
+		flag, envVar       string
+		cp                 config.ConfigProfile
+		wantMeta, wantRepo string
+	}{
+		{"flag over everything", "https://flag", "https://env", cp, "https://flag", "https://flag"},
+		{"env over config", "", "https://env", cp, "https://env", "https://env"},
+		{"config over preset", "", "", cp, "https://cfg-meta", "https://cfg-repo"},
+		{"preset when nothing set", "", "", config.ConfigProfile{}, "https://preset-meta", "https://preset-repo"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setServerURLFlags(t, tc.flag, tc.flag)
+			t.Setenv(EnvMetaServerURL, tc.envVar)
+			t.Setenv(EnvRepoServerURL, tc.envVar)
+			if got := metaServerURL(tc.cp, env); got != tc.wantMeta {
+				t.Errorf("metaServerURL = %q, want %q", got, tc.wantMeta)
+			}
+			if got := repoServerURL(tc.cp, env); got != tc.wantRepo {
+				t.Errorf("repoServerURL = %q, want %q", got, tc.wantRepo)
+			}
+		})
+	}
 }
 
 func TestResolveEnvironment(t *testing.T) {

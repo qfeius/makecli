@@ -1,9 +1,10 @@
 /**
- * [INPUT]: 依赖 internal/config（Load/LoadConfig/LoadSettings/LookupEnvironment）、internal/api（New/Option/WithDebug/WithHeaders）、fmt、strings；从 root.go 读取全局 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode
- * [OUTPUT]: 对外提供 newClientFromProfile（变参 ...api.Option）/ newRepoClientFromProfile / resolveEnvironment / resolveChannel / envName 函数、withGateway helper、apiGatewayPath 常量
- * [POS]: cmd 模块的公共 helper，统一「全局命令行入参 → API 客户端」的构建逻辑——profile / server / env / debug 全部由 root PersistentFlag 注入，子命令零参数调用；
+ * [INPUT]: 依赖 internal/config（Load/LoadConfig/LoadSettings/LookupEnvironment）、internal/api（New/Option/WithDebug/WithHeaders）、fmt、os、strings；从 root.go 读取全局 Profile / AccessToken / MetaServerURL / RepoServerURL / Environment / DebugMode
+ * [OUTPUT]: 对外提供 newClientFromProfile（变参 ...api.Option）/ newRepoClientFromProfile / resolveAccessToken / accessTokenSource / metaServerURL / repoServerURL / resolveEnvironment / resolveChannel / envName 函数、withGateway helper、apiGatewayPath / EnvAccessToken / EnvMetaServerURL / EnvRepoServerURL 常量与 tokenSource 常量
+ * [POS]: cmd 模块的公共 helper，统一「全局命令行入参 → API 客户端」的构建逻辑——profile / token / server / env / debug 全部由 root PersistentFlag 注入，子命令零参数调用；
  *        newClientFromProfile 收 ...api.Option 变参，把每命令横切选项（如 WithDryRun）追加到基础选项之后，写命令按需注入；
- *        resolveProfile 收口凭证与配置解析，resolveEnvironment 收口环境 preset；URL 取值链：flag > profile config > 环境 preset，主机基址再经 withGateway 补网关前缀 /api/make
+ *        resolveAccessToken 是 token 取值链的唯一入口：--access-token flag > $MAKE_ACCESS_TOKEN > credentials[profile].access_token（resolveProfile / configure verify / whoami 共用，不允许第二条链）；
+ *        resolveProfile 收口凭证与配置解析，resolveEnvironment 收口环境 preset；主机地址取值链 metaServerURL / repoServerURL：flag > $MAKE_*_SERVER_URL > profile config > 环境内置地址（configure resolve / verify 同用，不允许手写第二条链），主机基址再经 withGateway 补网关前缀 /api/make
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -11,6 +12,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -18,20 +20,63 @@ import (
 	"github.com/qfeius/makecli/internal/config"
 )
 
-// resolveProfile 按当前全局 Profile 读取凭证与配置，返回 token、profile 配置与附加 headers
+// EnvAccessToken 是 access token 的环境变量名。命名对齐 flag --access-token 与
+// credentials 键 access_token 三者同名；前缀取 MAKE_（平台凭证族，同 MAKE_AGENT_TOKEN），
+// 而非 MAKE_CLI_（工具自身行为开关族，如 MAKE_CLI_CONFIG_DIR）。
+const EnvAccessToken = "MAKE_ACCESS_TOKEN"
+
+// token 来源标识：configure verify 的 JSON source 字段与鉴权失败引导共用，
+// 让「为什么用的不是我想的那把 token」一眼可定位。
+const (
+	tokenSourceFlag        = "flag"
+	tokenSourceEnv         = "env"
+	tokenSourceCredentials = "credentials"
+)
+
+// accessTokenSource 只回答 token 来自哪里，不读盘、不会失败：
+// --access-token flag > $MAKE_ACCESS_TOKEN > credentials 文件。
+// flag 与 env 都为空时落到 credentials——此时文件里有没有 token 是 resolveAccessToken 的事。
+func accessTokenSource() string {
+	switch {
+	case AccessToken != "":
+		return tokenSourceFlag
+	case os.Getenv(EnvAccessToken) != "":
+		return tokenSourceEnv
+	default:
+		return tokenSourceCredentials
+	}
+}
+
+// resolveAccessToken 是 token 取值链的唯一入口，返回 token 与其来源。
+// flag / env 覆盖时不碰凭证文件（CI 里可以完全没有 ~/.make）；
+// 三处都没有时返回空 token + credentials 来源，由调用方决定是报错还是引导登录。
+func resolveAccessToken() (string, string, error) {
+	switch src := accessTokenSource(); src {
+	case tokenSourceFlag:
+		return AccessToken, src, nil
+	case tokenSourceEnv:
+		return os.Getenv(EnvAccessToken), src, nil
+	}
+	creds, err := config.Load()
+	if err != nil {
+		return "", "", fmt.Errorf("加载凭证失败: %w", err)
+	}
+	return creds[Profile].AccessToken, tokenSourceCredentials, nil
+}
+
+// resolveProfile 按当前全局 Profile 读取凭证与配置，返回 token、profile 配置与附加 headers。
+// token 走 resolveAccessToken（flag / env 覆盖只替换凭证本身，tenant / operator / URL 仍取自 profile config）
 func resolveProfile() (string, config.ConfigProfile, map[string]string, error) {
 	if err := config.ValidateProfileName(Profile); err != nil {
 		return "", config.ConfigProfile{}, nil, err
 	}
 
-	creds, err := config.Load()
+	token, _, err := resolveAccessToken()
 	if err != nil {
-		return "", config.ConfigProfile{}, nil, fmt.Errorf("加载凭证失败: %w", err)
+		return "", config.ConfigProfile{}, nil, err
 	}
-
-	p, ok := creds[Profile]
-	if !ok || p.AccessToken == "" {
-		return "", config.ConfigProfile{}, nil, fmt.Errorf("profile '%s' 未配置，请先运行: makecli configure --profile %s", Profile, Profile)
+	if token == "" {
+		return "", config.ConfigProfile{}, nil, fmt.Errorf("profile '%s' 未配置，请先运行: makecli login --profile %s（或设置 $%s）", Profile, Profile, EnvAccessToken)
 	}
 
 	cfg, err := config.LoadConfig()
@@ -47,10 +92,28 @@ func resolveProfile() (string, config.ConfigProfile, map[string]string, error) {
 	if cp.OperatorID != "" {
 		headers["X-Operator-ID"] = cp.OperatorID
 	}
-	return p.AccessToken, cp, headers, nil
+	return token, cp, headers, nil
 }
 
-// firstNonEmpty 返回第一个非空字符串，统一「flag > config > 环境 preset」三级取值链
+// 后端主机地址的环境变量名，与 flag / profile config 键同名（meta-server-url / repo-server-url），
+// 前缀取 MAKE_（平台端点族），与 EnvAccessToken 同一命名规则。
+const (
+	EnvMetaServerURL = "MAKE_META_SERVER_URL"
+	EnvRepoServerURL = "MAKE_REPO_SERVER_URL"
+)
+
+// metaServerURL / repoServerURL 是主机地址取值链的唯一入口，与 resolveAccessToken 同构：
+// flag > env > profile config > 当前环境内置地址（最后一级是默认值而非配置项）。
+// 返回裸主机基址，网关前缀由调用方经 withGateway 补齐。
+func metaServerURL(cp config.ConfigProfile, env config.Environment) string {
+	return firstNonEmpty(MetaServerURL, os.Getenv(EnvMetaServerURL), cp.MetaServerURL, env.MetaServerURL)
+}
+
+func repoServerURL(cp config.ConfigProfile, env config.Environment) string {
+	return firstNonEmpty(RepoServerURL, os.Getenv(EnvRepoServerURL), cp.RepoServerURL, env.RepoServerURL)
+}
+
+// firstNonEmpty 返回第一个非空字符串，统一「flag > env > config > 环境 preset」取值链
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
 		if v != "" {
@@ -137,7 +200,7 @@ func newClientFromProfile(extra ...api.Option) (*api.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	server := withGateway(firstNonEmpty(MetaServerURL, cp.MetaServerURL, env.MetaServerURL))
+	server := withGateway(metaServerURL(cp, env))
 	opts := append([]api.Option{api.WithDebug(DebugMode), api.WithHeaders(headers)}, extra...)
 	return api.New(server, token, opts...), nil
 }
@@ -153,6 +216,6 @@ func newRepoClientFromProfile() (*api.Client, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	server := withGateway(firstNonEmpty(RepoServerURL, cp.RepoServerURL, env.RepoServerURL))
+	server := withGateway(repoServerURL(cp, env))
 	return api.New(server, token, api.WithDebug(DebugMode), api.WithHeaders(headers)), token, nil
 }
