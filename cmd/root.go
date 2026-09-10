@@ -103,8 +103,8 @@ func Execute(version, buildDate string) error {
 	rootCmd.SilenceErrors = true
 	rootCmd.PersistentFlags().BoolVar(&DebugMode, "debug", false, "enable debug mode to show curl output")
 	_ = rootCmd.PersistentFlags().MarkHidden("debug")
-	rootCmd.PersistentFlags().StringVar(&MetaServerURL, "meta-server-url", "", "Meta Server base URL (overrides profile config and environment default)")
-	rootCmd.PersistentFlags().StringVar(&RepoServerURL, "repo-server-url", "", "Code Repository Server base URL (overrides profile config and environment default)")
+	rootCmd.PersistentFlags().StringVar(&MetaServerURL, "meta-server-url", "", "Meta Server base URL (overrides profile config meta-server-url and the --env preset)")
+	rootCmd.PersistentFlags().StringVar(&RepoServerURL, "repo-server-url", "", "Code Repository Server base URL (overrides profile config repo-server-url and the --env preset)")
 	rootCmd.PersistentFlags().StringVar(&Profile, "profile", "default", "credentials profile to use")
 	rootCmd.PersistentFlags().StringVarP(&AccessToken, "access-token", "t", "", "access token (overrides $"+EnvAccessToken+" and the profile credentials)")
 	rootCmd.PersistentFlags().StringVar(&Environment, "env", "", "backend environment "+strings.Join(config.EnvironmentNames(), "|")+" (overrides [settings] environment, default "+config.DefaultEnvironment+")")
