@@ -38,7 +38,7 @@ func newWhoamiCmd() *cobra.Command {
 
 // runWhoami 查询并展示当前用户身份。登录状态收敛为「每次调用至多触发一次登录」：
 // 无 token 先登录再查；有 token 直接查，鉴权失败（过期/失效）登录后重试一次，
-// 重试仍失败则原样上抛（errors.go 会升级为引导文案）。
+// 重试仍失败则原样上抛（errors.go 会升级为引导文案）。token 取值链见 resolveAccessToken。
 func runWhoami(output string) error {
 	if err := validateOutputFormat(output); err != nil {
 		return err
@@ -47,11 +47,14 @@ func runWhoami(output string) error {
 		return err
 	}
 
-	creds, err := config.Load()
+	token, source, err := resolveAccessToken()
 	if err != nil {
 		return err
 	}
-	loggedIn := creds[Profile].AccessToken != ""
+	// 登录只修 credentials 文件：token 来自 flag / env 时，login 写下的新 token 会被覆盖值继续遮蔽，
+	// 「登录成功却还是失败」是死循环——覆盖态下鉴权失败直接上抛，由 errors.go 回显 token 来源。
+	renewable := source == tokenSourceCredentials
+	loggedIn := token != ""
 	if !loggedIn {
 		fmt.Fprintln(os.Stderr, "You are not logged in. Starting the login flow...")
 		if err := loginFunc(defaultLoginTimeout, false); err != nil {
@@ -60,7 +63,7 @@ func runWhoami(output string) error {
 	}
 
 	info, err := fetchUserInfo()
-	if loggedIn && errors.Is(err, api.ErrAuthFailed) {
+	if loggedIn && renewable && errors.Is(err, api.ErrAuthFailed) {
 		fmt.Fprintln(os.Stderr, "Your access token is invalid or expired. Starting the login flow...")
 		if err := loginFunc(defaultLoginTimeout, false); err != nil {
 			return err

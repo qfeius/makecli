@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd 包内的 resolveEnvironment / 全局 Environment（白盒），internal/config（SetSetting）、testing
- * [OUTPUT]: 覆盖环境解析优先级（flag > settings > 默认）与 withGateway 网关前缀拼接的单元测试
- * [POS]: cmd 模块 client.go resolveEnvironment / withGateway 的配套测试，t.Setenv 隔离配置
+ * [INPUT]: 依赖 cmd 包内的 resolveAccessToken / resolveEnvironment / 全局 AccessToken / Environment（白盒），internal/config（Save/SetSetting）、testing
+ * [OUTPUT]: 覆盖 token 取值链（--access-token > $MAKE_ACCESS_TOKEN > credentials）、环境解析优先级（flag > settings > 默认）与 withGateway 网关前缀拼接的单元测试
+ * [POS]: cmd 模块 client.go resolveAccessToken / resolveEnvironment / withGateway 的配套测试，t.Setenv 隔离配置
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -21,6 +21,50 @@ func setEnvFlag(t *testing.T, name string) {
 	old := Environment
 	Environment = name
 	t.Cleanup(func() { Environment = old })
+}
+
+// setAccessTokenFlag 临时覆盖全局 AccessToken（--access-token），结束自动还原。
+func setAccessTokenFlag(t *testing.T, token string) {
+	t.Helper()
+	old := AccessToken
+	AccessToken = token
+	t.Cleanup(func() { AccessToken = old })
+}
+
+// TestResolveAccessToken 锁定 token 取值链契约：flag > env > credentials，
+// 以及每一级的 source 标识——configure verify 与鉴权引导都靠它回答「token 从哪来」。
+func TestResolveAccessToken(t *testing.T) {
+	cases := []struct {
+		name       string
+		flag, env  string
+		file       string
+		wantToken  string
+		wantSource string
+	}{
+		{"flag over env and file", "from-flag", "from-env", "from-file", "from-flag", tokenSourceFlag},
+		{"env over file", "", "from-env", "from-file", "from-env", tokenSourceEnv},
+		{"file when nothing overrides", "", "", "from-file", "from-file", tokenSourceCredentials},
+		{"empty everywhere", "", "", "", "", tokenSourceCredentials},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv(EnvAccessToken, tc.env)
+			setAccessTokenFlag(t, tc.flag)
+			if tc.file != "" {
+				if err := config.Save(config.Credentials{"default": config.Profile{AccessToken: tc.file}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			token, source, err := resolveAccessToken()
+			if err != nil {
+				t.Fatalf("resolveAccessToken: %v", err)
+			}
+			if token != tc.wantToken || source != tc.wantSource {
+				t.Errorf("got (%q, %s), want (%q, %s)", token, source, tc.wantToken, tc.wantSource)
+			}
+		})
+	}
 }
 
 func TestResolveEnvironment(t *testing.T) {

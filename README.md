@@ -110,6 +110,25 @@ X-Operator-ID = op_123
 
 - `X-Tenant-ID` 和 `X-Operator-ID` 会自动作为 HTTP Header 附加到所有 API 请求中
 
+### Access Token 优先级
+
+token 按以下顺序取值，命中即止：
+
+1. `--access-token` / `-t` 命令行参数
+2. `MAKE_ACCESS_TOKEN` 环境变量
+3. `~/.make/credentials` 中当前 profile 的 `access_token`
+
+```bash
+# CI / 脚本：用环境变量，不落盘、不进 shell history
+export MAKE_ACCESS_TOKEN=xxx
+makecli app list
+
+# 临时指定一次
+makecli -t xxx app list
+```
+
+覆盖只替换 token 本身，`X-Tenant-ID`、`X-Operator-ID` 与服务器地址仍取自 `--profile` 对应的配置。`makecli configure verify --output json` 的 `source` 字段（`flag` / `env` / `credentials`）可查看当前生效的 token 来源。
+
 ### 全局参数
 
 所有 API 命令均支持以下全局参数：
@@ -120,6 +139,9 @@ makecli app list --meta-server-url https://make.qfei.cn
 
 # 指定 profile
 makecli app list --profile todo
+
+# 指定 access token（覆盖环境变量与 credentials 文件）
+makecli app list --access-token xxx
 ```
 
 ### 查看版本

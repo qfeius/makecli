@@ -103,6 +103,57 @@ func TestRunConfigureVerify(t *testing.T) {
 		}
 	})
 
+	t.Run("flag token over env and credentials with source", func(t *testing.T) {
+		accepted := fakeJWTWithClaims(t, map[string]any{"sub": "flag"})
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "Bearer "+accepted {
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 401, "msg": "unauthorized"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"code": 200, "message": "success",
+				"data": []any{}, "pagination": map[string]any{"total": 0},
+			})
+		}))
+		defer srv.Close()
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv(EnvAccessToken, "env-token")
+		saveDefaultToken(t)
+		setAccessTokenFlag(t, accepted)
+		MetaServerURL = srv.URL
+
+		out := captureStdout(t, func() {
+			_, _ = runConfigureVerify(outputJSON)
+		})
+		var r verifyResult
+		if err := json.Unmarshal([]byte(out), &r); err != nil {
+			t.Fatalf("json unmarshal: %v", err)
+		}
+		if !r.Valid {
+			t.Errorf("expected valid=true via --access-token, got message: %s", r.Message)
+		}
+		if r.Source != tokenSourceFlag {
+			t.Errorf("source = %q, want %q", r.Source, tokenSourceFlag)
+		}
+	})
+
+	t.Run("env token source and renew hint", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv(EnvAccessToken, "not-a-jwt")
+		MetaServerURL = "http://unused"
+
+		var out string
+		errOut := captureStderr(t, func() {
+			out = captureStdout(t, func() { _, _ = runConfigureVerify(outputTable) })
+		})
+		if !strings.Contains(out, "malformed JWT") {
+			t.Errorf("expected malformed JWT verdict, got: %s", out)
+		}
+		if !strings.Contains(errOut, "$"+EnvAccessToken) {
+			t.Errorf("expected env-sourced renew hint on stderr, got: %s", errOut)
+		}
+	})
+
 	t.Run("token not configured", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		MetaServerURL = "http://unused"
@@ -178,7 +229,7 @@ func TestRunConfigureVerify(t *testing.T) {
 		if r.Valid {
 			t.Errorf("expected valid=false for expired token")
 		}
-		if !strings.Contains(r.Message, "token expired. `makecli login --profile default` to renew token") {
+		if !strings.Contains(r.Message, `token expired. Run "makecli login --profile default" to renew token.`) {
 			t.Errorf("expected renew guidance with profile in message, got: %s", r.Message)
 		}
 		if r.IssuedAt != issued.Format(time.RFC3339) {

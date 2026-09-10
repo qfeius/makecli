@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runWhoami / loginFunc（包内白盒）与 stubMetaServer / saveDefaultToken / setProfile / captureStdout / captureStderr 测试辅助，internal/api、internal/config、encoding/json、errors、net/http、net/http/httptest、strings、testing、time
- * [OUTPUT]: 覆盖 whoami 子命令核心逻辑的单元测试
+ * [OUTPUT]: 覆盖 whoami 子命令核心逻辑的单元测试（含 $MAKE_ACCESS_TOKEN 覆盖态：鉴权失败不触发登录、有效则直接展示）
  * [POS]: cmd 模块 whoami.go 的配套测试，用 httptest 隔离网络、loginFunc 打桩隔离 OAuth 流程
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -178,6 +178,54 @@ func TestRunWhoami(t *testing.T) {
 		}
 		if *calls != 1 {
 			t.Errorf("expected exactly 1 login call, got %d", *calls)
+		}
+	})
+
+	t.Run("env token auth failure surfaces error without login", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv(EnvAccessToken, "env-token")
+		srv := newUserInfoServer(t, "never-issued", true)
+		defer srv.Close()
+		stubMetaServer(t, srv.URL)
+		calls := stubLogin(t, func() error {
+			saveToken(t, "fresh-token")
+			return nil
+		})
+
+		var runErr error
+		captureStderr(t, func() {
+			_ = captureStdout(t, func() { runErr = runWhoami(outputTable) })
+		})
+		if !errors.Is(runErr, api.ErrAuthFailed) {
+			t.Fatalf("expected ErrAuthFailed, got: %v", runErr)
+		}
+		// login 只写 credentials 文件，写下的 token 仍会被 env 遮蔽，重登录只会制造死循环
+		if *calls != 0 {
+			t.Errorf("expected 0 login calls for env-sourced token, got %d", *calls)
+		}
+	})
+
+	t.Run("env token skips login and prints identity", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		t.Setenv(EnvAccessToken, "env-token")
+		srv := newUserInfoServer(t, "env-token", true)
+		defer srv.Close()
+		stubMetaServer(t, srv.URL)
+		calls := stubLogin(t, func() error { return errors.New("must not login") })
+
+		var runErr error
+		var out string
+		captureStderr(t, func() {
+			out = captureStdout(t, func() { runErr = runWhoami(outputTable) })
+		})
+		if runErr != nil {
+			t.Fatalf("runWhoami: %v", runErr)
+		}
+		if *calls != 0 {
+			t.Errorf("expected 0 login calls, got %d", *calls)
+		}
+		if !strings.Contains(out, "logged in as test-user") {
+			t.Errorf("expected identity output, got: %s", out)
 		}
 	})
 

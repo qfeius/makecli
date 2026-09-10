@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra、github.com/spf13/pflag、os、strings、internal/config（EnvironmentNames/DefaultEnvironment）、internal/notifier
- * [OUTPUT]: 对外提供 Execute 函数、rootCmd 根命令、全局变量 Profile / MetaServerURL / RepoServerURL / Environment / DebugMode；包内 commandName 解析器、installUsageTemplate（usageTemplate + 模板函数装配，根 help 尾附 skills 安装引导）
- * [POS]: cmd 模块的入口，挂载 version / configure / login / whoami / app / entity / relation / record / apply / diff / update / skills / schema / integration / preflight 子命令；定义全局 --profile / --meta-server-url / --repo-server-url / --env / --debug PersistentFlag；后端 URL 兜底交给 config.Environment preset；错误呈现经 reportExecuteError 单一出口（SilenceErrors，见 errors.go）
+ * [OUTPUT]: 对外提供 Execute 函数、rootCmd 根命令、全局变量 Profile / AccessToken / MetaServerURL / RepoServerURL / Environment / DebugMode；包内 commandName 解析器、installUsageTemplate（usageTemplate + 模板函数装配，根 help 尾附 skills 安装引导）
+ * [POS]: cmd 模块的入口，挂载 version / configure / login / whoami / app / entity / relation / record / apply / diff / update / skills / schema / integration / preflight 子命令；定义全局 --profile / --access-token / --meta-server-url / --repo-server-url / --env / --debug PersistentFlag；后端 URL 兜底交给 config.Environment preset；错误呈现经 reportExecuteError 单一出口（SilenceErrors，见 errors.go）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -29,6 +29,10 @@ var RepoServerURL string
 // Profile 全局凭证 profile 名称，从命令行读取（--profile）。
 // 默认值与 PersistentFlag 注册一致，确保未经过 cobra 解析时（如单元测试）也可用。
 var Profile = "default"
+
+// AccessToken 全局 access token 覆盖（--access-token / -t）。空串 = 回退 $MAKE_ACCESS_TOKEN，再回退 credentials 文件。
+// 取值链收口在 client.go resolveAccessToken；flag 值会留在 shell history / ps，CI 应优先用环境变量。
+var AccessToken string
 
 // Environment 全局环境名（--env）。空串 = 回退 [settings] environment 或 config.DefaultEnvironment。
 // 后端 URL 三件套由当前环境的 config.Environment preset 兜底（见 client.go resolveEnvironment）。
@@ -102,6 +106,7 @@ func Execute(version, buildDate string) error {
 	rootCmd.PersistentFlags().StringVar(&MetaServerURL, "meta-server-url", "", "Meta Server base URL (overrides profile config and environment default)")
 	rootCmd.PersistentFlags().StringVar(&RepoServerURL, "repo-server-url", "", "Code Repository Server base URL (overrides profile config and environment default)")
 	rootCmd.PersistentFlags().StringVar(&Profile, "profile", "default", "credentials profile to use")
+	rootCmd.PersistentFlags().StringVarP(&AccessToken, "access-token", "t", "", "access token (overrides $"+EnvAccessToken+" and the profile credentials)")
 	rootCmd.PersistentFlags().StringVar(&Environment, "env", "", "backend environment "+strings.Join(config.EnvironmentNames(), "|")+" (overrides [settings] environment, default "+config.DefaultEnvironment+")")
 	rootCmd.AddCommand(newVersionCmd(version, buildDate))
 	rootCmd.AddCommand(newConfigureCmd())

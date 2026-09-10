@@ -64,7 +64,7 @@ func TestAuthFailedHintShowsContext(t *testing.T) {
 
 	for _, want := range []string{
 		"鉴权失败 [990300403]: token验证失败",
-		"当前 profile: work | env: production",
+		"当前 profile: work | env: production | token 来源: credentials",
 		"    makecli login",
 	} {
 		if !strings.Contains(hint, want) {
