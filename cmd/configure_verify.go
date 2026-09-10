@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 internal/config（LoadConfig）、internal/api（New/WithHeaders）、cmd/client（resolveAccessToken/resolveEnvironment/tokenSource 常量/EnvAccessToken）、cmd/output（outputJSON/validateOutputFormat/writeJSON）、encoding/base64、encoding/json、fmt、os、strings、time
+ * [INPUT]: 依赖 internal/config（LoadConfig）、internal/api（New/WithHeaders）、cmd/client（resolveAccessToken/metaServerURL/resolveEnvironment/tokenSource 常量/EnvAccessToken）、cmd/output（outputJSON/validateOutputFormat/writeJSON）、encoding/base64、encoding/json、fmt、os、strings、time
  * [OUTPUT]: 对外提供 newConfigureVerifyCmd 函数；包内 parseJWTTimeClaims 免验签提取 iat/exp、renewTokenHint 按 token 来源给换 token 指引
  * [POS]: cmd/configure 的 verify 子命令，token 走 resolveAccessToken 取值链（结果带 source 字段），本地 exp fail-closed 判定 + 在线验证 token 有效性并输出 profile 状态
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -104,11 +104,10 @@ func runConfigureVerify(output string) (*verifyResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cp, ok := cfg[Profile]; ok {
-		result.MetaServerURL = cp.MetaServerURL
-		result.TenantID = cp.XTenantID
-		result.OperatorID = cp.OperatorID
-	}
+	cp := cfg[Profile]
+	result.MetaServerURL = cp.MetaServerURL
+	result.TenantID = cp.XTenantID
+	result.OperatorID = cp.OperatorID
 
 	// 检查 token 是否存在
 	if token == "" {
@@ -141,19 +140,13 @@ func runConfigureVerify(output string) (*verifyResult, error) {
 		}
 	}
 
-	// 在线验证：调用 app list(page=1, size=1)；server 取值链 flag > profile config > 环境 preset
+	// 在线验证：调用 app list(page=1, size=1)；server 走 metaServerURL 取值链
 	env, err := resolveEnvironment()
 	if err != nil {
 		return nil, err
 	}
-	server := env.MetaServerURL
+	server := metaServerURL(cp, env)
 	headers := map[string]string{}
-	if result.MetaServerURL != "" {
-		server = result.MetaServerURL
-	}
-	if MetaServerURL != "" {
-		server = MetaServerURL
-	}
 	if result.TenantID != "" {
 		headers["X-Tenant-ID"] = result.TenantID
 	}

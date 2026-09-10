@@ -20,10 +20,10 @@ import (
 // DebugMode 全局调试模式标志，从命令行读取
 var DebugMode bool
 
-// MetaServerURL Meta Server 基础 URL，从命令行读取
+// MetaServerURL Meta Server 基础 URL，从命令行读取。空串 = 回退 $MAKE_META_SERVER_URL > profile config > 环境内置地址（client.go metaServerURL）
 var MetaServerURL string
 
-// RepoServerURL 代码仓库服务（make-repo）基础 URL，从命令行读取
+// RepoServerURL 代码仓库服务（make-repo）基础 URL，从命令行读取。空串 = 回退 $MAKE_REPO_SERVER_URL > profile config > 环境内置地址（client.go repoServerURL）
 var RepoServerURL string
 
 // Profile 全局凭证 profile 名称，从命令行读取（--profile）。
@@ -103,8 +103,8 @@ func Execute(version, buildDate string) error {
 	rootCmd.SilenceErrors = true
 	rootCmd.PersistentFlags().BoolVar(&DebugMode, "debug", false, "enable debug mode to show curl output")
 	_ = rootCmd.PersistentFlags().MarkHidden("debug")
-	rootCmd.PersistentFlags().StringVar(&MetaServerURL, "meta-server-url", "", "Meta Server base URL (overrides profile config meta-server-url and the --env preset)")
-	rootCmd.PersistentFlags().StringVar(&RepoServerURL, "repo-server-url", "", "Code Repository Server base URL (overrides profile config repo-server-url and the --env preset)")
+	rootCmd.PersistentFlags().StringVar(&MetaServerURL, "meta-server-url", "", "Meta Server base URL (overrides $"+EnvMetaServerURL+" and the profile config)")
+	rootCmd.PersistentFlags().StringVar(&RepoServerURL, "repo-server-url", "", "Code Repository Server base URL (overrides $"+EnvRepoServerURL+" and the profile config)")
 	rootCmd.PersistentFlags().StringVar(&Profile, "profile", "default", "credentials profile to use")
 	rootCmd.PersistentFlags().StringVarP(&AccessToken, "access-token", "t", "", "access token (overrides $"+EnvAccessToken+" and the profile credentials)")
 	rootCmd.PersistentFlags().StringVar(&Environment, "env", "", "backend environment "+strings.Join(config.EnvironmentNames(), "|")+" (overrides [settings] environment, default "+config.DefaultEnvironment+")")

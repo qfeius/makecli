@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 internal/config、cmd/output、cmd/client 的全局 Profile / Environment / MetaServerURL 与 apiGatewayPath
+ * [INPUT]: 依赖 internal/config、cmd/output、cmd/client 的全局 Profile / Environment 与 metaServerURL 取值链、apiGatewayPath
  * [OUTPUT]: 对外提供 newConfigureResolveCmd 函数和 runConfigureResolve 白盒入口，输出本地预览所需的最小 JSON 解析结果
  * [POS]: cmd/configure 的 resolve 子命令，不联网校验 token，只解析当前 profile / environment / override 后的本地预览后端 origin
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -68,7 +68,7 @@ func runConfigureResolve(target, output string) (*configureResolveResult, error)
 	result := configureResolveResult{
 		Profile:       Profile,
 		Environment:   envName,
-		MakeAPIOrigin: normalizeMakeAPIOrigin(firstNonEmpty(MetaServerURL, cp.MetaServerURL, env.MetaServerURL)),
+		MakeAPIOrigin: normalizeMakeAPIOrigin(metaServerURL(cp, env)),
 		TenantID:      cp.XTenantID,
 		OperatorID:    cp.OperatorID,
 	}

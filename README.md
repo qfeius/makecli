@@ -118,6 +118,8 @@ token 按以下顺序取值，命中即止：
 2. `MAKE_ACCESS_TOKEN` 环境变量
 3. `~/.make/credentials` 中当前 profile 的 `access_token`
 
+服务器地址同构：`--meta-server-url` > `MAKE_META_SERVER_URL` > `~/.make/config` 的 `meta-server-url`，都没配则用当前 `--env` 环境的内置地址；`--repo-server-url` / `MAKE_REPO_SERVER_URL` / `repo-server-url` 同理。
+
 ```bash
 # CI / 脚本：用环境变量，不落盘、不进 shell history
 export MAKE_ACCESS_TOKEN=xxx
@@ -134,7 +136,7 @@ makecli -t xxx app list
 所有 API 命令均支持以下全局参数：
 
 ```bash
-# 指定 Meta Server 主机地址（覆盖 config 中的 meta-server-url，/api/make 自动补齐）
+# 指定 Meta Server 主机地址（覆盖 $MAKE_META_SERVER_URL 与 config 中的 meta-server-url，/api/make 自动补齐）
 makecli app list --meta-server-url https://make.qfei.cn
 
 # 指定 profile
