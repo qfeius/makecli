@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra、github.com/spf13/pflag、os、strings、internal/config（EnvironmentNames/DefaultEnvironment）、internal/notifier
- * [OUTPUT]: 对外提供 Execute 函数、rootCmd 根命令、全局变量 Profile / AccessToken / MetaServerURL / RepoServerURL / Environment / DebugMode；包内 commandName 解析器、installUsageTemplate（usageTemplate + 模板函数装配，根 help 尾附 skills 安装引导）
+ * [OUTPUT]: 对外提供 Execute 函数、rootCmd 根命令、全局变量 Profile / AccessToken / MetaServerURL / RepoServerURL / Environment / DebugMode；包内 commandName 解析器（Execute 前解析顶级命令名喂给 notifier.Start）、installUsageTemplate（usageTemplate + 模板函数装配，根 help 尾附 skills 安装引导）
  * [POS]: cmd 模块的入口，挂载 version / configure / login / whoami / app / entity / relation / record / apply / diff / update / skills / schema / integration / preflight 子命令；定义全局 --profile / --access-token / --meta-server-url / --repo-server-url / --env / --debug PersistentFlag；后端 URL 兜底交给 config.Environment preset；错误呈现经 reportExecuteError 单一出口（SilenceErrors，见 errors.go）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -123,10 +123,13 @@ func Execute(version, buildDate string) error {
 	rootCmd.AddCommand(newPreflightCmd())
 	rootCmd.AddCommand(newSchemaCmd())
 	rootCmd.AddCommand(newIntegrationCmd())
-	n := notifier.Start()
+	n := notifier.Start(commandName(rootCmd, os.Args[1:]))
 	err := rootCmd.Execute()
-	n.Finish(commandName(rootCmd, os.Args[1:]))
 	reportExecuteError(os.Stderr, err)
+	// 对齐 gh：升级提示只在命令成功后、所有输出之后出现；失败时不提示，也不为后台刷新多等。
+	if err == nil {
+		n.Finish()
+	}
 	return err
 }
 

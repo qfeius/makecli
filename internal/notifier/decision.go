@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 fmt、io、regexp、strconv、strings；依赖 github.com/Masterminds/semver/v3、internal/config 的通道常量、internal/update 的 CompareVersions
- * [OUTPUT]: 对外提供（包内）notifierEnabled / versionInChannel / shouldNotify / renderNotice 与 skipCommands 表
- * [POS]: internal/notifier 的判定与渲染层，被 notifier.go 的 Finish 编排
+ * [OUTPUT]: 对外提供（包内）notifierEnabled / versionInChannel / pendingUpdate / renderNotice 与 skipCommands 表
+ * [POS]: internal/notifier 的判定与渲染层，被 notifier.go 的 Start（判定）与 Finish（渲染）编排
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -64,39 +64,35 @@ func versionInChannel(current, channel string) bool {
 	return channel == config.ChannelBeta && betaSegRe.MatchString(pre)
 }
 
-// shouldNotify 在「已启用」前提下，判定是否真的要打印提示。任一条件不满足即 false。
-func shouldNotify(current, cmdName string, isTTY bool, ci string, cache cacheData, channel string) bool {
+// pendingUpdate 在「已启用」前提下判定是否有待提示的更新，任一条件不满足即 nil。
+// 不含 TTY 判定：TTY 只是 stderr 渲染的门槛（Finish），JSON 出口的 _notice 不受其约束。
+func pendingUpdate(current, cmdName, ci string, cache cacheData, channel string) *Update {
 	if !versionInChannel(current, channel) {
-		return false
+		return nil
 	}
 	if ci != "" {
-		return false
-	}
-	if !isTTY {
-		return false
+		return nil
 	}
 	if cmdName == "" || skipCommands[cmdName] {
-		return false
+		return nil
 	}
 	if cache.Channel != channel {
-		return false
+		return nil
 	}
 	if cache.LatestVersion == "" {
-		return false
+		return nil
 	}
-	return update.CompareVersions(cache.LatestVersion, current) > 0
+	if update.CompareVersions(cache.LatestVersion, current) <= 0 {
+		return nil
+	}
+	return newUpdate(current, cache.LatestVersion, cache.HTMLURL)
 }
 
-// renderNotice 将升级提示写入 w（调用方传 os.Stderr）
-func renderNotice(w io.Writer, current string, cache cacheData) {
-	cur := strings.TrimPrefix(current, "v")
-	latest := strings.TrimPrefix(cache.LatestVersion, "v")
+// renderNotice 将升级提示写入 w（调用方传 os.Stderr）：版本行 + 升级命令，不渲染 URL（URL 仅随 JSON _notice.update 给 agent）
+func renderNotice(w io.Writer, u *Update) {
 	const line = "─────────────────────────────────────────────"
 	_, _ = fmt.Fprintf(w, "\n%s\n", line)
-	_, _ = fmt.Fprintf(w, " A new release of makecli is available: %s → %s\n", cur, latest)
-	_, _ = fmt.Fprintf(w, " To upgrade, run: makecli update\n")
-	if cache.HTMLURL != "" {
-		_, _ = fmt.Fprintf(w, " %s\n", cache.HTMLURL)
-	}
+	_, _ = fmt.Fprintf(w, " A new release of makecli is available: %s → %s\n", u.Current, u.Latest)
+	_, _ = fmt.Fprintf(w, " To upgrade, run: %s\n", u.Command)
 	_, _ = fmt.Fprintf(w, "%s\n", line)
 }

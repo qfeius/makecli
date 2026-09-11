@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 notifier 包内 Start / Finish / isStderrTTY（白盒）；internal/build、internal/update 的测试钩子
- * [OUTPUT]: 覆盖后台刷新落盘、新鲜缓存跳过、Finish 收尾不阻塞的单元测试
+ * [INPUT]: 依赖 notifier 包内 Start / Finish / Pending / SetPendingForTest / isStderrTTY（白盒）；internal/build、internal/update 的测试钩子
+ * [OUTPUT]: 覆盖后台刷新落盘、新鲜缓存跳过、pending 发布（缓存即时 / 刷新后 / 抑制态）、Finish 收尾不阻塞与仅 TTY 渲染的单元测试
  * [POS]: internal/notifier 模块 notifier.go 的配套测试，用 httptest 隔离网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -8,10 +8,13 @@
 package notifier
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,7 +55,7 @@ func TestStartRefreshesCache(t *testing.T) {
 	setBuildVersion(t, "1.0.0")
 	mockLatest(t, "v2.0.0")
 
-	n := Start()
+	n := Start("app")
 	<-n.done // 等后台刷新完成（测试内确定性）
 
 	c, err := readCache()
@@ -73,7 +76,7 @@ func TestStartSkipsWhenFresh(t *testing.T) {
 	}
 	mockLatest(t, "v9.9.9") // 若被请求会污染缓存
 
-	n := Start()
+	n := Start("app")
 	<-n.done
 
 	c, _ := readCache()
@@ -99,7 +102,7 @@ func TestStartRefreshesBetaChannel(t *testing.T) {
 	old := update.SetAPIBaseURLForTest(srv.URL)
 	defer update.SetAPIBaseURLForTest(old)
 
-	n := Start()
+	n := Start("app")
 	<-n.done
 
 	if gotPath != "/repos/qfeius/makecli/releases" {
@@ -138,7 +141,7 @@ func TestStartRefreshesOnChannelSwitch(t *testing.T) {
 	old := update.SetAPIBaseURLForTest(srv.URL)
 	defer update.SetAPIBaseURLForTest(old)
 
-	n := Start()
+	n := Start("app")
 	<-n.done
 
 	if !requested {
@@ -157,10 +160,108 @@ func TestFinishDisabledDoesNotBlock(t *testing.T) {
 	close(n.done)
 
 	done := make(chan struct{})
-	go func() { n.Finish("app"); close(done) }()
+	go func() { n.Finish(); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Finish blocked too long")
+	}
+}
+
+// captureStderr 用管道劫持 os.Stderr 运行 fn，返回其间写入的内容
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	orig := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stderr = w
+	outC := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		outC <- buf.String()
+	}()
+	fn()
+	_ = w.Close()
+	os.Stderr = orig
+	return <-outC
+}
+
+// 新鲜且更新的缓存：Start 零网络即写入 pending，不起 goroutine
+func TestStartPublishesPendingFromCache(t *testing.T) {
+	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	setBuildVersion(t, "1.0.0")
+	if err := writeCache(cacheData{CheckedAt: time.Now(), LatestVersion: "v2.0.0", HTMLURL: "https://example.com/r", Channel: config.ChannelStable}); err != nil {
+		t.Fatal(err)
+	}
+	mockLatest(t, "v9.9.9") // 若被请求会污染 pending
+
+	n := Start("app")
+	<-n.done
+
+	u := Pending()
+	if u == nil || u.Latest != "2.0.0" || u.URL != "https://example.com/r" {
+		t.Fatalf("Pending() = %+v, want latest 2.0.0 from cache", u)
+	}
+}
+
+// 过期缓存：后台刷新落盘后重写 pending
+func TestStartPublishesPendingAfterRefresh(t *testing.T) {
+	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	setBuildVersion(t, "1.0.0")
+	mockLatest(t, "v2.0.0")
+
+	n := Start("app")
+	<-n.done
+
+	if u := Pending(); u == nil || u.Latest != "2.0.0" {
+		t.Fatalf("Pending() = %+v, want latest 2.0.0 after refresh", u)
+	}
+}
+
+// 开关关闭或命中 skipCommands：即使缓存有更新，pending 也保持 nil
+func TestStartLeavesPendingNilWhenSuppressed(t *testing.T) {
+	seed := func(t *testing.T) {
+		t.Helper()
+		t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+		setBuildVersion(t, "1.0.0")
+		if err := writeCache(cacheData{CheckedAt: time.Now(), LatestVersion: "v2.0.0", Channel: config.ChannelStable}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Run("disabled", func(t *testing.T) {
+		seed(t)
+		t.Setenv("MAKE_CLI_UPDATE_NOTIFIER", "false")
+		n := Start("app")
+		<-n.done
+		if Pending() != nil {
+			t.Fatal("disabled notifier must leave pending nil")
+		}
+	})
+	t.Run("skip command", func(t *testing.T) {
+		seed(t)
+		n := Start("update")
+		<-n.done
+		if Pending() != nil {
+			t.Fatal("skipCommands must leave pending nil")
+		}
+	})
+}
+
+// TTY 是 stderr 渲染唯一的门槛：同一份 pending，非 TTY 静默、TTY 打印
+func TestFinishRendersOnlyOnTTY(t *testing.T) {
+	old := SetPendingForTest(newUpdate("1.0.0", "v2.0.0", ""))
+	t.Cleanup(func() { SetPendingForTest(old) })
+
+	for _, tty := range []bool{false, true} {
+		setTTY(t, tty)
+		n := &Notifier{done: make(chan struct{})}
+		close(n.done)
+		out := captureStderr(t, n.Finish)
+		if got := strings.Contains(out, "1.0.0 → 2.0.0"); got != tty {
+			t.Errorf("tty=%v: rendered=%v; stderr:\n%s", tty, got, out)
+		}
 	}
 }

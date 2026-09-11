@@ -38,7 +38,7 @@ func TestStartBacksOffOnRefreshFailure(t *testing.T) {
 	setBuildVersion(t, "1.0.0")
 	mockFailingLatest(t)
 
-	n := Start()
+	n := Start("app")
 	<-n.done
 
 	cache, err := readCache()
@@ -113,7 +113,7 @@ func TestStartCleansStaleTempsWhenExpired(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	n := Start()
+	n := Start("app")
 	<-n.done
 
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
