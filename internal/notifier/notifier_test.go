@@ -192,6 +192,7 @@ func captureStderr(t *testing.T, fn func()) string {
 // 新鲜且更新的缓存：Start 零网络即写入 pending，不起 goroutine
 func TestStartPublishesPendingFromCache(t *testing.T) {
 	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	t.Setenv("CI", "") // GitHub Actions 自带 CI=true，会让判定链短路
 	setBuildVersion(t, "1.0.0")
 	if err := writeCache(cacheData{CheckedAt: time.Now(), LatestVersion: "v2.0.0", HTMLURL: "https://example.com/r", Channel: config.ChannelStable}); err != nil {
 		t.Fatal(err)
@@ -210,6 +211,7 @@ func TestStartPublishesPendingFromCache(t *testing.T) {
 // 过期缓存：后台刷新落盘后重写 pending
 func TestStartPublishesPendingAfterRefresh(t *testing.T) {
 	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	t.Setenv("CI", "")
 	setBuildVersion(t, "1.0.0")
 	mockLatest(t, "v2.0.0")
 
@@ -226,6 +228,7 @@ func TestStartLeavesPendingNilWhenSuppressed(t *testing.T) {
 	seed := func(t *testing.T) {
 		t.Helper()
 		t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+		t.Setenv("CI", "") // 让子测试只受 disabled / skipCommands 影响，不被 CI 门槛遮蔽
 		setBuildVersion(t, "1.0.0")
 		if err := writeCache(cacheData{CheckedAt: time.Now(), LatestVersion: "v2.0.0", Channel: config.ChannelStable}); err != nil {
 			t.Fatal(err)

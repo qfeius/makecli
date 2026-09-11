@@ -9,7 +9,7 @@
 - `decision_test.go`: 穷举 notifierEnabled / versionInChannel 通道矩阵 / pendingUpdate 组合（含跨通道缓存短路、beta 通道提示、wire 字段完整性）+ renderNotice（断言含版本行与升级命令、不含 URL）
 - `decision_trim_test.go`: 覆盖 notifierEnabled 对 env 值做 TrimSpace —— 带首尾空白的开关值仍被正确解析
 - `notifier.go`: 编排入口，Start(cmdName)（先 pending.Store(nil) 复位；读缓存过判定链 publish 写 pending——零网络立即可用；缓存过期或跨通道才起 goroutine：先 cleanStaleTemps 清扫孤儿 temp，再按通道调 update.CheckLatest(v, beta?) 刷新，成功落盘版本+通道，失败也落盘退避标记 CheckedAt=now+空版本+通道，让慢/离线机器退避 checkInterval 不再每次 spawn，落盘后再 publish 一次重写 pending，recover 兜底 panic）/ Finish()（finishDeadline 收尾 select → Pending()!=nil && isStderrTTY() → renderNotice 到 stderr；不再自己读盘与 LoadSettings，判定全在 Start）/ channelOf（Settings→通道，未知值 fail-safe 回退 stable，报错属 cmd resolveChannel 职责）；isStderrTTY 包级闭包便于测试替换
-- `notifier_test.go`: Start 刷新落盘 / 新鲜缓存跳过 / beta 通道走 /releases 列表端点并落盘通道 / 新鲜但跨通道缓存触发刷新 / pending 发布（新鲜缓存零网络即时、过期缓存刷新后重写、开关关闭与 skipCommands 保持 nil）/ Finish 禁用不阻塞 / Finish 仅 TTY 渲染（同一份 pending 非 TTY 静默），用 httptest + SetAPIBaseURLForTest 隔离网络，<-done 确定性同步无 sleep，captureStderr 管道劫持 stderr
+- `notifier_test.go`: Start 刷新落盘 / 新鲜缓存跳过 / beta 通道走 /releases 列表端点并落盘通道 / 新鲜但跨通道缓存触发刷新 / pending 发布（新鲜缓存零网络即时、过期缓存刷新后重写、开关关闭与 skipCommands 保持 nil）/ Finish 禁用不阻塞 / Finish 仅 TTY 渲染（同一份 pending 非 TTY 静默），用 httptest + SetAPIBaseURLForTest 隔离网络，<-done 确定性同步无 sleep，captureStderr 管道劫持 stderr；断言 Pending 非空的用例须 t.Setenv("CI", "")，GitHub Actions 自带 CI=true 会让判定链短路（v0.5.13 发版时 CI 红过一次）
 - `backoff_test.go`: 覆盖刷新失败退避落盘（CheckedAt 前进、版本留空、判为新鲜）/ cleanStaleTemps 删旧留新不碰真实缓存 / Start 过期刷新时清扫孤儿 temp，用 httptest + SetAPIBaseURLForTest 隔离网络
 
 ## 关键常量
