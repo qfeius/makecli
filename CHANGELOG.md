@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.13] - 2026-09-11
+
+### Features
+
+- **notifier**: `--output json` now carries a pending upgrade as a `_notice.update` object (`current` / `latest` / `url` / `command` / `message`) appended to the top-level JSON object, mirroring lark-cli, so an agent running makecli in a non-TTY harness learns about a new release without reading stderr. The object is added by a byte-level append at the single JSON exit — existing fields and their order are untouched, array-shaped outputs are left as is, and output is byte-identical to before when no update is pending
+- **notifier**: The stderr upgrade notice follows gh: it is printed only after a successful command and after all other output, never on failure, and the release URL line is gone (the URL stays in the JSON notice). The update decision is computed once at startup from the local cache into a process-level snapshot that both the stderr notice and the JSON exit read, so TTY detection is the only difference between the two channels
+
 ## [v0.5.12] - 2026-09-10
 
 ### Features
@@ -279,7 +286,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.12...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.13...HEAD
+[v0.5.13]: https://github.com/qfeius/makecli/releases/tag/v0.5.13
 [v0.5.12]: https://github.com/qfeius/makecli/releases/tag/v0.5.12
 [v0.5.11]: https://github.com/qfeius/makecli/releases/tag/v0.5.11
 [v0.5.10]: https://github.com/qfeius/makecli/releases/tag/v0.5.10
