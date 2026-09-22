@@ -70,7 +70,7 @@ func TestGetBuildTask(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		task, err := New(srv.URL, "test-token").GetBuildTask("7cf75e170d13adf406bd3bb98f386ce62984198e")
+		task, err := New(srv.URL, "test-token").GetBuildTask("7cf75e170d13adf406bd3bb98f386ce62984198e", EnvBeta)
 		if err != nil {
 			t.Fatalf("GetBuildTask: %v", err)
 		}
@@ -80,7 +80,7 @@ func TestGetBuildTask(t *testing.T) {
 		if gotPath != "/build/v1/build" {
 			t.Errorf("path = %q, want /build/v1/build", gotPath)
 		}
-		if gotBody["commitSha"] != "7cf75e170d13adf406bd3bb98f386ce62984198e" {
+		if gotBody["commitSha"] != "7cf75e170d13adf406bd3bb98f386ce62984198e" || gotBody["environment"] != "beta" {
 			t.Errorf("unexpected request body: %v", gotBody)
 		}
 		if task.ID != 582 || task.AppKey != "myapp" || task.Environment != "preview" {
@@ -104,7 +104,7 @@ func TestGetBuildTask(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		_, err := New(srv.URL, "t").GetBuildTask("deadbeef")
+		_, err := New(srv.URL, "t").GetBuildTask("deadbeef", EnvBeta)
 		if !errors.Is(err, ErrNotFound) {
 			t.Fatalf("expected ErrNotFound, got %v", err)
 		}
@@ -117,7 +117,7 @@ func TestGetBuildTask(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		_, err := New(srv.URL, "t").GetBuildTask("deadbeef")
+		_, err := New(srv.URL, "t").GetBuildTask("deadbeef", EnvBeta)
 		if !errors.Is(err, ErrNotFound) {
 			t.Fatalf("expected ErrNotFound on empty data, got %v", err)
 		}
@@ -130,7 +130,7 @@ func TestGetBuildTask(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		_, err := New(srv.URL, "t").GetBuildTask("deadbeef")
+		_, err := New(srv.URL, "t").GetBuildTask("deadbeef", EnvBeta)
 		if err == nil {
 			t.Fatal("expected error on code 500")
 		}
@@ -143,7 +143,7 @@ func TestGetBuildTask(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 		srv.Close() // 立刻关掉制造连接失败
 
-		if _, err := New(srv.URL, "t").GetBuildTask("deadbeef"); err == nil {
+		if _, err := New(srv.URL, "t").GetBuildTask("deadbeef", EnvBeta); err == nil {
 			t.Fatal("expected transport error")
 		}
 	})

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 复用 client.go 的 Client.do / checkGetResult / ErrNotFound
- * [OUTPUT]: 对外提供 BuildTask 类型（含 Finished/Succeeded 终态判定方法）、BuildStatusSuccess/Failed/Canceled 终态常量、GetBuildTask(commitSha) 方法
- * [POS]: internal/api 的构建服务（make-build-service）查询层：按 commitSha 精确查询构建任务详情
+ * [OUTPUT]: 对外提供 BuildTask 类型（含 Finished/Succeeded 终态判定方法）、BuildStatusSuccess/Failed/Canceled 终态常量、GetBuildTask(commitSha, env) 方法
+ * [POS]: internal/api 的构建服务（make-build-service）查询层：按 commitSha + environment 精确查询构建任务详情
  *        （POST /build/v1/build + X-Make-Target: MakeService.GetResource，网关前缀 /api/make 由 cmd 层补齐），
  *        供 `app deploy --status` 用本地 HEAD sha 反查部署进度
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -54,12 +54,13 @@ func (t *BuildTask) Succeeded() bool {
 	return t.Status == BuildStatusSuccess
 }
 
-// GetBuildTask 调用 MakeService.GetResource 按 commitSha 精确查询构建任务详情。
+// GetBuildTask 调用 MakeService.GetResource 按 commitSha + environment 精确查询构建任务详情。
 // deploy 推送的是本地 HEAD，服务端 webhook 以 push 的 commit sha 建任务，
-// 故 HEAD sha 即天然的任务定位键，无需用户抄任务 ID。
+// 故 HEAD sha 即天然的任务定位键，无需用户抄任务 ID；同一 commit 可分别推到 beta / production
+// 两个仓库各建一个任务，environment 用于在其中选定一个（值按服务端约定原样透传，调用方给 EnvBeta 等）。
 // 任务不存在（尚未 deploy / webhook 未创建任务）返回 ErrNotFound；其余错误原样返回。
-func (c *Client) GetBuildTask(commitSha string) (*BuildTask, error) {
-	reqBody := map[string]any{"commitSha": commitSha}
+func (c *Client) GetBuildTask(commitSha, env string) (*BuildTask, error) {
+	reqBody := map[string]any{"commitSha": commitSha, "environment": env}
 	var result struct {
 		Code    int       `json:"code"`
 		Message string    `json:"msg"`
