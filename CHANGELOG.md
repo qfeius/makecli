@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.15] - 2026-09-23
+
+### ⚠ Breaking Changes
+
+- **deploy**: `app deploy` only pushes to beta; `--env` / `--yes` are removed and `app promote` is the single path to production
+- **context**: The global `--env` flag is renamed `--context`, so backend targets (`dev` | `test` | `production`) are named apart from an app's `beta` | `production` environments; the legacy `[settings] environment` key is migrated by `doctor --fix`
+- **record**: `record list --sort` is replaced by `--sort-json`; JSON-typed flags follow the `<api-field>-json` naming and accept inline | `@file` | `-` (stdin)
+- **root**: The global `--repo-server-url` flag is removed; the code repository host resolves only from `$MAKE_REPO_SERVER_URL` > profile > built-in address
+
+### Features
+
+- **promote**: New `app promote` publishes the version currently live on beta to production (modeled on `vercel promote`); the receipt prints a `promoteId`, `--status --id <promoteId>` queries progress, and `--wait` polls to a terminal state with exit codes 0/2/124
+- **app**: New hidden `app clone` / `app pull`, the reverse of deploy: `clone <appKey>` fetches the beta repository into `./<appKey>`, `pull` fast-forwards an existing checkout using the identity in `app.yaml`
+- **context**: New `context list/use/show` subcommands and a `doctor` command for local configuration checks (read-only by default, `--fix` applies fixable repairs); a profile can pin its own `context`, resolved as `--context` > `$MAKE_CLI_CONTEXT` > profile > `[settings] context` > production
+- **diff**: `diff` always compares against the beta environment; `appRole` is applied as a client-level `WithAppRole` query on every request
+- **app-delete**: `--env production|beta|all` is required and sent as `?appRole=` so the server locates the paired app; the delete path no longer looks it up via `GetApp`
+- **deploy**: `app deploy --status` includes `environment=beta` when looking up the build task; the repository lives under the app that hosts the environment and beta deploys go through `pairAppKey`; environment vocabulary is `beta` | `production`
+- **record**: New `record aggregate` subcommand for declarative GROUP BY over `/data/v1/aggregate` (`--group-json`, `--aggregates-json`, `--filter`, `--aggregate-filter`, `--sort-json`)
+- **skills**: `skills install --role user` installs only makecli and remembers the role; post-update sync and `skills list` follow the role, and nothing changes when no role is set
+- **daemon**: Claims run as independent executions with consistent context and completion state (#43), and the current input is read on its own to fit the new Context Fill semantics (#44)
+- **app-info**: Text output shows the Pair App Key after Created At
+- **debug**: `--debug` dumps requests and responses, as curl -v style text or as JSON alongside `--output json`
+- **api**: Code repository requests carry a `version` query parameter so the server can enforce a minimum makecli version
+
+### Refactor
+
+- **settings**: New `settings` command group owns the global `[settings]` section; `configure` only manages profile sections, one command surface per INI section
+- **skills**: The skills submodule moves from `internal/skillcontent` to the repository root `skills/`, with the embed point in the root main package
+- **app-create**: `app create` no longer pre-creates the code repository; `deploy` prepares it idempotently on demand
+
+### Documentation
+
+- **aggregate**: Aligned with the new schema `capabilities.aggregable`, separating aggregate-dimension eligibility from list `groupable`
+- **deploy**: Help summary reads "Deploy an app to Make beta environment"
+- **app-delete**: `--env` help text reads `production | beta | ALL (required)`
+
 ## [v0.5.14] - 2026-09-16
 
 ### Features
@@ -297,7 +333,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.14...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.15...HEAD
+[v0.5.15]: https://github.com/qfeius/makecli/releases/tag/v0.5.15
 [v0.5.14]: https://github.com/qfeius/makecli/releases/tag/v0.5.14
 [v0.5.13]: https://github.com/qfeius/makecli/releases/tag/v0.5.13
 [v0.5.12]: https://github.com/qfeius/makecli/releases/tag/v0.5.12
