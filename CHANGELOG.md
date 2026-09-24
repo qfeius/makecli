@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.16] - 2026-09-24
+
+### Features
+
+- **config**: A profile section in `credentials` can set `context`, taking precedence over the same profile's `context` in `config`; resolution is `--context` > `$MAKE_CLI_CONTEXT` > credentials profile > config profile > `[settings] context` > production
+- **skills**: `skills list` shows each installed skill's version in a new VERSION column next to NAME, and `--output json` carries it as `version`
+
 ## [v0.5.15] - 2026-09-23
 
 ### ⚠ Breaking Changes
@@ -333,7 +340,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.15...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.16...HEAD
+[v0.5.16]: https://github.com/qfeius/makecli/releases/tag/v0.5.16
 [v0.5.15]: https://github.com/qfeius/makecli/releases/tag/v0.5.15
 [v0.5.14]: https://github.com/qfeius/makecli/releases/tag/v0.5.14
 [v0.5.13]: https://github.com/qfeius/makecli/releases/tag/v0.5.13
