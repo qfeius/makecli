@@ -2,7 +2,8 @@
  * [INPUT]: 依赖 os、bufio、io、fmt、strings、path/filepath；依赖 paths.go 的 Dir、atomic.go 的 atomicWrite、settings.go 的 ValidateProfileName、config.go 的 validateINIValue
  * [OUTPUT]: 对外提供 Load、Save、CredentialsPath 函数，Credentials/Profile 类型
  * [POS]: internal/config 的核心，管理 credentials 文件（默认 ~/.make/credentials）的 INI 格式读写；
- *        Save 前对 profile 名与 token 值过 INI 注入防线
+ *        Profile 含 access_token / node_key / context（凭证所属后端），Load→Save 全部保留；
+ *        Save 前对 profile 名与各字段值过 INI 注入防线
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -21,10 +22,13 @@ import (
 
 // Profile 代表一个命名配置块，如 [default] 或 [todo]。
 // NodeKey 是 daemon 入册换回的 runtime 长期身份凭证——与 AccessToken 同段共存，
-// 读改写必须两者都保留（daemon 写 node_key 不得抹掉 login 写的 access_token）。
+// 读改写必须全部保留（daemon 写 node_key 不得抹掉 login 写的 access_token）。
+// Context 是这份凭证所属的后端（token 只在签发它的后端有效），
+// 在解析链中压过 config 的 profile.context（见 cmd/client.go resolveContext）。
 type Profile struct {
 	AccessToken string
 	NodeKey     string
+	Context     string
 }
 
 // Credentials 是所有 profile 的集合，key 为 profile 名
@@ -107,6 +111,10 @@ func parseINI(f *os.File) (Credentials, error) {
 			p := creds[current]
 			p.NodeKey = val
 			creds[current] = p
+		case "context":
+			p := creds[current]
+			p.Context = val
+			creds[current] = p
 		}
 	}
 
@@ -127,6 +135,9 @@ func Save(creds Credentials) error {
 			return err
 		}
 		if err := validateINIValue(fmt.Sprintf("profile %q 的 node_key", name), p.NodeKey); err != nil {
+			return err
+		}
+		if err := validateINIValue(fmt.Sprintf("profile %q 的 context", name), p.Context); err != nil {
 			return err
 		}
 	}
@@ -161,6 +172,9 @@ func Save(creds Credentials) error {
 			_, _ = fmt.Fprintf(w, "access_token = %s\n", creds[name].AccessToken)
 			if creds[name].NodeKey != "" {
 				_, _ = fmt.Fprintf(w, "node_key = %s\n", creds[name].NodeKey)
+			}
+			if creds[name].Context != "" {
+				_, _ = fmt.Fprintf(w, "context = %s\n", creds[name].Context)
 			}
 		}
 		return nil

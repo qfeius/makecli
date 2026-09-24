@@ -279,18 +279,24 @@ func TestResolveChannel(t *testing.T) {
 }
 
 func TestResolveProfileContext(t *testing.T) {
+	// creds = credentials[selected].context，profile = config[selected].context，global = [settings] context
 	cases := []struct {
-		name, flag, env, profile, global, want string
-		invalid                                bool
+		name, flag, env, creds, profile, global, want string
+		invalid                                       bool
 	}{
-		{"profile over global", "", "", "test", "production", "test", false},
-		{"env over profile", "", "dev", "test", "production", "dev", false},
-		{"flag over env", "production", "dev", "test", "test", "production", false},
-		{"unset profile", "", "", "", "dev", "dev", false},
-		{"default", "", "", "", "", "production", false},
-		{"invalid profile", "", "", "typo", "dev", "", true},
-		{"invalid env", "", "typo", "test", "dev", "", true},
-		{"invalid flag", "typo", "dev", "test", "dev", "", true},
+		{"profile over global", "", "", "", "test", "production", "test", false},
+		{"env over profile", "", "dev", "", "test", "production", "dev", false},
+		{"flag over env", "production", "dev", "", "test", "test", "production", false},
+		{"unset profile", "", "", "", "", "dev", "dev", false},
+		{"default", "", "", "", "", "", "production", false},
+		{"credentials over config profile", "", "", "production", "test", "dev", "production", false},
+		{"credentials over global", "", "", "test", "", "dev", "test", false},
+		{"env over credentials", "", "dev", "production", "test", "production", "dev", false},
+		{"flag over credentials", "test", "", "production", "", "dev", "test", false},
+		{"invalid credentials", "", "", "typo", "test", "dev", "", true},
+		{"invalid profile", "", "", "", "typo", "dev", "", true},
+		{"invalid env", "", "typo", "", "test", "dev", "", true},
+		{"invalid flag", "typo", "dev", "", "test", "dev", "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -298,6 +304,9 @@ func TestResolveProfileContext(t *testing.T) {
 			t.Setenv(EnvContext, tc.env)
 			setContextFlag(t, tc.flag)
 			setProfile(t, "selected")
+			if err := config.Save(config.Credentials{"selected": {AccessToken: "tok", Context: tc.creds}, "other": {AccessToken: "tok", Context: "dev"}}); err != nil {
+				t.Fatal(err)
+			}
 			if err := config.SaveConfig(config.Config{"selected": {Context: tc.profile}, "other": {Context: "production"}}); err != nil {
 				t.Fatal(err)
 			}

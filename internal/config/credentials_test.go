@@ -89,6 +89,19 @@ func TestParseINI(t *testing.T) {
 		}
 	})
 
+	t.Run("reads context alongside token", func(t *testing.T) {
+		f := writeTempINI(t, "[make]\naccess_token = tok\ncontext = production\n")
+		defer func() { _ = f.Close() }()
+
+		creds, err := parseINI(f)
+		if err != nil {
+			t.Fatalf("parseINI: %v", err)
+		}
+		if got := creds["make"]; got != (Profile{AccessToken: "tok", Context: "production"}) {
+			t.Errorf("profile = %+v, want token + production context", got)
+		}
+	})
+
 	t.Run("ignores keys outside any section", func(t *testing.T) {
 		content := "access_token = orphan\n[default]\naccess_token = real\n"
 		f := writeTempINI(t, content)
@@ -123,7 +136,7 @@ func TestSaveAndLoad(t *testing.T) {
 
 	original := Credentials{
 		"default": {AccessToken: "token-default"},
-		"work":    {AccessToken: "token-work"},
+		"work":    {AccessToken: "token-work", NodeKey: "node-work", Context: "dev"},
 	}
 
 	if err := Save(original); err != nil {
@@ -149,14 +162,14 @@ func TestSaveAndLoad(t *testing.T) {
 		t.Errorf("dir permissions = %v, want 0700", dirInfo.Mode().Perm())
 	}
 
-	// 读回并逐 profile 对比
+	// 读回并逐 profile 整体对比：任何字段在 Load→Save 往返中丢失都会红
 	loaded, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	for profile, want := range original {
-		if got := loaded[profile].AccessToken; got != want.AccessToken {
-			t.Errorf("profile %q: AccessToken = %q, want %q", profile, got, want.AccessToken)
+		if got := loaded[profile]; got != want {
+			t.Errorf("profile %q: got %+v, want %+v", profile, got, want)
 		}
 	}
 }
@@ -213,6 +226,13 @@ func TestSaveRejectsInjection(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		if err := Save(Credentials{"default": {AccessToken: " tok "}}); err == nil {
 			t.Fatal("Save must reject a token with leading/trailing whitespace")
+		}
+	})
+
+	t.Run("context with newline", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		if err := Save(Credentials{"default": {AccessToken: "tok", Context: "dev\n[evil]"}}); err == nil {
+			t.Fatal("Save must reject a context containing a newline")
 		}
 	})
 }

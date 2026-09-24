@@ -22,7 +22,7 @@ func newContextCmd() *cobra.Command {
 		Use:   "context",
 		Short: "Manage the backend context (which Make backend to talk to)",
 		Long: `A context selects which Make backend every command talks to: dev, test or production.
-It is resolved as --context > $` + EnvContext + ` > profile.context > [settings] context > ` + config.DefaultContext + `.
+It is resolved as --context > $` + EnvContext + ` > credentials [profile] context > config [profile] context > [settings] context > ` + config.DefaultContext + `.
 
 Not to be confused with an app's deployment environment (beta / production):
 "app deploy" always targets beta, "app promote" publishes beta to production,

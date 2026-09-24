@@ -9,8 +9,8 @@
 - `atomic_test.go`: 覆盖 atomicWrite 落盘内容/权限0600/无临时残留/覆盖既有文件/render 出错传播不落盘 + ReplaceFile 非 Windows 分支覆盖既有目标（内容替换/源消失/权限保留）
 - `paths.go`: 配置目录解析中枢，提供 Dir 函数与 EnvConfigDir 常量，$MAKE_CLI_CONFIG_DIR 非空时覆盖默认 ~/.make
 - `paths_test.go`: 覆盖 Dir 默认回退与 $MAKE_CLI_CONFIG_DIR 覆盖语义，串联 Save/Load 的 env 隔离测试
-- `credentials.go`: 读写 credentials 文件（默认 ~/.make/credentials，INI 格式），提供 Load/Save/CredentialsPath，Credentials/Profile 类型（Profile 含 access_token[login 写] 与 node_key[daemon 入册写]——同段共存，Load→Save 两字段都保留，daemon 写 node_key 不抹 access_token；node_key 非空才输出行）；Save 经 atomicWrite 原子落盘，落盘前过 INI 注入防线（ValidateProfileName 文法+保留名、validateINIValue 拒 token/node_key 含换行/首尾空白）
-- `credentials_test.go`: 覆盖 parseINI（白盒）+ Load/Save 全路径测试 + INI 注入拒绝（"evil]\n[other" profile 名、token 带换行/首尾空白，且拒绝时不落文件），用 t.Setenv("HOME",...) 隔离文件系统
+- `credentials.go`: 读写 credentials 文件（默认 ~/.make/credentials，INI 格式），提供 Load/Save/CredentialsPath，Credentials/Profile 类型（Profile 含 access_token[login 写]、node_key[daemon 入册写] 与 context[凭证所属后端，手写，在 cmd 解析链中压过 config 的 profile.context]——同段共存，Load→Save 全部保留，daemon 写 node_key 不抹 access_token；node_key / context 非空才输出行）；Save 经 atomicWrite 原子落盘，落盘前过 INI 注入防线（ValidateProfileName 文法+保留名、validateINIValue 拒 token/node_key/context 含换行/首尾空白）
+- `credentials_test.go`: 覆盖 parseINI（白盒，含 context 读取）+ Load/Save 全路径测试（三字段整体往返）+ INI 注入拒绝（"evil]\n[other" profile 名、token 带换行/首尾空白、context 带换行，且拒绝时不落文件），用 t.Setenv("HOME",...) 隔离文件系统
 - `config.go`: 读写 config 文件（默认 ~/.make/config，INI 格式），提供 LoadConfig/SaveConfig/SetSetting/MigrateSettings/ConfigPath，Config/ConfigProfile 类型（含 Context/MetaServerURL/RepoServerURL/AuthServerURL/XTenantID/OperatorID，INI key: context / meta-server-url / repo-server-url / auth-server-url / X-Tenant-ID / X-Operator-ID；auth-server-url 为 OAuth 身份服务器基址，供 login 派生 .well-known 元数据地址）；唯一写路径 saveConfigWithSettings（profile 段 + 显式 [settings] 段，经 ValidateProfileName 拒绝保留名 settings 作 profile）：SaveConfig 传磁盘现状以保留 [settings]，[settings] 的改写统一经 updateSettings 读-改-写原语——SetSetting 改单键、MigrateSettings 按 settings.go 的 legacySettingKeys 表把旧键搬到新键（新键已存在则只删旧键，返回搬家清单，被 cmd/doctor 消费）；落盘前过 INI 注入防线（ValidateProfileName + validateINIKey/validateINIValue：键限保守文法、值拒换行与首尾空白，防 "x\n[evil]" 伪造 section）；validateINIKey/validateINIValue 由此定义、credentials.go 复用；parseINISections 通用 INI 解析器供 settings.go 复用
 - `config_test.go`: 覆盖 parseConfigINI（白盒）+ LoadConfig/SaveConfig 全路径测试 + INI 注入拒绝（profile 值带换行/首尾空白、SetSetting 非法键与换行值），复用 writeTempINI helper
 - `channel.go`: 发布通道域常量（ChannelStable/ChannelBeta/DefaultChannel=stable + ChannelNames），与 context.go 同责的域取值单一真相源；stable 只跟踪正式版、beta 额外跟踪 prerelease，被 cmd 层（resolveChannel/setChannel）与 internal/notifier（channelOf/versionInChannel）消费
@@ -25,3 +25,4 @@
 [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
 
 - 2026-09-22：profile 新增可选 context；INI 读写与全局 settings 改写均保留该值。AGENTS.md 链接本文件，共用模块地图。
+- 2026-09-24：credentials 的 profile 段新增可选 context（凭证所属后端），优先级高于 config 的 profile.context。

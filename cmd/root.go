@@ -31,7 +31,7 @@ var Profile = "default"
 // 取值链收口在 client.go resolveAccessToken；flag 值会留在 shell history / ps，CI 应优先用环境变量。
 var AccessToken string
 
-// Context 全局后端 context 名（--context）。空串 = 回退 $MAKE_CLI_CONTEXT > profile.context > [settings] context > config.DefaultContext。
+// Context 全局后端 context 名（--context）。空串 = 回退 $MAKE_CLI_CONTEXT > credentials[profile].context > config[profile].context > [settings] context > config.DefaultContext。
 // 后端 URL 五件套由当前 context 的 config.Context preset 兜底（见 client.go resolveContext）。
 // 词汇约定：context 选 Make 后端（dev/test/production）；environment 只指 app 的部署环境（beta/production：deploy 只推 beta、promote 发 production、delete 的 --env 选配对的哪一半）。
 var Context string
