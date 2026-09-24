@@ -73,8 +73,8 @@ func stubListSkills(t *testing.T, inv skillsync.Inventory) {
 func sampleInventory() skillsync.Inventory {
 	return skillsync.Inventory{Skills: []skillsync.SkillInfo{
 		{Name: "make-app-auth", Status: skillsync.StatusNotInstalled, RemoteHash: "d"},
-		{Name: "makedsl", Status: skillsync.StatusOutdated, Description: "DSL 设计与生成", UpdatedAt: "2026-07-02T00:00:00.000Z", LocalHash: "a", RemoteHash: "b"},
-		{Name: "makeui", Status: skillsync.StatusUpToDate, Description: "页面布局", UpdatedAt: "2026-07-01T00:00:00.000Z", LocalHash: "c", RemoteHash: "c"},
+		{Name: "makedsl", Version: "0.2.4", Status: skillsync.StatusOutdated, Description: "DSL 设计与生成", UpdatedAt: "2026-07-02T00:00:00.000Z", LocalHash: "a", RemoteHash: "b"},
+		{Name: "makeui", Version: "0.3.1", Status: skillsync.StatusUpToDate, Description: "页面布局", UpdatedAt: "2026-07-01T00:00:00.000Z", LocalHash: "c", RemoteHash: "c"},
 	}}
 }
 
@@ -87,7 +87,7 @@ func TestRunSkillsListTable(t *testing.T) {
 		}
 	})
 
-	for _, want := range []string{"NAME", "STATUS", "makedsl", "outdated", "makeui", "up-to-date"} {
+	for _, want := range []string{"NAME", "VERSION", "STATUS", "makedsl", "0.2.4", "outdated", "makeui", "0.3.1", "up-to-date"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}

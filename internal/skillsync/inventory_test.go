@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 context、net/http、net/http/httptest、os、path/filepath、strings、testing
- * [OUTPUT]: 覆盖 readLock（缺失/过滤/损坏/版本不匹配）、extractFrontmatter / readDescription、fetchRemoteSkills（过滤非 dir/HTTP 错误）、List 合并（五状态/排序/远端不可达降级/description 填充）
+ * [OUTPUT]: 覆盖 readLock（缺失/过滤/损坏/版本不匹配）、extractFrontmatter / readSkillMeta（description 折叠 + metadata.version）、fetchRemoteSkills（过滤非 dir/HTTP 错误）、List 合并（五状态/排序/远端不可达降级/description 与 version 填充）
  * [POS]: internal/skillsync 清单层测试，本地数据源用 t.TempDir 隔离文件系统，远端数据源用 httptest 隔离网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -141,7 +141,7 @@ func TestReadDescriptionFoldedYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := readDescription(dir, "makedsl")
+	got, _ := readSkillMeta(dir, "makedsl")
 
 	if strings.Contains(got, "\n") {
 		t.Fatalf("description must be single line, got %q", got)
@@ -154,8 +154,8 @@ func TestReadDescriptionFoldedYAML(t *testing.T) {
 func TestReadDescriptionMissingFile(t *testing.T) {
 	dir := stubSkillsDir(t)
 
-	if got := readDescription(dir, "nope"); got != "" {
-		t.Fatalf("expected empty for missing SKILL.md, got %q", got)
+	if desc, version := readSkillMeta(dir, "nope"); desc != "" || version != "" {
+		t.Fatalf("expected empty for missing SKILL.md, got %q %q", desc, version)
 	}
 }
 
@@ -169,8 +169,31 @@ func TestReadDescriptionBadYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := readDescription(dir, "bad"); got != "" {
-		t.Fatalf("expected empty for bad YAML, got %q", got)
+	if desc, version := readSkillMeta(dir, "bad"); desc != "" || version != "" {
+		t.Fatalf("expected empty for bad YAML, got %q %q", desc, version)
+	}
+}
+
+func TestReadSkillMetaVersion(t *testing.T) {
+	dir := stubSkillsDir(t)
+	cases := map[string]string{
+		"with-version": "---\nname: a\ndescription: d\nmetadata:\n  version: 0.6.1\n---\n",
+		"no-metadata":  "---\nname: b\ndescription: d\n---\n",
+	}
+	for name, content := range cases {
+		if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name, "SKILL.md"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, version := readSkillMeta(dir, "with-version"); version != "0.6.1" {
+		t.Errorf("version = %q, want 0.6.1", version)
+	}
+	if desc, version := readSkillMeta(dir, "no-metadata"); version != "" || desc != "d" {
+		t.Errorf("missing metadata must yield empty version, got desc=%q version=%q", desc, version)
 	}
 }
 
@@ -310,7 +333,7 @@ func TestListFillsDescriptionForInstalled(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "makeui"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	skillMD := "---\nname: makeui\ndescription: 页面布局与 UI 组件组织\n---\n"
+	skillMD := "---\nname: makeui\ndescription: 页面布局与 UI 组件组织\nmetadata:\n  version: 0.3.2\n---\n"
 	if err := os.WriteFile(filepath.Join(dir, "makeui", "SKILL.md"), []byte(skillMD), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -326,12 +349,15 @@ func TestListFillsDescriptionForInstalled(t *testing.T) {
 			if s.Description != "页面布局与 UI 组件组织" {
 				t.Errorf("makeui description: %q", s.Description)
 			}
+			if s.Version != "0.3.2" {
+				t.Errorf("makeui version: %q", s.Version)
+			}
 			if s.InstalledAt == "" || s.LocalHash == "" {
 				t.Error("installed skill must carry installedAt and localHash")
 			}
 		case "make-app-auth":
-			if s.Description != "" {
-				t.Errorf("not-installed skill must have empty description, got %q", s.Description)
+			if s.Description != "" || s.Version != "" {
+				t.Errorf("not-installed skill must have empty description/version, got %q %q", s.Description, s.Version)
 			}
 		}
 	}

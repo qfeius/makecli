@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 context、encoding/json、fmt、net/http、os、path/filepath、slices、strings、time、gopkg.in/yaml.v3
- * [OUTPUT]: 对外提供 List / Inventory / SkillInfo / Status* 常量（本地 lockfile × 远端 GitHub 状态合并清单）；包内 readLock / lockEntry / readDescription / extractFrontmatter 供 Remove（来源校验）复用
+ * [OUTPUT]: 对外提供 List / Inventory / SkillInfo / Status* 常量（本地 lockfile × 远端 GitHub 状态合并清单）；包内 readLock / lockEntry / readSkillMeta（一次解析 SKILL.md frontmatter 取 description + metadata.version）/ extractFrontmatter 供 Remove（来源校验）复用
  * [POS]: internal/skillsync 的清单层，被 cmd/skills_list.go 调用；lockPathFunc / skillsDirFunc / inventoryAPIBaseURL 为测试接缝
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -91,24 +91,30 @@ func readLock() (map[string]lockEntry, string) {
 	return entries, warning
 }
 
-// readDescription 从 <dir>/<name>/SKILL.md 的 YAML frontmatter 取 description 并折叠为单行；
-// 任何失败返回空串不阻断（description 是展示增强，不是数据依赖）。
-func readDescription(dir, name string) string {
+// skillMeta 是 SKILL.md frontmatter 中清单展示所需的字段
+type skillMeta struct {
+	Description string `yaml:"description"`
+	Metadata    struct {
+		Version string `yaml:"version"`
+	} `yaml:"metadata"`
+}
+
+// readSkillMeta 读一次 <dir>/<name>/SKILL.md 的 YAML frontmatter，取 description（折叠为单行）与 metadata.version；
+// 任何失败返回空串不阻断（二者都是展示增强，不是数据依赖）。
+func readSkillMeta(dir, name string) (description, version string) {
 	data, err := os.ReadFile(filepath.Join(dir, name, "SKILL.md"))
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	fm := extractFrontmatter(data)
 	if fm == nil {
-		return ""
+		return "", ""
 	}
-	var meta struct {
-		Description string `yaml:"description"`
-	}
+	var meta skillMeta
 	if err := yaml.Unmarshal(fm, &meta); err != nil {
-		return ""
+		return "", ""
 	}
-	return strings.Join(strings.Fields(meta.Description), " ")
+	return strings.Join(strings.Fields(meta.Description), " "), strings.TrimSpace(meta.Metadata.Version)
 }
 
 // extractFrontmatter 取首个 "---" 行与下一个 "---" 行之间的内容；无 frontmatter 返回 nil。
@@ -137,6 +143,7 @@ const (
 // SkillInfo 是单个 skill 的合并视图（本地安装记录 + 远端状态）。
 type SkillInfo struct {
 	Name        string `json:"name"`
+	Version     string `json:"version,omitempty"` // 本地已安装 SKILL.md 的 metadata.version；未安装为空
 	Status      string `json:"status"`
 	Description string `json:"description,omitempty"`
 	InstalledAt string `json:"installedAt,omitempty"`
@@ -218,7 +225,7 @@ func List(ctx context.Context) Inventory {
 		entry, installed := local[name]
 		info := SkillInfo{Name: name, RemoteHash: remote[name]}
 		if installed {
-			info.Description = readDescription(skillsDirFunc(), name)
+			info.Description, info.Version = readSkillMeta(skillsDirFunc(), name)
 			info.InstalledAt = entry.InstalledAt
 			info.UpdatedAt = entry.UpdatedAt
 			info.LocalHash = entry.SkillFolderHash

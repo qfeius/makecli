@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 context、fmt、os、slices、github.com/olekukonko/tablewriter、github.com/spf13/cobra、internal/skillsync、cmd/output 辅助
  * [OUTPUT]: 对外提供 newSkillsListCmd 函数；包内 runSkillsList 被 skills 命令组默认行为复用
- * [POS]: cmd/skills 的 list 子命令，合并本地 lockfile 与 GitHub 远端状态，输出列 NAME/STATUS/DESCRIPTION/UPDATED AT；默认只列已安装（包管理器 list 惯例），--all 才含远端 not installed 条目（表格与 JSON 同一过滤语义），默认视图汇总行提示 N more available（available 按 [settings] role 的名单过滤：user 不把 developer skills 当可装；空态引导带当前 role）；支持 table|json；远端失败降级 unknown + stderr 警告，退出码恒 0
+ * [POS]: cmd/skills 的 list 子命令，合并本地 lockfile 与 GitHub 远端状态，输出列 NAME/VERSION/STATUS/DESCRIPTION/UPDATED AT（VERSION 为本地已安装 SKILL.md 的 metadata.version，未安装留空）；默认只列已安装（包管理器 list 惯例），--all 才含远端 not installed 条目（表格与 JSON 同一过滤语义），默认视图汇总行提示 N more available（available 按 [settings] role 的名单过滤：user 不把 developer skills 当可装；空态引导带当前 role）；支持 table|json；远端失败降级 unknown + stderr 警告，退出码恒 0
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -79,11 +79,11 @@ func runSkillsList(ctx context.Context, output string, all bool) error {
 
 	rows := make([][]string, len(skills))
 	for i, s := range skills {
-		rows[i] = []string{s.Name, s.Status, truncateLine(s.Description, 60), shortDate(s.UpdatedAt)}
+		rows[i] = []string{s.Name, s.Version, s.Status, truncateLine(s.Description, 60), shortDate(s.UpdatedAt)}
 	}
 
 	table := tablewriter.NewTable(os.Stdout)
-	table.Header("NAME", "STATUS", "DESCRIPTION", "UPDATED AT")
+	table.Header("NAME", "VERSION", "STATUS", "DESCRIPTION", "UPDATED AT")
 	_ = table.Bulk(rows)
 	_ = table.Render()
 
