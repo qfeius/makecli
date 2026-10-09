@@ -114,7 +114,7 @@ func Execute(version, buildDate string) error {
 	rootCmd.AddCommand(newConfigureCmd())
 	rootCmd.AddCommand(newSettingsCmd())
 	rootCmd.AddCommand(newContextCmd())
-	rootCmd.AddCommand(newDoctorCmd())
+	rootCmd.AddCommand(newDoctorCmd(version, buildDate))
 	rootCmd.AddCommand(newLoginCmd())
 	rootCmd.AddCommand(newWhoamiCmd())
 	rootCmd.AddCommand(newApplyCmd())

@@ -1,20 +1,23 @@
 /**
- * [INPUT]: 依赖 doctor.go 的 runDoctor / errDoctorFailed / doctorFixHint；setProfile / setAccessTokenFlag / captureStdout 测试辅助；internal/config 隔离配置与凭证；regexp
- * [OUTPUT]: 覆盖 doctor 的单元测试（默认只读：旧键标 fixable 指引 --fix 且不改文件退出 1 / --fix 搬家到 context 且其后命令可用 / 健康配置 OK 退出 0 / 未知 context、channel 报 settings set 指引与缺 token 报问题退出 1 / --fix 修复后同轮 context 检查读到新键 / 哨兵静默 / --fix flag 注册）；squash + hasLine 让行断言不依赖名字列宽（列宽随最长检查名浮动）
+ * [INPUT]: 依赖 doctor.go 的 runDoctor / errDoctorFailed / doctorFixHint；setProfile / setAccessTokenFlag / captureStdout 测试辅助；internal/config 隔离配置与凭证；internal/skillsync 清单桩；regexp
+ * [OUTPUT]: 覆盖 doctor 的单元测试（默认只读：旧键标 fixable 指引 --fix 且不改文件退出 1 / --fix 搬家到 context 且其后命令可用 / 健康配置 OK 退出 0 / 未知 context、channel 报 settings set 指引与缺 token 报问题退出 1 / --fix 修复后同轮 context 检查读到新键 / 哨兵静默 / --fix flag 注册 / 默认完整输出与失败后继续列 skills / --fix 自更新与同步、失败可见 / 移除 --detail）；squash + hasLine 让行断言不依赖名字列宽（列宽随最长检查名浮动）
  * [POS]: cmd 模块 doctor.go 的配套测试
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/qfeius/makecli/internal/config"
+	"github.com/qfeius/makecli/internal/skillsync"
+	"github.com/qfeius/makecli/internal/update"
 )
 
 // squash 把连续空格压成一个：doctor 的名字列按最长检查名对齐，断言不该依赖列宽。
@@ -198,12 +201,87 @@ func TestDoctorSentinelIsSilent(t *testing.T) {
 }
 
 func TestDoctorFixFlagRegistered(t *testing.T) {
-	cmd := newDoctorCmd()
+	cmd := newDoctorCmd("DEV", "")
 	f := cmd.Flags().Lookup("fix")
 	if f == nil {
 		t.Fatal("doctor should register --fix")
 	}
 	if f.DefValue != "false" {
 		t.Errorf("--fix must default to false (read-only doctor), got %q", f.DefValue)
+	}
+}
+
+// 默认完整报告；--fix 复用真实 update 编排，网络与副作用在边界打桩。
+func TestDoctorReport(t *testing.T) {
+	for _, tc := range []struct {
+		name                           string
+		fix, missingToken, updateFails bool
+	}{
+		{name: "healthy"},
+		{name: "missing token", missingToken: true},
+		{name: "fix upgrades", fix: true},
+		{name: "fix continues after diagnostic failure", fix: true, missingToken: true},
+		{name: "update failure is visible", fix: true, missingToken: true, updateFails: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			healthyDoctorEnv(t)
+			if tc.missingToken {
+				setAccessTokenFlag(t, "")
+			}
+			setBuildVersion(t, "v1.2.3")
+			status := 0
+			if tc.updateFails {
+				status = 500
+			}
+			t.Cleanup(mockReleaseServer(t, status, update.Release{TagName: "v1.2.4"}))
+			applied := setApplyFunc(t, noopApply)
+			synced := setSyncSkillsSuccess(t)
+			original := listSkillsFunc
+			t.Cleanup(func() { listSkillsFunc = original })
+			calls := 0
+			listSkillsFunc = func(context.Context) skillsync.Inventory {
+				calls++
+				if tc.fix && !tc.updateFails && len(*synced) != 1 {
+					t.Error("skills list must run after update sync")
+				}
+				return skillsync.Inventory{}
+			}
+			cmd := newDoctorCmd("v1.2.3", "2026-10-09")
+			if cmd.Flags().Lookup("detail") != nil {
+				t.Fatal("--detail must be removed")
+			}
+			if tc.fix {
+				cmd.SetArgs([]string{"--fix"})
+			} else {
+				cmd.SetArgs([]string{})
+			}
+			cmd.SetErr(&bytes.Buffer{})
+			var err error
+			out := captureStdout(t, func() { err = cmd.Execute() })
+			wantFailure := tc.missingToken || tc.updateFails
+			if (err != nil) != wantFailure {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.missingToken && !tc.updateFails && !errors.Is(err, errDoctorFailed) {
+				t.Fatalf("diagnostic failure lost: %v", err)
+			}
+			if tc.updateFails {
+				var rendered bytes.Buffer
+				reportExecuteError(&rendered, err)
+				if rendered.Len() == 0 {
+					t.Fatal("update failure was silenced")
+				}
+			}
+			wantUpdate := tc.fix && !tc.updateFails
+			if *applied != wantUpdate || (len(*synced) == 1) != wantUpdate {
+				t.Fatalf("update apply=%v, sync=%d", *applied, len(*synced))
+			}
+			version := formatVersion("v1.2.3", "2026-10-09")
+			diagnostic := strings.Index(out, "Config:")
+			skills := strings.Index(out, "No Make platform skills installed.")
+			if !strings.HasPrefix(out, version) || diagnostic < len(version) || skills < diagnostic || calls != 1 {
+				t.Fatalf("unexpected report order or list calls (%d): %s", calls, out)
+			}
+		})
 	}
 }

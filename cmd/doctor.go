@@ -1,10 +1,10 @@
 /**
- * [INPUT]: 依赖 internal/config（ConfigPath/LoadSettings/MigrateSettings）、cmd/settings（settingKeys 表）、cmd/client（resolveAccessToken/tokenSource 常量）、errors、fmt、strings、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newDoctorCmd 函数、errDoctorFailed 哨兵错误、doctorFixHint 常量；包内 doctorChecks 检查表组装、checkSetting 按键生成检查、runDoctor(fix) 白盒入口
+ * [INPUT]: 依赖 internal/config（ConfigPath/LoadSettings/MigrateSettings）、cmd/settings（settingKeys 表）、cmd/client（resolveAccessToken/tokenSource 常量）、cmd/version（formatVersion）、cmd/skills_list（runSkillsList）、cmd/update（runUpdate）、errors、fmt、strings、github.com/spf13/cobra
+ * [OUTPUT]: 对外提供 newDoctorCmd 函数、errDoctorFailed 哨兵错误、doctorFixHint 常量；包内 doctorChecks 检查表组装、checkSetting 按键生成检查、runDoctor(fix) 白盒入口；默认按版本、诊断、skills list 顺序输出；--fix 追加自更新与 skills 同步
  * [POS]: cmd 模块的 doctor 命令——本地配置体检，对齐 brew/flutter/npm doctor 的只读默认：检查表逐项求值（旧键搬家 → settingKeys 表逐键取值校验 → 凭证），带 fix 的问题默认只标 fixable 并指引 --fix，
  *        --fix 时当场修复并回显（[settings] 旧键 environment → context 由 config.MigrateSettings 搬家），修不了的问题给 next-step 指引；
  *        这是旧配置升级到新格式的唯一通道——解析链（resolveContext）遇到旧键只报错指引 doctor --fix，不背兼容包袱；存在未修复问题返回 errDoctorFailed（退出码 1）
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -22,22 +22,36 @@ import (
 // 问题详情已由 doctor 自身打印，reportExecuteError 放过它不再打 error: 行。
 var errDoctorFailed = errors.New("doctor: configuration needs attention")
 
-func newDoctorCmd() *cobra.Command {
+func newDoctorCmd(version, buildDate string) *cobra.Command {
 	var fix bool
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check the health of your make environment",
 		Long: `Doctor checks the health of your make environment.
-With --fix it also applies the safe fixes in place.`,
+It shows version information, configuration checks, and installed skills.
+With --fix it also applies safe configuration fixes and runs makecli update.`,
 		Example: `  makecli doctor
   makecli doctor --fix`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDoctor(fix)
+			fmt.Print(formatVersion(version, buildDate), "\n")
+			doctorErr := runDoctor(fix)
+			var updateErr error
+			if fix {
+				fmt.Println()
+				updateErr = runUpdate(cmd, "", false, false)
+			}
+			fmt.Println()
+			skillsErr := runSkillsList(cmd.Context(), outputTable, false)
+			// 诊断哨兵会被错误出口静默；操作错误优先返回，确保升级失败可见。
+			if err := errors.Join(updateErr, skillsErr); err != nil {
+				return err
+			}
+			return doctorErr
 		},
 	}
-	cmd.Flags().BoolVar(&fix, "fix", false, "apply the fixes doctor knows are safe (rewrites ~/.make/config)")
+	cmd.Flags().BoolVar(&fix, "fix", false, "apply safe configuration fixes and update makecli and Make platform skills")
 	return cmd
 }
 
