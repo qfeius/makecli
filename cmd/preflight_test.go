@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内 preflight 检查表与 runPreflight / errPreflightFailed（白盒）、encoding/json、errors、os、path/filepath、slices、strings、testing
- * [OUTPUT]: 覆盖 preflight 子命令 build-spec 检查清单的单元测试
+ * [OUTPUT]: 覆盖 preflight 子命令 build-spec 检查清单、.dockerignore 关键输入与规则有效性（含反向规则延迟编译）的单元测试
  * [POS]: cmd 模块 preflight.go 的配套测试，用 t.TempDir 构造真实目录树隔离文件系统，
  *        覆盖文件投影原语、上下文构建、spec 第 5 节检查表（含第 7 节常见失败结构）与输出渲染
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -90,6 +90,126 @@ func TestRunPreflight(t *testing.T) {
 			t.Error("--app-type must be removed")
 		}
 	})
+}
+
+func TestPreflightDockerignoreBuildArtifacts(t *testing.T) {
+	tests := []struct {
+		name       string
+		ignoreFile string
+		wantError  bool
+		wantOutput []string
+	}{
+		{
+			name:       "component dist directories are excluded",
+			ignoreFile: ".git\napps/node_modules\napps/ui/dist\napps/service/dist\n",
+			wantError:  true,
+			wantOutput: []string{"apps/ui/dist/index.html", "apps/service/dist/server.js"},
+		},
+		{
+			name:       "wildcard exclusion is detected",
+			ignoreFile: "**/dist\n",
+			wantError:  true,
+			wantOutput: []string{"apps/ui/dist/index.html", "apps/service/dist/server.js"},
+		},
+		{
+			name:       "invalid ignore rule cannot pass preflight",
+			ignoreFile: "!\n",
+			wantError:  true,
+		},
+		{
+			name:       "invalid negation outside checked paths cannot pass preflight",
+			ignoreFile: "apps/ui/dist/assets\n![Local-Only]\n",
+			wantError:  true,
+			wantOutput: []string{"![Local-Only]", "syntax error in pattern", "fix the reported .dockerignore syntax or read error"},
+		},
+		{
+			name:       "invalid standalone negation cannot pass preflight",
+			ignoreFile: "![Local-Only]\n",
+			wantError:  true,
+			wantOutput: []string{"![Local-Only]", "syntax error in pattern", "fix the reported .dockerignore syntax or read error"},
+		},
+		{
+			name:       "invalid rule shadowed by exclusion is still rejected",
+			ignoreFile: "**\n[Local-Only]\n",
+			wantError:  true,
+			wantOutput: []string{"[Local-Only]", "syntax error in pattern"},
+		},
+		{
+			name:       "valid standalone negation is allowed",
+			ignoreFile: "!apps/ui/dist\n",
+		},
+		{
+			name:       "later negation restores build artifacts",
+			ignoreFile: "apps/ui/dist\napps/service/dist\n!apps/ui/dist\n!apps/service/dist\n",
+		},
+		{
+			name:       "comments do not exclude artifacts",
+			ignoreFile: "# apps/ui/dist\n# apps/service/dist\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := pfModeAPnpm(t)
+			pfWrite(t, root, ".dockerignore", tt.ignoreFile)
+			out := captureStdout(t, func() {
+				err := runPreflight(root)
+				if tt.wantError && !errors.Is(err, errPreflightFailed) {
+					t.Errorf("want preflight failure, got %v", err)
+				}
+				if !tt.wantError && err != nil {
+					t.Errorf("want clean preflight, got %v", err)
+				}
+			})
+			if tt.wantError {
+				for _, want := range append([]string{"✗ D2", ".dockerignore", "How to fix:"}, tt.wantOutput...) {
+					if !strings.Contains(out, want) {
+						t.Errorf("output missing %q:\n%s", want, out)
+					}
+				}
+			} else if strings.Contains(out, "✗ D2") {
+				t.Errorf("unexpected Docker ignore failure:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestPreflightDockerignoreChecksPresentComponentsOnly(t *testing.T) {
+	tests := []struct {
+		name          string
+		removePackage string
+		ignoreRule    string
+	}{
+		{"ui only does not require service output", "apps/service/package.json", "apps/service/dist"},
+		{"service only does not require ui output", "apps/ui/package.json", "apps/ui/dist"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := pfModeAPnpm(t)
+			if err := os.Remove(filepath.Join(root, tt.removePackage)); err != nil {
+				t.Fatal(err)
+			}
+			pfWrite(t, root, ".dockerignore", tt.ignoreRule+"\n")
+			errIDs, _, _ := evalChecks(t, root)
+			if slices.Contains(errIDs, "D2") {
+				t.Errorf("unbuilt component should not fail D2: %v", errIDs)
+			}
+		})
+	}
+}
+
+func TestPreflightDockerignoreCustomNginxConfig(t *testing.T) {
+	root := pfModeAPnpm(t)
+	pfWrite(t, root, "apps/ui/nginx.conf", "server {}\n")
+	pfWrite(t, root, ".dockerignore", "apps/ui/nginx.conf\n")
+	out := captureStdout(t, func() {
+		if err := runPreflight(root); !errors.Is(err, errPreflightFailed) {
+			t.Errorf("want excluded nginx config to fail preflight, got %v", err)
+		}
+	})
+	if !strings.Contains(out, "✗ D2") || !strings.Contains(out, "apps/ui/nginx.conf") {
+		t.Errorf("output should identify the missing COPY input:\n%s", out)
+	}
 }
 
 // ---------------------------------- build spec 检查：文件投影原语 ----------------------------------

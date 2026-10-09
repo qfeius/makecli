@@ -84,6 +84,8 @@ AGENTS.md → CLAUDE.md（全局地图）
 cmd/AGENTS.md → cmd/CLAUDE.md（命令成员与职责）
 ```
 
+- 2026-10-09：preflight 增加 D2，验证 `.dockerignore` 规则并检查组件镜像的已知关键输入是否被排除；属于静态预检，不保证完整产物依赖，实现和测试见 `cmd/`。
+
 - 2026-09-22：app pull 重命名为 app clone；文档入口以符号链接共用已有地图。
 
 - 2026-09-22：profile 可配置 context，统一解析优先级为 --context > MAKE_CLI_CONTEXT > profile.context > [settings].context > production；context use 只修改全局默认。
