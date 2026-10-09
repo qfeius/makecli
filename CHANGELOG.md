@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.17] - 2026-10-09
+
+### Features
+
+- **doctor**: Shows version information, configuration diagnostics, and installed skills by default; `--fix` also updates makecli and synchronizes Make platform skills before listing them. Diagnostic failures do not stop update or skill reporting, and update failures remain visible.
+
 ## [v0.5.16] - 2026-09-24
 
 ### Features
