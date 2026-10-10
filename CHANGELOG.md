@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.18] - 2026-10-10
+
+### Fixes
+
+- **preflight**: Adds D2 validation for the project root `.dockerignore` in component mode, detecting excluded UI/Service entry points, dependency manifests, and an existing custom UI `nginx.conf` before image packaging. Supports wildcard and negation rules, rejects invalid rules even when they are not matched, and reports excluded paths with repair hints without requiring `dist` to exist. This checks known inputs rather than the full build output. (#46)
+
 ## [v0.5.17] - 2026-10-09
 
 ### Features
