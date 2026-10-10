@@ -1,12 +1,14 @@
 /**
- * [INPUT]: 依赖 encoding/json、errors、fmt、os、path、path/filepath、regexp、strings、
- *          gopkg.in/yaml.v3、github.com/spf13/cobra、cmd/app（loadAppManifestFromFile）、cmd/app_create（appDSLPath）
+ * [INPUT]: 依赖 bytes、encoding/json、errors、fmt、os、path、path/filepath、regexp、strings、
+ *          github.com/moby/patternmatcher、gopkg.in/yaml.v3、github.com/spf13/cobra、
+ *          cmd/app（loadAppManifestFromFile）、cmd/app_create（appDSLPath）
  * [OUTPUT]: 对外提供 newPreflightCmd 函数、errPreflightFailed 哨兵错误
  * [POS]: cmd 模块的顶层 preflight 命令，以 make-build-service build_spec.md 第 5 节检查
  *        清单为实现依据：
  *        构建模式 A/B 自动判定、包管理器按 lockfile 优先级判定（buildPreflightContext 一次
  *        收集事实），preflightChecks 表驱动逐项检查（ERROR/WARN/INFO 三级、条目与 spec 1:1、
- *        另有 makecli 自有 D1=apps/dsl），失败输出附 How to fix 指引（面向 AI agent 一步收敛）；
+ *        另有 makecli 自有 D1=apps/dsl、D2=.dockerignore 规则有效性与已知关键输入），失败输出附
+ *        How to fix 指引（面向 AI agent 一步收敛）；
  *        存在 ERROR 返回 errPreflightFailed（main.go 转译退出码 1），作 CI / deploy 前置门禁
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -14,6 +16,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +26,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/moby/patternmatcher"
+	"github.com/moby/patternmatcher/ignorefile"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 )
@@ -50,7 +55,10 @@ The build mode is auto-detected:
   mode B  root Dockerfile — everything else; the repo brings its own Dockerfile
 
 The package manager follows the lockfile (pnpm-lock.yaml > yarn.lock >
-package-lock.json). Findings are reported as ERROR / WARN / INFO with a
+package-lock.json). Component mode also validates .dockerignore rules and checks
+known entry points and configuration files used by the generated Dockerfiles.
+This does not verify every file in dist or its runtime dependencies.
+Findings are reported as ERROR / WARN / INFO with a
 "How to fix" hint each; any ERROR fails the run (exit code 1) so it can gate
 CI or deploy. The directory defaults to the current working directory.`,
 		Example: `  makecli preflight
@@ -278,6 +286,29 @@ func workspaceCovers(patterns []string, component string) bool {
 	return false
 }
 
+// parseDockerignore 验证每条规则后保留原始顺序，匹配阶段仍使用 Docker 的规则语义。
+func parseDockerignore(data []byte) (*patternmatcher.PatternMatcher, error) {
+	patterns, err := ignorefile.ReadAll(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	for _, rule := range patterns {
+		validationRules := []string{rule}
+		if strings.HasPrefix(rule, "!") {
+			// New 只做语法初筛；先匹配 **，确保反向规则也触发延迟编译。
+			validationRules = []string{"**", rule}
+		}
+		validator, err := patternmatcher.New(validationRules)
+		if err == nil {
+			_, err = validator.MatchesOrParentMatches(".")
+		}
+		if err != nil {
+			return nil, fmt.Errorf("invalid pattern %q: %w", rule, err)
+		}
+	}
+	return patternmatcher.New(patterns)
+}
+
 // ---------------------------------- 上下文 ----------------------------------
 
 // preflightContext 一次性收集全部检查所需事实，检查函数只读不做 IO。
@@ -298,11 +329,15 @@ type preflightContext struct {
 	uiPkg            *pkgFile
 	servicePkg       *pkgFile
 	uiDirExists      bool
+	uiNginxConfig    bool
 	serviceDirExists bool
 	pnpmWS           *pnpmWorkspaceFile
 
 	rootPkg       *pkgFile
 	hasDockerfile bool // 根目录 Dockerfile 存在（文件）
+
+	dockerIgnore    *patternmatcher.PatternMatcher
+	dockerIgnoreErr error
 }
 
 func buildPreflightContext(root string) *preflightContext {
@@ -319,8 +354,16 @@ func buildPreflightContext(root string) *preflightContext {
 	ctx.hasDSL = dirExists(filepath.Join(root, "apps", "dsl"))
 	ctx.uiDirExists = dirExists(filepath.Join(root, "apps", "ui"))
 	ctx.serviceDirExists = dirExists(filepath.Join(root, "apps", "service"))
+	if info, err := os.Stat(filepath.Join(root, "apps", "ui", "nginx.conf")); err == nil && !info.IsDir() {
+		ctx.uiNginxConfig = true
+	}
 	if info, err := os.Stat(filepath.Join(root, "Dockerfile")); err == nil && !info.IsDir() {
 		ctx.hasDockerfile = true
+	}
+	if data, err := os.ReadFile(filepath.Join(root, ".dockerignore")); err == nil {
+		ctx.dockerIgnore, ctx.dockerIgnoreErr = parseDockerignore(data)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		ctx.dockerIgnoreErr = err
 	}
 
 	// spec 第 1 节：lockfile 检测目录模式 A 为 apps/，模式 B 为仓库根
@@ -436,6 +479,42 @@ func uncoveredComponents(ctx *preflightContext, patterns []string) []string {
 	return missing
 }
 
+// ignoredBuildContextPaths 对生成的组件 Dockerfile 所 COPY 的关键文件使用
+// Docker 的 .dockerignore 规则；产物尚未生成时也能提前发现排除规则。
+// 固定路径来自构建服务模板，不代表整个 dist 或运行时依赖的完整性。
+func ignoredBuildContextPaths(ctx *preflightContext) ([]string, error) {
+	if ctx.dockerIgnore == nil {
+		return nil, nil
+	}
+	var required []string
+	if ctx.uiPkg.exists {
+		required = append(required, "apps/ui/dist/index.html")
+		if ctx.uiNginxConfig {
+			required = append(required, "apps/ui/nginx.conf")
+		}
+	}
+	if ctx.servicePkg.exists {
+		required = append(required,
+			"apps/package.json",
+			"apps/pnpm-lock.yaml",
+			"apps/pnpm-workspace.yaml",
+			"apps/service/package.json",
+			"apps/service/dist/server.js",
+		)
+	}
+	var excluded []string
+	for _, name := range required {
+		ignored, err := ctx.dockerIgnore.MatchesOrParentMatches(name)
+		if err != nil {
+			return nil, err
+		}
+		if ignored {
+			excluded = append(excluded, name)
+		}
+	}
+	return excluded, nil
+}
+
 // preflightChecks 的顺序即输出顺序：模式相关条目在前（最可能出错），通用尾随，INFO 收尾。
 var preflightChecks = []preflightCheck{
 	{
@@ -452,6 +531,29 @@ var preflightChecks = []preflightCheck{
 		},
 		fix: func(_ *preflightContext) string {
 			return "run `makecli app init` in the project root to scaffold apps/dsl/app.yaml; `makecli app deploy` reads the app key from it"
+		},
+	},
+	{
+		id: "D2", level: levelError, label: ".dockerignore is valid and keeps known component build inputs",
+		applies: func(ctx *preflightContext) bool { return ctx.modeA },
+		run: func(ctx *preflightContext) checkResult {
+			if ctx.dockerIgnoreErr != nil {
+				return failf(".dockerignore cannot be checked: %v", ctx.dockerIgnoreErr)
+			}
+			excluded, err := ignoredBuildContextPaths(ctx)
+			if err != nil {
+				return failf(".dockerignore cannot be checked: %v", err)
+			}
+			if len(excluded) > 0 {
+				return failf(".dockerignore excludes required build context paths: %s", strings.Join(excluded, ", "))
+			}
+			return passed()
+		},
+		fix: func(ctx *preflightContext) string {
+			if ctx.dockerIgnoreErr != nil {
+				return "fix the reported .dockerignore syntax or read error, then rerun `makecli preflight`"
+			}
+			return "edit .dockerignore to include the reported component build paths; keep .git and node_modules excluded"
 		},
 	},
 	{
