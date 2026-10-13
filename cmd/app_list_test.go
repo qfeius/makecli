@@ -1,8 +1,8 @@
 /**
- * [INPUT]: 依赖 cmd 包内的 runAppList（包内白盒），internal/config、encoding/json、net/http、net/http/httptest
- * [OUTPUT]: 覆盖 app list 子命令核心逻辑的单元测试
+ * [INPUT]: 依赖 cmd 包内的 newAppCmd/runAppList/parseFilter，encoding/json、net/http、net/http/httptest
+ * [OUTPUT]: 覆盖 app list 与 +favo 的列表请求、分页输出、过滤与错误；验证快捷命令与显式筛选等价
  * [POS]: cmd 模块 app_list.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -195,6 +195,15 @@ func TestRunAppList(t *testing.T) {
 }
 
 func TestParseFilter(t *testing.T) {
+	t.Run("workbench group becomes equality CEL", func(t *testing.T) {
+		f, err := parseFilter("workbenchGroup=favorite")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f != "workbenchGroup == 'favorite'" {
+			t.Fatalf("unexpected filter: %q", f)
+		}
+	})
 	t.Run("empty returns empty string", func(t *testing.T) {
 		f, err := parseFilter("")
 		if err != nil {
@@ -262,4 +271,63 @@ func TestParseFilter(t *testing.T) {
 			t.Fatal("expected error for unknown field")
 		}
 	})
+}
+
+func TestAppFavoMatchesListFilter(t *testing.T) {
+	t.Setenv("MAKE_CLI_CONFIG_DIR", t.TempDir())
+	setProfile(t, "default")
+	oldURL, oldToken := MetaServerURL, AccessToken
+	t.Cleanup(func() { MetaServerURL, AccessToken = oldURL, oldToken })
+	AccessToken = "test-token"
+	var requests []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/make/meta/v1/app" || r.Header.Get("X-Make-Target") != "MakeService.ListResources" {
+			t.Errorf("unexpected request: %s %s, target=%s", r.Method, r.URL, r.Header.Get("X-Make-Target"))
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		requests = append(requests, body)
+		_, _ = w.Write([]byte(`{"code":200,"msg":"success","data":[{"key":"ProjectA","name":"项目A","meta":{"favorite":true}}],"pagination":{"total":21}}`))
+	}))
+	defer srv.Close()
+	MetaServerURL = srv.URL
+
+	var outputs []string
+	for _, args := range [][]string{
+		{"+favo", "--page", "2", "--size", "10", "--output", "json"},
+		{"list", "--filter", "workbenchGroup=favorite", "--page", "2", "--size", "10", "--output", "json"},
+	} {
+		cmd := newAppCmd()
+		cmd.SetArgs(args)
+		outputs = append(outputs, captureStdout(t, func() {
+			if err := cmd.Execute(); err != nil {
+				t.Error(err)
+			}
+		}))
+	}
+	if len(requests) != 2 {
+		t.Fatalf("got %d requests, want 2", len(requests))
+	}
+	for _, body := range requests {
+		filter, _ := body["filter"].(map[string]any)
+		pagination, _ := body["pagination"].(map[string]any)
+		if filter["expression"] != "workbenchGroup == 'favorite'" || pagination["page"] != float64(2) || pagination["size"] != float64(10) {
+			t.Errorf("unexpected list request: %+v", body)
+		}
+	}
+	if outputs[0] != outputs[1] || !strings.Contains(outputs[0], `"ProjectA"`) || !strings.Contains(outputs[0], `"total": 21`) {
+		t.Fatalf("shortcut and list outputs differ or omit data: %q / %q", outputs[0], outputs[1])
+	}
+}
+
+func TestAppFavoRejectsOverrides(t *testing.T) {
+	for _, args := range [][]string{{"+favo", "ProjectA"}, {"+favo", "--filter", "workbenchGroup=all"}} {
+		cmd := newAppCmd()
+		cmd.SetArgs(args)
+		if err := cmd.Execute(); err == nil {
+			t.Fatalf("expected invalid arguments to fail: %v", args)
+		}
+	}
 }

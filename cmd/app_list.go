@@ -1,8 +1,8 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、fmt、os、strings、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助
- * [OUTPUT]: 对外提供 newAppListCmd 函数、parseFilter 解析 --filter 语法
- * [POS]: cmd/app 的 list 子命令，分页列出 org 下全部 App，输出列 KEY/NAME/DESCRIPTION/VERSION/CREATED AT（description 取自 Properties）；支持 --filter / table|json 输出；filter 支持 name(contains 模糊) / key(等值) / description
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [OUTPUT]: 提供 newAppListCmd / newAppFavoCmd，共用列表命令构造与 runAppList；parseFilter 解析 --filter 语法
+ * [POS]: cmd/app 的 list 与 +favo 查询入口，+favo 固定 workbenchGroup=favorite，复用分页、认证和 auto/table/json 输出；filter 支持 key/workbenchGroup 等值与 name/description 模糊匹配
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -17,14 +17,24 @@ import (
 )
 
 func newAppListCmd() *cobra.Command {
+	return newAppListCommand("list", "List all apps", "")
+}
+
+func newAppFavoCmd() *cobra.Command {
+	cmd := newAppListCommand("+favo", "List my favorite apps", "workbenchGroup=favorite")
+	cmd.Long = `List the current user's favorite apps. Equivalent to: makecli app list --filter "workbenchGroup=favorite".`
+	return cmd
+}
+
+func newAppListCommand(use, short, filter string) *cobra.Command {
 	var page int
 	var size int
 	var output string
-	var filter string
 
 	cmd := &cobra.Command{
-		Use:          "list",
-		Short:        "List all apps",
+		Use:          use,
+		Short:        short,
+		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAppList(page, size, output, filter)
@@ -34,14 +44,16 @@ func newAppListCmd() *cobra.Command {
 	cmd.Flags().IntVar(&page, "page", 1, "page number to fetch (starts from 1)")
 	cmd.Flags().IntVar(&size, "size", 20, "number of apps per page")
 	addOutputFlag(cmd, &output)
-	cmd.Flags().StringVar(&filter, "filter", "", `filter expression, e.g. "name=待办,key=todo" (comma = OR; key 等值匹配, name/description 模糊匹配)`)
+	if filter == "" {
+		cmd.Flags().StringVar(&filter, "filter", "", `filter expression, e.g. "workbenchGroup=favorite" or "name=待办,key=todo" (comma = OR; key/workbenchGroup 等值匹配, name/description 模糊匹配)`)
+	}
 	return cmd
 }
 
 // parseFilter 把 "key=value,key2=value2" 过滤语法翻译为 CEL 表达式文本
 // 逗号分隔的每组 key=value 之间是 OR（||）关系
 // 不同字段使用不同的匹配语义：
-//   - key:               等值匹配  key == 'value'
+//   - key, workbenchGroup: 等值匹配 field == 'value'
 //   - name, description: 模糊匹配  name.contains('value')
 //
 // 返回空串表示无筛选；服务端将其包成 Expression{expression} 解析。
@@ -57,7 +69,7 @@ func parseFilter(expr string) (string, error) {
 		}
 		field, val := strings.TrimSpace(kv[0]), strings.TrimSpace(kv[1])
 		switch field {
-		case "key":
+		case "key", "workbenchGroup":
 			terms = append(terms, fmt.Sprintf("%s == %s", field, celString(val)))
 		case "name", "description":
 			terms = append(terms, fmt.Sprintf("%s.contains(%s)", field, celString(val)))

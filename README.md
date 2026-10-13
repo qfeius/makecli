@@ -164,6 +164,15 @@ makecli app list --output table
 
 # 分页查看第 2 页，每页 10 条
 makecli app list --page 2 --size 10
+
+# 列出当前用户收藏的 App
+makecli app +favo
+
+# 与快捷命令等价的显式筛选
+makecli app list --filter "workbenchGroup=favorite"
+
+# 收藏列表沿用分页和输出格式
+makecli app +favo --page 2 --size 10 --output json
 ```
 
 `app list` 支持的输出格式：
@@ -172,6 +181,8 @@ makecli app list --page 2 --size 10
 - `--output table` 强制表格输出
 - `--output json` 输出 `data` 和 `pagination`，便于脚本或 AI Agent 消费
 - 列表模式支持 `--page` 和 `--size`，其中 `--page` 默认从 `1` 开始
+
+`app +favo` 是只读查询快捷命令，复用 `app list` 的过滤、分页和输出；收藏范围固定，不接受 `--filter` 覆盖。
 
 ### 列出 Entity
 ```bash

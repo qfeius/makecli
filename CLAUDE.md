@@ -79,6 +79,8 @@ brew install makecli
 
 ## 文档入口与变更
 
+`app +favo` 是当前用户收藏列表的只读快捷命令，等价于 `app list --filter "workbenchGroup=favorite"`；共享列表执行路径、分页与输出，不增加 API 客户端职责。
+
 ```text
 AGENTS.md → CLAUDE.md（全局地图）
 cmd/AGENTS.md → cmd/CLAUDE.md（命令成员与职责）
@@ -89,3 +91,5 @@ cmd/AGENTS.md → cmd/CLAUDE.md（命令成员与职责）
 - 2026-09-22：app pull 重命名为 app clone；文档入口以符号链接共用已有地图。
 
 - 2026-09-22：profile 可配置 context，统一解析优先级为 --context > MAKE_CLI_CONTEXT > profile.context > [settings].context > production；context use 只修改全局默认。
+
+- 2026-10-13：新增 app +favo 收藏列表快捷命令，app list 的 --filter 支持 workbenchGroup 等值筛选。
