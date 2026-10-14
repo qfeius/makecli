@@ -30,6 +30,8 @@
 
 ## 成员清单
 - `client.go`（App 配对知识）: App.Role（meta.appRole，缺省视为 prod）/ PairAppKey / HostedEnv（beta 角色承载 EnvBeta，prod 承载 EnvProduction）/ KeyForEnv(env)（自身承载则自己，否则配对 app，无配对报错）——环境 → 承载 app key 的定位收口在数据类型上，deploy 建仓库与 delete 定位配对共用；RoleProd / RoleBeta 常量
+- `agent_model.go`: AgentModel{Key,Name,Provider,Model,ReasoningEffort,IsMultiModal} 与 ListAgentModels；POST /agent/v1/model + ListResources，仅分页；可选 reasoningEffort 省略，false 保留，空值归一为 []。
+- `agent_model_test.go`: httptest 验证模型字段、可选推理参数、多模态布尔值、空列表、业务/鉴权错误和非法回执。
 - `agent_runtime.go`: AgentRuntime{Key,Name,Scope,Meta.Online} 与 ListAgentRuntimes；POST /agent/v1/runtime + ListResources，仅分页，成功数组保留 false，空值归一为 []，先判状态再解码。
 - `agent_runtime_test.go`: httptest 验证运行服务路由、分页请求、shared/dedicated 与在线/离线响应，鉴权、业务错误和无效数据。
 - `agent.go`: Agent 配置创建、列表、详情、删除与启停层，AgentSummary 为列表概要、Agent 嵌入概要并扩展 prompt/plugins；CreateAgentRequest/Agent 以 appKey 表达应用归属，CreateAgentRequest/CreateAgentPlugin 分离创建输入和 Agent/AgentPlugin 公开响应；Client.CreateAgent/ListAgents/DeleteAgent/GetAgent/SetAgentStatus POST /agent/v1/agent + MakeService.CreateResource/ListResources/DeleteResource/GetResource/UpdateResource，启停仅发送 key/appKey/status 并返回保存后的 Agent；删除仅发送 key/appKey，成功 data 为空对象；复用凭证、Trace 和错误翻译；先判业务状态再解码成功对象或概要数组，不套 Meta DSL 包装。
