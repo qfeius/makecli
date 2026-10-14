@@ -187,6 +187,15 @@ makecli agent info poc_agent --app agent_poc --output json
 
 `--app` 必填，使用实际环境 App key；文本展示基本信息、提示词和插件配置，JSON 返回完整 Agent 配置。
 
+### 启用或停用 Agent
+
+```bash
+makecli agent enable poc_agent --app agent_poc
+makecli agent disable poc_agent --app agent_poc
+```
+
+`--app` 必填，仅更新 `status` 为 `enabled` / `disabled`；名称、提示词、模型和插件配置保持。支持 `--output auto|table|json`，JSON 返回保存后的完整 Agent。
+
 ### 删除 Agent
 
 ```bash

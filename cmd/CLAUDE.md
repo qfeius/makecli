@@ -133,7 +133,9 @@
 - `daemon_test.go`: 覆盖 resolveAgentGatewayURL 取值链（三 context preset / env var 覆盖 / flag 最高优先），setContextFlag + MAKE_CLI_CONFIG_DIR 隔离全局态
 - `trace.go`: trace 顶级子命令（**Hidden**，内部排障工具）——按 `--id/-i` 与回溯窗口（`--days/-d`、`--hours/-H`（-h 归 help）、`--minutes/-m` 三者相加，全零默认 10 分钟，负值拒绝）拼 OpenObserve `/web/traces/trace-details` 直达 URL（org_identifier/stream 固定 default，from/to 为微秒级 Unix 时间戳，to=now、from=to−窗口），先回显 stdout 再经 openBrowserFunc 打开本地浏览器；基址随全局 --context 取 config.Context.TraceServerURL（dev/test → openobserve.qtech.cn，production → openobserve.qfei.cn）；traceURL/traceWindow 纯函数，nowFunc 包级可打桩
 - `trace_test.go`: 覆盖 Hidden 标记、短 flag（-i/-d/-H/-m）、URL 微秒时间戳与 from<to 生成规则、窗口合成（默认/相加/负值）、缺 --id 报错、三 context→OpenObserve 基址映射与 stdout 回显（openBrowserFunc/nowFunc 打桩）
-- `agent.go`: agent 顶级子命令（公开展示于根命令 help，保留原入口）——挂载 agent create 远端配置创建、agent list 应用内配置列表、agent info 配置详情与 agent delete 软删除；不带子命令时保留本地聊天——自营脑设备版（agent-design/Design.md §8.2）：LLM 走平台，token 只开模型门，设备端零厂商 key；默认即 code agent（agent.RunCodeOnce/RunCodeREPL：七工具 root=cwd + 目录信任确认 + 两层循环），--chat-only 退回纯聊天 ChatStream（RunOnce/RunREPL）；flags --token（缺省读 MAKE_AGENT_TOKEN，缺失给可操作报错）/ --gateway-url（复用 daemon 的 resolveAgentGatewayURL 取值链）/ --model（平台别名，默认 default）/ -p 一次性模式（无头跑一轮到自然收尾，终结失败转退出码 1）/ --system / --approve（启动即授予 cwd 会话信任，副作用工具免逐次确认）/ --chat-only；无 -p 进交互 REPL（`/exit` `/clear` 外另有 `!<cmd>` 本地命令直通：不发起 LLM 请求直接跑本机 shell，输出流式直写并进历史；-p 无头模式不解析 `!`）；编排在 internal/agent；SilenceUsage 静默 usage 噪音
+- `agent.go`: agent 顶级子命令（公开展示于根命令 help，保留原入口）——挂载 agent create 远端配置创建、agent list 应用内配置列表、agent info 配置详情、enable/disable 状态切换与 agent delete 软删除；不带子命令时保留本地聊天——自营脑设备版（agent-design/Design.md §8.2）：LLM 走平台，token 只开模型门，设备端零厂商 key；默认即 code agent（agent.RunCodeOnce/RunCodeREPL：七工具 root=cwd + 目录信任确认 + 两层循环），--chat-only 退回纯聊天 ChatStream（RunOnce/RunREPL）；flags --token（缺省读 MAKE_AGENT_TOKEN，缺失给可操作报错）/ --gateway-url（复用 daemon 的 resolveAgentGatewayURL 取值链）/ --model（平台别名，默认 default）/ -p 一次性模式（无头跑一轮到自然收尾，终结失败转退出码 1）/ --system / --approve（启动即授予 cwd 会话信任，副作用工具免逐次确认）/ --chat-only；无 -p 进交互 REPL（`/exit` `/clear` 外另有 `!<cmd>` 本地命令直通：不发起 LLM 请求直接跑本机 shell，输出流式直写并进历史；-p 无头模式不解析 `!`）；编排在 internal/agent；SilenceUsage 静默 usage 噪音
+- `agent_status.go`: enable/disable 共用命令构造，--app 必填，仅提交 key/appKey/status，输出保存后的完整 JSON 或启停回执。
+- `agent_status_test.go`: httptest 验证启停状态、参数顺序、仅状态更新、凭证、完整响应和失败无输出。
 - `agent_info.go`: agent info <agentKey> --app <appKey>，单次只读 GetResource，基本信息/提示词/插件表格与完整 JSON 输出；支持 --app 放在 info 前。
 - `agent_info_test.go`: httptest 验证详情路由、参数顺序、完整配置、插件与空列表显示、鉴权/不存在错误和输入无请求。
 - `agent_delete.go`: agent delete <agentKey> --app <appKey>，必填实际环境应用，校验后输入 Agent key 确认（显示所属 App），--yes/-y 跳过、非 TTY 拒绝；确认通过后单次删除；auto/table/json 输出，JSON 返回 key/appKey/deleted，历史保留。
@@ -156,7 +158,7 @@ app.go → clone.go / pull.go → runAppSync → deploy.go / git.go
          clone_test.go（复用 deploy_test.go 的本地仓库夹具）
        → app_list.go（list / +favo）→ runAppList → api.ListApps
          app_list_test.go（快捷查询与显式筛选等价）
-agent.go → agent_create.go / agent_list.go / agent_delete.go / agent_info.go → internal/api/agent.go
+agent.go → agent_create.go / agent_list.go / agent_delete.go / agent_info.go / agent_status.go → internal/api/agent.go
            agent_delete_test.go（删除范围、确认门禁、路由、回执与失败验证）
 app_delete.go / agent_delete.go → delete_confirm.go（统一交互表单）
 ```
@@ -191,3 +193,5 @@ app_delete.go / agent_delete.go → delete_confirm.go（统一交互表单）
 - 2026-10-14：app/agent delete 共用输入 key 确认；agent 新增 --yes/-y，取消与非 TTY 拒绝在请求前生效。
 
 - 2026-10-14：新增 agent info；create/delete/info 的帮助摘要统一使用 on Make app。
+
+- 2026-10-14：新增 agent enable/disable，复用 UpdateResource 只更新 status，其他配置省略保持。

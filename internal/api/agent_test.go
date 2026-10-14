@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 agent.go 和 Client，encoding/json、errors、net/http、net/http/httptest、strings、testing
- * [OUTPUT]: 覆盖 appKey 应用归属、Agent 创建、列表、详情与删除请求、公开配置与概要响应、可选字段及错误回执
+ * [OUTPUT]: 覆盖 appKey 应用归属、Agent 创建、列表、详情、删除与状态更新请求、公开配置与概要响应、可选字段及错误回执
  * [POS]: internal/api 的 Agent 创建、列表、详情与删除协议回归测试，httptest 隔离网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -53,6 +53,53 @@ func TestCreateAgent(t *testing.T) {
 	}
 	if saved.Key != req.Key || saved.AppKey != req.AppKey || len(saved.Plugins) != 1 || saved.Plugins[0].ID != "binding_01" || saved.Plugins[0].ChannelEndpoint == nil || saved.Meta.CreatedAt == "" {
 		t.Errorf("unexpected response: %+v", saved)
+	}
+}
+
+func TestSetAgentStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, want string
+		auth             bool
+	}{
+		{"success", `{"code":200,"data":{"key":"poc_agent","appKey":"agent_poc","status":"enabled","prompt":"unchanged","plugins":[]}}`, "", false},
+		{"forbidden", `{"code":403,"msg":"forbidden","data":{"reason":"FORBIDDEN"}}`, "forbidden", false},
+		{"auth", `{"code":401,"msg":"unauthorized","data":{}}`, "鉴权失败", true},
+		{"gateway auth", `{"code":990300403,"msg":"expired"}`, "鉴权失败", true},
+		{"wrong status", `{"code":200,"data":{"key":"poc_agent","appKey":"agent_poc","status":"disabled"}}`, "不一致", false},
+		{"wrong scope", `{"code":200,"data":{"key":"poc_agent","appKey":"other_app","status":"enabled"}}`, "不一致", false},
+		{"empty", `{"code":200,"data":{}}`, "不一致", false},
+		{"malformed", `{`, "响应", false},
+		{"wrong data", `{"code":200,"data":[]}`, "Agent 响应", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/agent/v1/agent" || r.Header.Get("X-Make-Target") != "MakeService.UpdateResource" {
+					t.Errorf("unexpected routing: %s %s", r.Method, r.URL)
+				}
+				var body map[string]string
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				if len(body) != 3 || body["key"] != "poc_agent" || body["appKey"] != "agent_poc" || body["status"] != "enabled" {
+					t.Errorf("unexpected status update: %+v", body)
+				}
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+			saved, err := New(srv.URL, "test-token").SetAgentStatus("poc_agent", "agent_poc", "enabled")
+			if tc.want == "" {
+				if err != nil || saved == nil || saved.Status != "enabled" || saved.Prompt != "unchanged" {
+					t.Errorf("saved = %+v, error = %v", saved, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) || saved != nil {
+				t.Fatalf("saved = %+v, error = %v, want %q", saved, err, tc.want)
+			}
+			if tc.auth && !errors.Is(err, ErrAuthFailed) {
+				t.Errorf("auth must use ErrAuthFailed: %v", err)
+			}
+		})
 	}
 }
 

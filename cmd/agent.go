@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 github.com/spf13/cobra、errors、fmt、os、os/signal、strings、syscall、unicode/utf8、internal/agent（传输 + code agent 编排）、agent_create.go / agent_list.go / agent_delete.go / agent_info.go
- * [OUTPUT]: 对外提供 agentCmd——公开的 `makecli agent` 命令及远端配置 create/list/delete/info 子命令，validAgentAppKey 共享应用归属校验
+ * [INPUT]: 依赖 github.com/spf13/cobra、errors、fmt、os、os/signal、strings、syscall、unicode/utf8、internal/agent（传输 + code agent 编排）、agent_create.go / agent_list.go / agent_delete.go / agent_info.go / agent_status.go
+ * [OUTPUT]: 对外提供 agentCmd——公开的 `makecli agent` 命令及远端配置 create/list/delete/info/enable/disable 子命令，validAgentAppKey 共享应用归属校验
  * [POS]: cmd 模块的自营脑设备版入口（agent-design/Design.md §8.2）：LLM 走平台——
  *        token 只开模型门，设备端零厂商 key；gateway 地址取值链与 daemon 一致。
  *        默认即 code agent（七工具 + 目录信任 + 两层循环）；--chat-only 退回纯聊天 ChatStream
@@ -94,6 +94,7 @@ func validAgentAppKey(key string) error {
 
 func init() {
 	agentCmd.AddCommand(newAgentCreateCmd(), newAgentListCmd(), newAgentDeleteCmd(), newAgentInfoCmd())
+	agentCmd.AddCommand(newAgentStatusCmd("enable", "enabled"), newAgentStatusCmd("disable", "disabled"))
 	agentCmd.Flags().StringVar(&agentGatewayServerURL, "gateway-server-url", "", "Agent 平台 gateway 地址(缺省 MAKE_AGENT_SERVER_URL,再缺省按 --context preset)")
 	agentCmd.Flags().StringVar(&agentToken, "token", "", "平台 token(缺省读 MAKE_AGENT_TOKEN)")
 	agentCmd.Flags().StringVar(&agentModel, "model", "default", "模型别名(平台侧解析,非厂商模型名)")

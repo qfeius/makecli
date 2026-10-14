@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 client.go 的 Client.do / writeStatusErr / authFailedErr、record.go 的 expression，encoding/json、fmt
- * [OUTPUT]: 对外提供 CreateAgentRequest / CreateAgentPlugin / AgentSummary / Agent / AgentPlugin 类型和 Client.CreateAgent / ListAgents / DeleteAgent / GetAgent 方法
- * [POS]: internal/api 的 Agent 配置创建、列表、详情与删除层，调用 /agent/v1/agent，appKey 表达实际应用归属；与本地聊天 internal/agent 无依赖
+ * [OUTPUT]: 对外提供 CreateAgentRequest / CreateAgentPlugin / AgentSummary / Agent / AgentPlugin 类型和 Client.CreateAgent / ListAgents / DeleteAgent / GetAgent / SetAgentStatus 方法
+ * [POS]: internal/api 的 Agent 配置创建、列表、详情、删除与启停层，调用 /agent/v1/agent，appKey 表达实际应用归属；与本地聊天 internal/agent 无依赖
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -168,4 +168,31 @@ func (c *Client) DeleteAgent(key, appKey string) error {
 		return writeStatusErr(result.Code, result.Message, result.Data)
 	}
 	return nil
+}
+
+// SetAgentStatus 只提交 status，不发送其他配置字段；返回保存后的完整 Agent。
+func (c *Client) SetAgentStatus(key, appKey, status string) (*Agent, error) {
+	var result struct {
+		Code    int             `json:"code"`
+		Message string          `json:"msg"`
+		Data    json.RawMessage `json:"data"`
+	}
+	body := map[string]string{"key": key, "appKey": appKey, "status": status}
+	if err := c.do("MakeService.UpdateResource", "/agent/v1/agent", body, &result); err != nil {
+		return nil, err
+	}
+	if result.Code == 401 {
+		return nil, authFailedErr(result.Code, result.Message)
+	}
+	if result.Code != 200 {
+		return nil, writeStatusErr(result.Code, result.Message, result.Data)
+	}
+	var saved Agent
+	if err := json.Unmarshal(result.Data, &saved); err != nil {
+		return nil, fmt.Errorf("无效的 Agent 响应: %w", err)
+	}
+	if saved.Key != key || saved.AppKey != appKey || saved.Status != status {
+		return nil, fmt.Errorf("更新 Agent 响应与请求的 key/appKey/status 不一致")
+	}
+	return &saved, nil
 }
