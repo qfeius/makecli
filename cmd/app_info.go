@@ -2,9 +2,9 @@
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/output 辅助、internal/api、errors、fmt、os、
  *          github.com/olekukonko/tablewriter、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newAppInfoCmd 函数
- * [POS]: cmd/app 的 info 子命令，展示单个 App 的元信息（GetApp）+ 双环境部署状态与 URL
+ * [POS]: cmd/app 的 info 子命令，展示单个 App 的元信息及创建者（GetApp）+ 双环境部署状态与 URL
  *        （GetDeploymentOverview）；从未部署（ErrNotFound/环境缺失）渲染 Not deployed 占位行
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -85,11 +85,15 @@ func renderAppInfo(app *api.App, overview *api.DeploymentOverview) {
 	createdAt, _ := app.Meta["createdAt"].(string)
 	pairAppKey, _ := app.Meta["pairAppKey"].(string)
 	description, _ := app.Properties["description"].(string)
+	createUser, _ := app.Meta["createUser"].(map[string]any)
+	userName, _ := createUser["userName"].(string)
+	userID, _ := createUser["userId"].(string)
 
 	fmt.Printf("%-13s %s\n", "Key:", app.Key)
 	fmt.Printf("%-13s %s\n", "Name:", app.Name)
 	fmt.Printf("%-13s %s\n", "Description:", description)
 	fmt.Printf("%-13s %s\n", "Version:", version)
+	fmt.Printf("%-13s %s\n", "Created By:", firstNonEmpty(userName, userID, "-"))
 	fmt.Printf("%-13s %s\n", "Created At:", createdAt)
 	fmt.Printf("%-13s %s\n", "Pair App Key:", pairAppKey)
 	fmt.Println()

@@ -1,8 +1,8 @@
 /**
- * [INPUT]: 依赖 cmd 包内的 runAppInfo（包内白盒）、encoding/json、net/http、net/http/httptest、strings
- * [OUTPUT]: 覆盖 app info 子命令核心逻辑的单元测试
+ * [INPUT]: 依赖 cmd 包内的 runAppInfo/renderAppInfo（包内白盒）、internal/api、encoding/json、net/http、net/http/httptest、strings
+ * [OUTPUT]: 覆盖 app info 创建者显示与回退、JSON 原始信息透传及子命令核心逻辑的单元测试
  * [POS]: cmd 模块 app_info.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -13,6 +13,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/qfeius/makecli/internal/api"
 )
 
 // appInfoMetaBody 是 GetApp 的标准成功响应
@@ -21,7 +23,10 @@ func appInfoMetaBody() map[string]any {
 		"code": 200, "msg": "success",
 		"data": map[string]any{
 			"key": "apptest_001", "name": "测试应用", "type": "Make.App",
-			"meta":       map[string]any{"version": "1.0.0", "createdAt": "2026-01-01T10:00:00Z", "pairAppKey": "apptest_001_beta_"},
+			"meta": map[string]any{
+				"version": "1.0.0", "createdAt": "2026-01-01T10:00:00Z", "pairAppKey": "apptest_001_beta_",
+				"createUser": map[string]any{"userId": "user-001", "userName": "JimYu", "avatar": "https://example.com/avatar.png"},
+			},
 			"properties": map[string]any{"description": "demo app"},
 		},
 	}
@@ -78,7 +83,7 @@ func TestRunAppInfo(t *testing.T) {
 
 		for _, want := range []string{
 			"Key:", "apptest_001", "测试应用", "demo app", "1.0.0", "2026-01-01T10:00:00Z",
-			"Pair App Key:", "apptest_001_beta_",
+			"Created By:   JimYu", "Pair App Key:", "apptest_001_beta_",
 			"ENVIRONMENT", "beta", "production", "Ready", "9b05c7d",
 			"https://apptest-001-preview-90.dev-make.qtech.cn",
 			"https://apptest-001-prod-90.dev-make.qtech.cn",
@@ -200,6 +205,18 @@ func TestRunAppInfo(t *testing.T) {
 		if strings.Contains(output, "ENVIRONMENT") {
 			t.Errorf("expected JSON-only output, got:\n%s", output)
 		}
+		var result struct {
+			App api.App `json:"app"`
+		}
+		if err := json.Unmarshal([]byte(output), &result); err != nil {
+			t.Fatalf("decode JSON output: %v", err)
+		}
+		creator, _ := result.App.Meta["createUser"].(map[string]any)
+		for key, want := range map[string]string{"userName": "JimYu", "userId": "user-001", "avatar": "https://example.com/avatar.png"} {
+			if creator[key] != want {
+				t.Errorf("createUser.%s = %v, want %q", key, creator[key], want)
+			}
+		}
 	})
 
 	t.Run("never deployed prints json null deployment", func(t *testing.T) {
@@ -259,4 +276,26 @@ func TestRunAppInfo(t *testing.T) {
 		}
 		t.Fatal("expected app command to mount info subcommand")
 	})
+}
+
+func TestRenderAppInfoCreator(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		creator any
+		want    string
+	}{
+		{"name takes priority", map[string]any{"userName": "JimYu", "userId": "user-001"}, "JimYu"},
+		{"empty name falls back to ID", map[string]any{"userName": "", "userId": "user-001"}, "user-001"},
+		{"missing name falls back to ID", map[string]any{"userId": "user-001"}, "user-001"},
+		{"empty creator", map[string]any{}, "-"},
+		{"missing creator", nil, "-"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			app := &api.App{Meta: map[string]any{"createUser": tt.creator}}
+			output := captureStdout(t, func() { renderAppInfo(app, nil) })
+			if want := "Created By:   " + tt.want + "\n"; !strings.Contains(output, want) {
+				t.Errorf("expected output to contain %q, got:\n%s", want, output)
+			}
+		})
+	}
 }
