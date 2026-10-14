@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.19] - 2026-10-14
+
+### Breaking Changes
+
+- **agent**: Local coding and chat execution moves to the hidden `agent run` subcommand. Runtime flags now belong to `run`; invoking `agent` without a subcommand shows help.
+
+### Features
+
+- **agent**: Adds remote `create`, `list`, `info`, `delete`, `enable`, and `disable` commands scoped to an explicit environment App key. Creation uses `make-runtime-service`; enable/disable update only status, and deletion shares the typed-key confirmation and `--yes/-y` option with `app delete`.
+- **agent**: Adds paginated `runtime list`, `model list`, and `plugin list` catalogs with automatic table/JSON output. Plugin JSON preserves the complete configuration schema; optional model reasoning settings remain available in JSON.
+- **help**: Groups Agent commands into management and catalog sections. Ungrouped commands retain the existing help layout, and hidden commands stay hidden.
+- **app**: Adds the `+favo` shortcut for the current user's favorite applications.
+- **app-info**: Displays `Created By`, preferring the creator name, then user ID, and `-` when unavailable.
+
 ## [v0.5.18] - 2026-10-10
 
 ### Fixes
