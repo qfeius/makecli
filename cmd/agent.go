@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 fmt、strings、unicode/utf8、github.com/spf13/cobra、agent_{create,list,delete,info,status,run}.go
+ * [INPUT]: 依赖 fmt、strings、unicode/utf8、github.com/spf13/cobra、agent_{create,list,delete,info,status,run,runtime}.go
  * [OUTPUT]: 对外提供 agentCmd；包内 newAgentCmd 和 validAgentAppKey
  * [POS]: cmd/agent 命令组，组织远端配置管理与显式本地 run 入口；无子命令显示帮助
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -24,6 +24,7 @@ func newAgentCmd() *cobra.Command {
 	}
 	cmd.AddCommand(newAgentCreateCmd(), newAgentListCmd(), newAgentDeleteCmd(), newAgentInfoCmd())
 	cmd.AddCommand(newAgentStatusCmd("enable", "enabled"), newAgentStatusCmd("disable", "disabled"), newAgentRunCmd())
+	cmd.AddCommand(newAgentRuntimeCmd())
 	return cmd
 }
 

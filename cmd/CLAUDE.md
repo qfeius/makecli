@@ -133,7 +133,9 @@
 - `daemon_test.go`: 覆盖 resolveAgentGatewayURL 取值链（三 context preset / env var 覆盖 / flag 最高优先），setContextFlag + MAKE_CLI_CONFIG_DIR 隔离全局态
 - `trace.go`: trace 顶级子命令（**Hidden**，内部排障工具）——按 `--id/-i` 与回溯窗口（`--days/-d`、`--hours/-H`（-h 归 help）、`--minutes/-m` 三者相加，全零默认 10 分钟，负值拒绝）拼 OpenObserve `/web/traces/trace-details` 直达 URL（org_identifier/stream 固定 default，from/to 为微秒级 Unix 时间戳，to=now、from=to−窗口），先回显 stdout 再经 openBrowserFunc 打开本地浏览器；基址随全局 --context 取 config.Context.TraceServerURL（dev/test → openobserve.qtech.cn，production → openobserve.qfei.cn）；traceURL/traceWindow 纯函数，nowFunc 包级可打桩
 - `trace_test.go`: 覆盖 Hidden 标记、短 flag（-i/-d/-H/-m）、URL 微秒时间戳与 from<to 生成规则、窗口合成（默认/相加/负值）、缺 --id 报错、三 context→OpenObserve 基址映射与 stdout 回显（openBrowserFunc/nowFunc 打桩）
-- `agent.go`: agent 命令组，默认显示帮助；组织 create/list/info/delete/enable/disable 远端管理与 run 本地运行，validAgentAppKey 统一应用归属校验。
+- `agent.go`: agent 命令组，默认显示帮助；组织 create/list/info/delete/enable/disable 远端管理、runtime 目录与 run 本地运行，validAgentAppKey 统一应用归属校验。
+- `agent_runtime.go`: runtime 命令组默认帮助，list 不要求 App；分页 1/20，size 上限 100，表格 KEY/NAME/SCOPE/ONLINE，JSON 完整目录字段与分页。
+- `agent_runtime_test.go`: httptest 验证目录请求仅分页、身份、输出、在线/离线、空列表、参数无请求和服务端错误。
 - `agent_run.go`: run 隐藏本地聊天/编程入口，命令实例持有 token/gateway/model/prompt/system/approve/chat-only；-p 一次性，无 -p 交互，复用 internal/agent。
 - `agent_run_test.go`: 验证参数迁移与无参约束、token 优先级、编程/纯聊天一次性与 REPL 的 HTTP/SSE 接线。
 - `agent_status.go`: enable/disable 共用命令构造，--app 必填，仅提交 key/appKey/status，输出保存后的完整 JSON 或启停回执。
@@ -162,6 +164,7 @@ app.go → clone.go / pull.go → runAppSync → deploy.go / git.go
          app_list_test.go（快捷查询与显式筛选等价）
 agent.go → agent_create.go / agent_list.go / agent_delete.go / agent_info.go / agent_status.go → internal/api/agent.go
            agent_delete_test.go（删除范围、确认门禁、路由、回执与失败验证）
+agent.go → agent_runtime.go → internal/api/agent_runtime.go（运行服务目录）
 agent.go → agent_run.go → internal/agent（本地聊天与编程）
 app_delete.go / agent_delete.go → delete_confirm.go（统一交互表单）
 ```
@@ -202,3 +205,5 @@ app_delete.go / agent_delete.go → delete_confirm.go（统一交互表单）
 - 2026-10-14：本地运行入口改为 agent run，运行参数下沉；agent 默认帮助，远端管理参数独立。
 
 - 2026-10-14：agent run 标为 Hidden，默认帮助不显示，显式调用与 run --help 保留。
+
+- 2026-10-14：新增 agent runtime list，只读分页查询可用运行服务，沿用 auto/table/json，不要求 --app。

@@ -40,7 +40,7 @@ func TestAgentGroupShowsHelp(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"create", "delete", "info", "list", "enable", "disable"} {
+	for _, name := range []string{"create", "delete", "info", "list", "enable", "disable", "runtime"} {
 		if !strings.Contains(output.String(), name) {
 			t.Errorf("help missing %s: %s", name, output.String())
 		}
