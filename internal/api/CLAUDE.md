@@ -30,6 +30,8 @@
 
 ## 成员清单
 - `client.go`（App 配对知识）: App.Role（meta.appRole，缺省视为 prod）/ PairAppKey / HostedEnv（beta 角色承载 EnvBeta，prod 承载 EnvProduction）/ KeyForEnv(env)（自身承载则自己，否则配对 app，无配对报错）——环境 → 承载 app key 的定位收口在数据类型上，deploy 建仓库与 delete 定位配对共用；RoleProd / RoleBeta 常量
+- `agent_plugin.go`: AgentPluginDefinition 与 ListAgentPlugins，独立于已绑定 AgentPlugin；POST /agent/v1/plugin + ListResources，默认可用项，仅分页，完整保留 configSchema。
+- `agent_plugin_test.go`: httptest 验证插件字段、嵌套 JSON Schema 保留、空数组、业务/鉴权错误与非法响应。
 - `agent_model.go`: AgentModel{Key,Name,Provider,Model,ReasoningEffort,IsMultiModal} 与 ListAgentModels；POST /agent/v1/model + ListResources，仅分页；可选 reasoningEffort 省略，false 保留，空值归一为 []。
 - `agent_model_test.go`: httptest 验证模型字段、可选推理参数、多模态布尔值、空列表、业务/鉴权错误和非法回执。
 - `agent_runtime.go`: AgentRuntime{Key,Name,Scope,Meta.Online} 与 ListAgentRuntimes；POST /agent/v1/runtime + ListResources，仅分页，成功数组保留 false，空值归一为 []，先判状态再解码。

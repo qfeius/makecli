@@ -164,6 +164,15 @@ makecli agent run --approve -p "Implement this change"
 
 `agent` 无子命令时显示帮助；`run` 为隐藏子命令，默认帮助不显示，可显式调用或查看 `agent run --help`。本地运行参数 `--token`、`--gateway-server-url`、`--model`、`--prompt/-p`、`--system`、`--approve`、`--chat-only` 仅属于 `run`；token 默认读取 `MAKE_AGENT_TOKEN`，gateway 默认使用 `MAKE_AGENT_SERVER_URL` 或当前 context。默认使用编程工具，`--chat-only` 使用纯聊天；不传 `-p` 进入交互模式。
 
+### 查看 Agent 插件目录
+
+```bash
+makecli agent plugin list
+makecli agent plugin list --page 2 --size 20 --output json
+```
+
+不要求 `--app`，默认查询可用插件，分页默认 1/20（size 上限 100）。表格展示 KEY / NAME / DESCRIPTION / STATUS / CAPABILITIES；JSON 保留完整 `configSchema`，插件 key 用于 Agent 的 `plugins[].pluginKey`。
+
 ### 查看 Agent 模型目录
 
 ```bash
