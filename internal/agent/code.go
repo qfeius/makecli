@@ -5,7 +5,7 @@
  * [POS]: internal/agent 的 code agent 编排层——把网关 Provider(llm.GatewayProvider)、
  *        七工具注册表(root=cwd)、目录信任(trust.Manager + BeforeToolCall 确认钩子)与
  *        两层循环(loop.StartRun)接成完整会话；渲染在 render.go
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package agent
@@ -85,7 +85,7 @@ func RunCodeREPL(ctx context.Context, opts CodeOptions, input io.Reader, output 
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(output, "makecli agent (model: %s, cwd: %s) — /exit 退出, /clear 清空历史, !<cmd> 执行本地命令\n", opts.Model, session.dir)
+	_, _ = fmt.Fprintf(output, "makecli agent run (model: %s, cwd: %s) — /exit 退出, /clear 清空历史, !<cmd> 执行本地命令\n", opts.Model, session.dir)
 	for {
 		if ctx.Err() != nil {
 			return nil

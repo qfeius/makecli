@@ -1,7 +1,6 @@
 /**
  * [INPUT]: 依赖 agent.go；stdout_test.go 的隔离 helper
- * [OUTPUT]: 对外提供 agent 命令回归——公开展示于根命令 help、缺 token 可操作报错、
- *           code agent 新 flag（--approve/--chat-only）注册与缺省值
+ * [OUTPUT]: 对外提供 agent 命令回归——公开展示于根命令 help、默认帮助无 token 要求、运行参数下沉到 run
  * [POS]: cmd 模块的测试面（agent 命令）
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -31,33 +30,28 @@ func TestAgentCommandVisibleInHelp(t *testing.T) {
 	}
 }
 
-func TestAgentCodeFlagsRegistered(t *testing.T) {
-	for name, wantDefault := range map[string]string{
-		"approve":   "false",
-		"chat-only": "false",
-		"model":     "default",
-	} {
-		flag := agentCmd.Flags().Lookup(name)
-		if flag == nil {
-			t.Errorf("flag --%s 未注册", name)
-			continue
-		}
-		if flag.DefValue != wantDefault {
-			t.Errorf("flag --%s 缺省值 = %q, want %q", name, flag.DefValue, wantDefault)
-		}
-	}
-	if flag := agentCmd.Flags().Lookup("no-tools"); flag != nil {
-		t.Error("旧 flag --no-tools 不应继续注册")
-	}
-}
-
-func TestAgentRequiresToken(t *testing.T) {
+func TestAgentGroupShowsHelp(t *testing.T) {
 	t.Setenv("MAKE_AGENT_TOKEN", "")
-	previous := agentToken
-	agentToken = ""
-	t.Cleanup(func() { agentToken = previous })
-	err := agentCmd.RunE(agentCmd, nil)
-	if err == nil || !strings.Contains(err.Error(), "MAKE_AGENT_TOKEN") {
-		t.Errorf("err = %v, want 缺 token 引导", err)
+	cmd := newAgentCmd()
+	var output strings.Builder
+	cmd.SetOut(&output)
+	cmd.SetErr(&output)
+	cmd.SetArgs(nil)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"create", "delete", "info", "list", "enable", "disable"} {
+		if !strings.Contains(output.String(), name) {
+			t.Errorf("help missing %s: %s", name, output.String())
+		}
+	}
+	run, _, err := cmd.Find([]string{"run"})
+	if err != nil || run == cmd || !run.Hidden || strings.Contains(output.String(), run.Short) {
+		t.Fatalf("run must remain callable but hidden from group help: %v", err)
+	}
+	for _, name := range []string{"approve", "chat-only", "token", "gateway-server-url", "model", "prompt", "system"} {
+		if cmd.Flags().Lookup(name) != nil || strings.Contains(output.String(), "--"+name) {
+			t.Errorf("run flag --%s must not belong to the agent group", name)
+		}
 	}
 }

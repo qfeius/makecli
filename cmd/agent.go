@@ -1,88 +1,31 @@
 /**
- * [INPUT]: 依赖 github.com/spf13/cobra、errors、fmt、os、os/signal、strings、syscall、unicode/utf8、internal/agent（传输 + code agent 编排）、agent_create.go / agent_list.go / agent_delete.go / agent_info.go / agent_status.go
- * [OUTPUT]: 对外提供 agentCmd——公开的 `makecli agent` 命令及远端配置 create/list/delete/info/enable/disable 子命令，validAgentAppKey 共享应用归属校验
- * [POS]: cmd 模块的自营脑设备版入口（agent-design/Design.md §8.2）：LLM 走平台——
- *        token 只开模型门，设备端零厂商 key；gateway 地址取值链与 daemon 一致。
- *        默认即 code agent（七工具 + 目录信任 + 两层循环）；--chat-only 退回纯聊天 ChatStream
+ * [INPUT]: 依赖 fmt、strings、unicode/utf8、github.com/spf13/cobra、agent_{create,list,delete,info,status,run}.go
+ * [OUTPUT]: 对外提供 agentCmd；包内 newAgentCmd 和 validAgentAppKey
+ * [POS]: cmd/agent 命令组，组织远端配置管理与显式本地 run 入口；无子命令显示帮助
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"unicode/utf8"
 
-	"github.com/qfeius/makecli/internal/agent"
 	"github.com/spf13/cobra"
 )
 
-var (
-	agentGatewayServerURL string
-	agentToken            string
-	agentModel            string
-	agentPrompt           string
-	agentSystemPrompt     string
-	agentApprove          bool
-	agentChatOnly         bool
-)
+var agentCmd = newAgentCmd()
 
-// agentCmd 是 keyless 本地 agent（自营脑设备版，Design.md §8.2）。
-var agentCmd = &cobra.Command{
-	Use:          "agent",
-	Short:        "Manage agents",
-	SilenceUsage: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		token := agentToken
-		if token == "" {
-			token = os.Getenv("MAKE_AGENT_TOKEN")
-		}
-		if token == "" {
-			return errAgentTokenMissing
-		}
-		gatewayURL := agentGatewayServerURL
-		if gatewayURL == "" {
-			resolved, err := resolveAgentGatewayServerURL()
-			if err != nil {
-				return err
-			}
-			gatewayURL = resolved
-		}
-
-		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
-		defer stop()
-
-		// --chat-only：退回纯聊天通道（既有 ChatStream 路径，无工具无信任门控）。
-		if agentChatOnly {
-			client := agent.NewClient(gatewayURL, token, agent.NewSessionID())
-			if agentPrompt != "" {
-				return agent.RunOnce(ctx, client, agentModel, agentSystemPrompt, agentPrompt, cmd.OutOrStdout())
-			}
-			return agent.RunREPL(ctx, client, agentModel, agentSystemPrompt, cmd.InOrStdin(), cmd.OutOrStdout())
-		}
-
-		// 默认即 code agent：工具注册表 root=cwd，AGENTS.md 链进系统提示词。
-		opts := agent.CodeOptions{
-			GatewayURL: gatewayURL,
-			Token:      token,
-			Model:      agentModel,
-			System:     agentSystemPrompt,
-			Approve:    agentApprove,
-		}
-		if agentPrompt != "" {
-			return agent.RunCodeOnce(ctx, opts, agentPrompt, cmd.OutOrStdout())
-		}
-		return agent.RunCodeREPL(ctx, opts, cmd.InOrStdin(), cmd.OutOrStdout())
-	},
+func newAgentCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use: "agent", Short: "Manage agents", Args: cobra.NoArgs, SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error { return cmd.Help() },
+	}
+	cmd.AddCommand(newAgentCreateCmd(), newAgentListCmd(), newAgentDeleteCmd(), newAgentInfoCmd())
+	cmd.AddCommand(newAgentStatusCmd("enable", "enabled"), newAgentStatusCmd("disable", "disabled"), newAgentRunCmd())
+	return cmd
 }
-
-// errAgentTokenMissing 是可操作的缺 token 报错（引导补救而非堆栈）。
-var errAgentTokenMissing = errors.New("缺少平台 token: 传 --token 或设置 MAKE_AGENT_TOKEN")
 
 // validAgentAppKey 统一远端配置命令的应用归属约束，不套用资源 key 的 20 字符限制。
 func validAgentAppKey(key string) error {
@@ -93,14 +36,5 @@ func validAgentAppKey(key string) error {
 }
 
 func init() {
-	agentCmd.AddCommand(newAgentCreateCmd(), newAgentListCmd(), newAgentDeleteCmd(), newAgentInfoCmd())
-	agentCmd.AddCommand(newAgentStatusCmd("enable", "enabled"), newAgentStatusCmd("disable", "disabled"))
-	agentCmd.Flags().StringVar(&agentGatewayServerURL, "gateway-server-url", "", "Agent 平台 gateway 地址(缺省 MAKE_AGENT_SERVER_URL,再缺省按 --context preset)")
-	agentCmd.Flags().StringVar(&agentToken, "token", "", "平台 token(缺省读 MAKE_AGENT_TOKEN)")
-	agentCmd.Flags().StringVar(&agentModel, "model", "default", "模型别名(平台侧解析,非厂商模型名)")
-	agentCmd.Flags().StringVarP(&agentPrompt, "prompt", "p", "", "一次性模式:发送单条 prompt 后退出")
-	agentCmd.Flags().StringVar(&agentSystemPrompt, "system", "", "system prompt")
-	agentCmd.Flags().BoolVar(&agentApprove, "approve", false, "启动即授予当前目录会话信任,副作用工具(bash/write/edit)免逐次确认")
-	agentCmd.Flags().BoolVar(&agentChatOnly, "chat-only", false, "纯聊天模式")
 	rootCmd.AddCommand(agentCmd)
 }

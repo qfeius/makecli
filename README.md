@@ -153,6 +153,17 @@ makecli app list --access-token xxx
 makecli version
 ```
 
+### 本地运行 Agent
+
+```bash
+makecli agent run
+makecli agent run -p "Review this project"
+makecli agent run --chat-only -p "Hello"
+makecli agent run --approve -p "Implement this change"
+```
+
+`agent` 无子命令时显示帮助；`run` 为隐藏子命令，默认帮助不显示，可显式调用或查看 `agent run --help`。本地运行参数 `--token`、`--gateway-server-url`、`--model`、`--prompt/-p`、`--system`、`--approve`、`--chat-only` 仅属于 `run`；token 默认读取 `MAKE_AGENT_TOKEN`，gateway 默认使用 `MAKE_AGENT_SERVER_URL` 或当前 context。默认使用编程工具，`--chat-only` 使用纯聊天；不传 `-p` 进入交互模式。
+
 ### 创建 Agent
 
 ```bash
