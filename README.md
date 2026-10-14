@@ -153,6 +153,49 @@ makecli app list --access-token xxx
 makecli version
 ```
 
+### 创建 Agent
+
+```bash
+makecli agent create expense_agent --app expense_app --model deepseek --name "报销助手"
+makecli agent create expense_agent --app expense_app --model deepseek \
+  --prompt-file prompt.txt --plugins-json @plugins.json --output json
+```
+
+只创建远端配置，不生成本地工程。`--app` 必填，原样传入实际环境 App 的 `appKey`；beta 和 production 使用各自的 App key。`runtimeKey` 固定为 `make-runtime-service`，不提供覆盖参数。
+`--model` 必填；`--name` 默认等于 agentKey；`--status` 默认 `disabled`，可显式传 `enabled`。
+`--prompt` 与 `--prompt-file` 互斥；`--plugins-json` 接受内联 JSON 数组、`@文件` 或 `-`（标准输入），插件项格式为 `{"pluginKey":"mcp_make","enabled":true,"config":{}}`。
+凭证和后端沿用全局 `--profile` / `--access-token` / `--context` / `--meta-server-url`；输出默认 auto，终端显示创建结果，管道或 Agent 调用时输出保存后的 Agent JSON。
+
+### 列出 Agent
+
+```bash
+makecli agent list --app expense_app
+makecli agent list --app expense_app --output table
+makecli agent list --app expense_app --page 2 --size 20 --output json
+```
+
+`--app` 必填，使用实际环境 App 的 key；`--page` 默认 1，`--size` 默认 20，范围 1–100。
+输出沿用 `app list`：auto 在终端显示表格，在管道中输出 JSON；表格列为 KEY / NAME / DESCRIPTION / MODEL / STATUS / CREATED AT，并显示当前条数与总数。
+JSON 包含 `data` 概要数组和 `pagination.count/page/size/total`，不展开 `prompt` 或 `plugins`；空列表返回 `data: []`。
+
+### 查看 Agent 详情
+
+```bash
+makecli agent --app agent_poc info poc_agent
+makecli agent info poc_agent --app agent_poc --output json
+```
+
+`--app` 必填，使用实际环境 App key；文本展示基本信息、提示词和插件配置，JSON 返回完整 Agent 配置。
+
+### 删除 Agent
+
+```bash
+makecli agent delete invoice_agent --app invoice_app
+makecli agent delete invoice_agent --app invoice_app --yes --output json
+```
+
+`--app` 必填，使用实际环境 App 的 key。软删除 Agent，保留历史记录。与 app delete 一致，默认要求输入 Agent key 确认，--yes/-y 跳过；非交互环境必须加 --yes。输出默认 auto，终端显示删除结果，管道输出 `key`、`appKey` 和 `deleted: true`。
+
 ### 列出 App
 ```bash
 # 终端里默认表格输出；被管道 / 脚本 / AI Agent 调用时自动切为 JSON
@@ -173,6 +216,15 @@ makecli app list --filter "workbenchGroup=favorite"
 
 # 收藏列表沿用分页和输出格式
 makecli app +favo --page 2 --size 10 --output json
+
+# 列出当前用户创建的 App
+makecli app +mine
+
+# 与 +mine 等价的显式筛选
+makecli app list --filter "workbenchGroup=created"
+
+# 我的应用沿用分页和输出格式
+makecli app +mine --page 2 --size 10 --output json
 ```
 
 `app list` 支持的输出格式：
@@ -183,6 +235,8 @@ makecli app +favo --page 2 --size 10 --output json
 - 列表模式支持 `--page` 和 `--size`，其中 `--page` 默认从 `1` 开始
 
 `app +favo` 是只读查询快捷命令，复用 `app list` 的过滤、分页和输出；收藏范围固定，不接受 `--filter` 覆盖。
+
+`app +mine` 列出当前用户创建的应用，固定使用 `workbenchGroup=created`；分页和输出与 `app list` 一致，不接受 `--filter` 覆盖。
 
 ### 列出 Entity
 ```bash

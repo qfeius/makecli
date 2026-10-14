@@ -62,7 +62,8 @@
 - `app_list_test.go`: httptest 覆盖列表成功/空列表/分页JSON/过滤请求/非法过滤/无凭证/API错误/非法页码，以及 +favo 与显式筛选的请求和输出等价、拒绝覆盖收藏范围。
 - `app_info.go`: app info 子命令，展示单个 App 的元信息 + 双环境部署状态：顺序编排 GetApp（ErrNotFound → 「app 不存在」报错）与 GetDeploymentOverview（ErrNotFound → 从未部署合法状态，占位继续），头部 %-13s 平铺 Key/Name/Description/Version/Created By/Created At/Pair App Key（Created By 取 meta.createUser.userName，空值回退 userId，再回退 -） + tablewriter 一张表 ENVIRONMENT/STATUS/COMMIT/URL（固定 beta/production 两行，deploymentRow 对 nil 环境渲染 Not deployed 占位行，URL 不截断）；--output table|json（JSON 输出 {app, deployment} 完整字段，从未部署时 deployment 为 null）
 - `app_info_test.go`: 覆盖 runAppInfo 的单元测试（创建者用户名优先与 ID/缺失回退/JSON 创建者完整透传/双环境渲染/单环境占位/404 从未部署占位且退出 0/app 不存在报错/部署服务 500 失败/JSON 完整字段/JSON null deployment/非法格式/非法 key 触网前拦截/无凭证/未知 profile/info 挂载断言），newAppInfoServer 按带 /api/make 网关前缀的路径分流 mock 两个接口 + httptest 隔离网络
-- `app_delete.go`: app delete 子命令，调用 Meta Server API（MakeService.DeleteResource，POST /meta/v1/app?appRole=prod|beta）删除 App 对的一半：--env production|beta|all 必填、大小写不敏感（app 命令组内唯一的 --env，与全局 --context 正交），resolveDeleteEnvs 纯函数把 --env 展开成有序环境序列——production / beta 各一步，all 先 beta 后 production（服务端要求先清 beta）；每一步用 newClientFromProfile(api.WithAppRole(api.RoleForEnv(env))) 发「用户给的 prod key + ?appRole=」交服务端定位实际目标，CLI 不反查 pairAppKey、不触 GetApp（删除路径零读请求，测试 mock 见到任何非 DeleteResource target 即判失败）；prod 有 beta 配对时服务端 409 拒删须先删 beta，其 msg 原样上抛不套环境前缀（api 层非唯一性 409 直接回服务端 msg，给用户的就是那句话）。用户面只见「app key + 环境」：确认表单敲用户给的 app key（标题注明环境）、成功提示逐环境一行形如 App 'x' beta environment deleted successfully；删除前要求原样输入 app key 确认（gh repo delete 同款强护栏，charm.land/huh/v2 表单 + Validate 阻断错值提交、ErrUserAborted 视为取消；非交互终端经 go-isatty 检测直接拒绝并指引 --yes，杜绝挂起），--yes/-y 跳过确认；confirmDeleteFunc 包级可打桩变量隔离终端交互；支持 -f YAML 文件模式
+- `delete_confirm.go`: app/agent 删除共用的 huh 输入 key 表单；统一 TTY 门禁、匹配校验、取消反馈与 --yes 指引。
+- `app_delete.go`: app delete 子命令，调用 Meta Server API（MakeService.DeleteResource，POST /meta/v1/app?appRole=prod|beta）删除 App 对的一半：--env production|beta|all 必填、大小写不敏感（app 命令组内唯一的 --env，与全局 --context 正交），resolveDeleteEnvs 纯函数把 --env 展开成有序环境序列——production / beta 各一步，all 先 beta 后 production（服务端要求先清 beta）；每一步用 newClientFromProfile(api.WithAppRole(api.RoleForEnv(env))) 发「用户给的 prod key + ?appRole=」交服务端定位实际目标，CLI 不反查 pairAppKey、不触 GetApp（删除路径零读请求，测试 mock 见到任何非 DeleteResource target 即判失败）；prod 有 beta 配对时服务端 409 拒删须先删 beta，其 msg 原样上抛不套环境前缀（api 层非唯一性 409 直接回服务端 msg，给用户的就是那句话）。用户面只见「app key + 环境」：共用 delete_confirm.go 确认表单敲用户给的 app key（标题注明环境）、成功提示逐环境一行形如 App 'x' beta environment deleted successfully；删除前要求原样输入 app key 确认（gh repo delete 同款强护栏，charm.land/huh/v2 表单 + Validate 阻断错值提交、ErrUserAborted 视为取消；非交互终端经 go-isatty 检测直接拒绝并指引 --yes，杜绝挂起），--yes/-y 跳过确认；confirmDeleteFunc 包级可打桩变量隔离终端交互；支持 -f YAML 文件模式
 - `app_delete_test.go`: 覆盖 resolveDeleteSteps（production 不反查、beta 取服务端 pairAppKey、传入 beta app 拒绝、无配对拒绝、all 有序两步/无配对一步、空或未知 env）与 --env ALL 端到端（顺序 + 确认一次），newMockPairMeta 按 X-Make-Target 分流 Get/Delete 并按序记录删除 key与 runAppDelete / runAppDeleteFromFile 的单元测试（--env beta 时确认收用户 key、API 收服务端 pairAppKey / --yes 删除 / 确认通过后删除 / 确认拒绝在触网前短路 / 非交互真门控拒绝 / 无凭证 / API错误 / 未知profile / 文件模式），stubConfirm 打桩 confirmDeleteFunc 隔离终端交互 + httptest 隔离网络
 - `entity.go`: entity 命令组，挂载 create / delete / list 子命令；--app（appKey）参数为子命令继承
 - `entity_create.go`: entity create 子命令，位置参数为 Entity key，--name 为展示名（缺省回退 key），--json 加载整个 properties（fields + uniqueConstraints，同形于 DSL 的 properties 与 entity list -o json 的 data.properties，三者可往返）；校验 field.Key 合法（validResourceKey）+ 约束字段引用（validateConstraintFieldRefs：name 的引用字段须在已声明 fields 内、≥1 字段；类型白名单/配额/存量重复交服务端裁决）；--app 传 appKey；--dry-run 经 api.WithDryRun 注入 X-Dry-Run 远端校验不落库，成功打印 would-be 行；loadEntityProperties 从 JSON 文件加载 api.EntityProperties 透传
@@ -132,8 +133,16 @@
 - `daemon_test.go`: 覆盖 resolveAgentGatewayURL 取值链（三 context preset / env var 覆盖 / flag 最高优先），setContextFlag + MAKE_CLI_CONFIG_DIR 隔离全局态
 - `trace.go`: trace 顶级子命令（**Hidden**，内部排障工具）——按 `--id/-i` 与回溯窗口（`--days/-d`、`--hours/-H`（-h 归 help）、`--minutes/-m` 三者相加，全零默认 10 分钟，负值拒绝）拼 OpenObserve `/web/traces/trace-details` 直达 URL（org_identifier/stream 固定 default，from/to 为微秒级 Unix 时间戳，to=now、from=to−窗口），先回显 stdout 再经 openBrowserFunc 打开本地浏览器；基址随全局 --context 取 config.Context.TraceServerURL（dev/test → openobserve.qtech.cn，production → openobserve.qfei.cn）；traceURL/traceWindow 纯函数，nowFunc 包级可打桩
 - `trace_test.go`: 覆盖 Hidden 标记、短 flag（-i/-d/-H/-m）、URL 微秒时间戳与 from<to 生成规则、窗口合成（默认/相加/负值）、缺 --id 报错、三 context→OpenObserve 基址映射与 stdout 回显（openBrowserFunc/nowFunc 打桩）
-- `agent.go`: agent 顶级子命令（**Hidden**，keyless 通道未公开）——自营脑设备版（agent-design/Design.md §8.2）：LLM 走平台，token 只开模型门，设备端零厂商 key；默认即 code agent（agent.RunCodeOnce/RunCodeREPL：七工具 root=cwd + 目录信任确认 + 两层循环），--chat-only 退回纯聊天 ChatStream（RunOnce/RunREPL）；flags --token（缺省读 MAKE_AGENT_TOKEN，缺失给可操作报错）/ --gateway-url（复用 daemon 的 resolveAgentGatewayURL 取值链）/ --model（平台别名，默认 default）/ -p 一次性模式（无头跑一轮到自然收尾，终结失败转退出码 1）/ --system / --approve（启动即授予 cwd 会话信任，副作用工具免逐次确认）/ --chat-only；无 -p 进交互 REPL（`/exit` `/clear` 外另有 `!<cmd>` 本地命令直通：不发起 LLM 请求直接跑本机 shell，输出流式直写并进历史；-p 无头模式不解析 `!`）；编排在 internal/agent；SilenceUsage 静默 usage 噪音
-- `agent_test.go`: 覆盖 agent 命令的单元测试（Hidden 不进 --help / 缺 token 可操作报错 / --approve --chat-only --model flag 注册与缺省值 / 旧 --no-tools 未注册），t.Setenv 隔离环境
+- `agent.go`: agent 顶级子命令（公开展示于根命令 help，保留原入口）——挂载 agent create 远端配置创建、agent list 应用内配置列表、agent info 配置详情与 agent delete 软删除；不带子命令时保留本地聊天——自营脑设备版（agent-design/Design.md §8.2）：LLM 走平台，token 只开模型门，设备端零厂商 key；默认即 code agent（agent.RunCodeOnce/RunCodeREPL：七工具 root=cwd + 目录信任确认 + 两层循环），--chat-only 退回纯聊天 ChatStream（RunOnce/RunREPL）；flags --token（缺省读 MAKE_AGENT_TOKEN，缺失给可操作报错）/ --gateway-url（复用 daemon 的 resolveAgentGatewayURL 取值链）/ --model（平台别名，默认 default）/ -p 一次性模式（无头跑一轮到自然收尾，终结失败转退出码 1）/ --system / --approve（启动即授予 cwd 会话信任，副作用工具免逐次确认）/ --chat-only；无 -p 进交互 REPL（`/exit` `/clear` 外另有 `!<cmd>` 本地命令直通：不发起 LLM 请求直接跑本机 shell，输出流式直写并进历史；-p 无头模式不解析 `!`）；编排在 internal/agent；SilenceUsage 静默 usage 噪音
+- `agent_info.go`: agent info <agentKey> --app <appKey>，单次只读 GetResource，基本信息/提示词/插件表格与完整 JSON 输出；支持 --app 放在 info 前。
+- `agent_info_test.go`: httptest 验证详情路由、参数顺序、完整配置、插件与空列表显示、鉴权/不存在错误和输入无请求。
+- `agent_delete.go`: agent delete <agentKey> --app <appKey>，必填实际环境应用，校验后输入 Agent key 确认（显示所属 App），--yes/-y 跳过、非 TTY 拒绝；确认通过后单次删除；auto/table/json 输出，JSON 返回 key/appKey/deleted，历史保留。
+- `agent_delete_test.go`: httptest 验证删除路由、应用范围、全局凭证、输出、参数校验无请求、输入 key 确认、--yes/-y 跳过、取消与非 TTY 零请求及失败无成功回执。
+- `agent_list.go`: agent list --app <appKey> 分页列出实际应用内的 Agent；appKey 经 celString 转成 filter.expression 等值条件，--page 默认 1、--size 默认 20 且上限 100；输出沿用 app list 的 auto/table/json 与 count/page/size/total，概要不展开 prompt/plugins。
+- `agent_list_test.go`: httptest 覆盖应用筛选转义、分页、凭证、概要 JSON/表格、空列表、非法输入无请求和服务端错误。
+- `agent_create.go`: agent create <agentKey> 只创建远端配置，不写本地工程；--app 指定实际环境 appKey，固定 runtimeKey=make-runtime-service，--app/--model 必填，--name 默认 key，--status 默认 disabled；--prompt/--prompt-file 互斥，--plugins-json 复用 inline/@file/stdin 严格解析；凭证与后端走 newClientFromProfile，输出走 auto/table/json，应用归属校验与 list 共用 validAgentAppKey。
+- `agent_create_test.go`: 覆盖子命令分发、全局凭证与端点、appKey 归属与旧字段移除、固定运行服务、默认值、提示词/插件文件和 stdin、错误无副作用及 JSON/文本输出。
+- `agent_test.go`: 覆盖 agent 命令的单元测试（公开展示于根命令 --help / 缺 token 可操作报错 / --approve --chat-only --model flag 注册与缺省值 / 旧 --no-tools 未注册），t.Setenv 隔离环境
 - `integration.go`: integration 命令组，挂载 ocr 子命令；预留扩展点供未来其它 integration（translate / asr / embed 等）
 - `integration_ocr.go`: integration ocr 子命令，校验文件后缀（.pdf/.ofd/.png/.jpg/.jpeg）后通过 newClientFromProfile 上传，调用 api.OCR；renderOCRTable 风格对齐 entity list <name>：顶部 File/Bills/Took 头部 + 每张票一个 tablewriter LABEL/VALUE 边框表格，按 spec sample 解析 result.pages[].bills[].items[]（过滤空值），断言失败回退 JSON；支持 -f|--file（必选）/ --profile / --output（table|json）/ --business-id / --verify-vat（默认 true，仅 Changed 时显式发送）/ --coord-restore-original / --pages / --crop-complete / --crop-value / --merge-elec / --return-ppi
 - `integration_ocr_test.go`: 覆盖 runIntegrationOCR / renderOCRTable 的单元测试（table 渲染 spec sample / json 输出 / 非法扩展名 / 非法格式 / 文件不存在 / 无凭证 / 未知 profile / API 错误 / 异常结构回退），用 httptest 隔离网络
@@ -147,6 +156,9 @@ app.go → clone.go / pull.go → runAppSync → deploy.go / git.go
          clone_test.go（复用 deploy_test.go 的本地仓库夹具）
        → app_list.go（list / +favo）→ runAppList → api.ListApps
          app_list_test.go（快捷查询与显式筛选等价）
+agent.go → agent_create.go / agent_list.go / agent_delete.go / agent_info.go → internal/api/agent.go
+           agent_delete_test.go（删除范围、确认门禁、路由、回执与失败验证）
+app_delete.go / agent_delete.go → delete_confirm.go（统一交互表单）
 ```
 
 - 2026-09-22：app pull 重命名为 app clone；保留原参数和 ff-only 行为，不注册旧名称别名。
@@ -159,6 +171,23 @@ app.go → clone.go / pull.go → runAppSync → deploy.go / git.go
 - context use 的回执明确为全局默认；settings/configure 共享 context 键但保持各自写入范围，相关测试按作用域校验。
 - 2026-09-24：credentials 的 profile 段支持 context（凭证所属后端），解析链为 flag > env > credentials[profile] > config[profile] > settings > production；Load→Save 往返保留该键。
 
+- 2026-10-12：新增 agent create 远端配置命令；应用归属由 --app 指定，运行服务固定，保留原本地聊天入口。
+
+- 2026-10-13：agent create 改用必填 --app 传递实际环境 appKey，同步公开响应与输出，移除固定 productKey。
+
+- 2026-10-13：公开 agent 顶级命令，根命令 --help 展示 Manage agents；保留远端创建与本地运行入口。
+
+- 2026-10-13：新增 agent list --app，使用 Agent Meta 的应用等值筛选与概要数组；分页和输出沿用 app list。
+
 - 2026-10-13：新增只读快捷命令 app +favo，等价于 app list --filter "workbenchGroup=favorite"；复用列表执行路径，不增加独立 API 调用层。
 
+
+- 2026-10-13：agent create 的固定 runtimeKey 更新为 make-runtime-service，帮助、测试与说明同步。
+
 - 2026-10-14：app info 增加 Created By，用户名优先、用户 ID 回退、缺失显示 -；JSON 保留完整 meta.createUser。
+
+- 2026-10-14：新增 agent delete，按实际环境 appKey + key 软删除；与 create/list 共用应用校验与凭证。
+
+- 2026-10-14：app/agent delete 共用输入 key 确认；agent 新增 --yes/-y，取消与非 TTY 拒绝在请求前生效。
+
+- 2026-10-14：新增 agent info；create/delete/info 的帮助摘要统一使用 on Make app。

@@ -1,23 +1,19 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（loadAppManifestFromFile）、internal/api（EnvBeta/EnvProduction、RoleForEnv、WithAppRole、DeleteApp）、errors、fmt、os、strings、charm.land/huh/v2（交互确认表单）、github.com/mattn/go-isatty（TTY 检测）、github.com/spf13/cobra
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（loadAppManifestFromFile）、internal/api（EnvBeta/EnvProduction、RoleForEnv、WithAppRole、DeleteApp）、delete_confirm.go（共享交互确认）、fmt、strings、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newAppDeleteCmd 函数；包内 resolveDeleteEnvs（--env → 有序环境序列）、envAll 常量；包级 confirmDeleteFunc 可打桩变量（测试替换，参照 deploy.go gitPushFunc 模式）
  * [POS]: cmd/app 的 delete 子命令。每个 App 是 prod/beta 一对（MetaAPIDesign.md：meta.appRole 标角色，prod 有 beta 配对时服务端 409 拒删）。
  *        --env 必填（大小写不敏感）：production / beta 各删一半，all 先 beta 后 production；每一步用 WithAppRole(RoleForEnv(env)) 的 client 发「prod key + ?appRole=」交服务端定位目标，
  *        CLI 不反查 pairAppKey、不触 GetApp——配对关系是服务端知识，删除路径零读请求。
  *        用户面只见「app key + 环境」：确认表单敲的是用户给的 app key（标题注明环境），成功提示逐环境一行，--yes 跳过；支持 -f 文件模式
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
 
 import (
-	"errors"
 	"fmt"
-	"os"
 	"strings"
 
-	"charm.land/huh/v2"
-	"github.com/mattn/go-isatty"
 	"github.com/qfeius/makecli/internal/api"
 	"github.com/spf13/cobra"
 )
@@ -113,33 +109,7 @@ func runAppDelete(key, env string, skipConfirm bool) error {
 	return nil
 }
 
-// confirmDeleteByTypingKey 要求用户原样输入 app key 才放行删除（gh repo delete 同款强护栏）。
-// 用户面只见「app + 环境」，配对 key 是服务端实现细节不外露。
-// 非交互终端（管道 / CI）无法输入确认，直接拒绝并指引 --yes，杜绝挂起。
-// huh 表单的 Validate 在输入 ≠ key 时阻断提交，唯一出路是输对 key 或 Ctrl-C 取消。
+// confirmDeleteByTypingKey 以 app + 环境描述删除目标，共用输入 key 的确认表单。
 func confirmDeleteByTypingKey(key, env string) error {
-	if !isatty.IsTerminal(os.Stdin.Fd()) {
-		return fmt.Errorf("refusing to delete %s environment of %q without confirmation: re-run with --yes in a non-interactive shell", env, key)
-	}
-
-	var typed string
-	err := huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().
-				Title(fmt.Sprintf("Delete %s environment of app %q — this cannot be undone.", env, key)).
-				Description(fmt.Sprintf("Type %q to confirm:", key)).
-				Value(&typed).
-				Validate(func(s string) error {
-					if s != key {
-						return fmt.Errorf("does not match %q", key)
-					}
-					return nil
-				}),
-		),
-	).Run()
-
-	if errors.Is(err, huh.ErrUserAborted) {
-		return fmt.Errorf("deletion of %s environment of %q cancelled", env, key)
-	}
-	return err
+	return confirmDeletionByTypingKey(key, fmt.Sprintf("%s environment of app %q", env, key))
 }

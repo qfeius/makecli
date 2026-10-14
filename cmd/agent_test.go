@@ -1,9 +1,9 @@
 /**
  * [INPUT]: 依赖 agent.go；stdout_test.go 的隔离 helper
- * [OUTPUT]: 对外提供 agent 命令回归——Hidden 不进 help、缺 token 可操作报错、
+ * [OUTPUT]: 对外提供 agent 命令回归——公开展示于根命令 help、缺 token 可操作报错、
  *           code agent 新 flag（--approve/--chat-only）注册与缺省值
  * [POS]: cmd 模块的测试面（agent 命令）
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -13,9 +13,9 @@ import (
 	"testing"
 )
 
-func TestAgentCommandHiddenFromHelp(t *testing.T) {
-	if !agentCmd.Hidden {
-		t.Error("agent 命令必须 Hidden")
+func TestAgentCommandVisibleInHelp(t *testing.T) {
+	if agentCmd.Hidden {
+		t.Error("agent 命令必须公开")
 	}
 	var output strings.Builder
 	rootCmd.SetOut(&output)
@@ -26,8 +26,8 @@ func TestAgentCommandHiddenFromHelp(t *testing.T) {
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("help: %v", err)
 	}
-	if strings.Contains(output.String(), "agent") && strings.Contains(output.String(), "keyless") {
-		t.Errorf("help 不应出现 agent 命令:\n%s", output.String())
+	if !strings.Contains(output.String(), "agent") || !strings.Contains(output.String(), "Manage agents") {
+		t.Errorf("help 应显示 agent 命令:\n%s", output.String())
 	}
 }
 
