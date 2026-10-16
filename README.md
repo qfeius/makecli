@@ -310,6 +310,30 @@ makecli entity --app TODO list Task --output json
 - `--output json` 列表模式输出 `data` 和 `pagination`，详情模式输出单个 `data` 对象
 - 列表模式支持 `--page` 和 `--size`，其中 `--page` 默认从 `1` 开始
 
+### 构建日志
+
+```bash
+# 推送后读取本地 HEAD 对应的 Beta 构建日志
+makecli app deploy
+makecli app logs
+
+# 等待任务创建并持续输出新日志，默认总超时 5 分钟
+makecli app logs --follow --timeout 5m
+
+# 指定完整提交 SHA，或精确查询某次构建（不要求在项目目录内）
+makecli app logs --commit-sha <40位SHA> --output json
+makecli app logs --id <buildTaskId>
+
+# 使用接口返回的游标续读
+makecli app logs --id <buildTaskId> --cursor <nextCursor>
+```
+
+`app logs` 只读，不推送、不触发构建，也不要求工作树干净。未指定 `--id` 时，按提交 SHA + Beta 环境查询任务，取到任务 ID 后固定读取该任务；`--id` 与 `--commit-sha` 互斥。读取生产或历史构建可直接指定任务 ID。后端及凭证沿用 `--context` / `--profile`。
+
+不带 `--follow` 时只读取一次：默认 `auto` 在终端输出日志正文，在管道/Agent 下输出含 `buildTaskId`、`content`、`nextCursor`、`completed` 的 JSON；`--output table` 可强制输出正文。`--follow` 默认始终输出正文，提示与任务 ID 写入 stderr，首版不支持 `--follow --output json`。
+
+按 SHA 跟随时允许等待任务异步创建；指定 ID 不存在则立即报错。日志阶段完成后退出不代表部署成功，最终结果使用 `makecli app deploy --status --wait` 查询。日志读取成功返回 0（包括失败构建的日志），参数/接口错误返回 1，跟随超时返回 124，Ctrl+C 中断返回 130。
+
 ## 开发指南
 ### 编译
 ```

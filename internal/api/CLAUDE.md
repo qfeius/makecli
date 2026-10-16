@@ -29,6 +29,9 @@
 - 设计意图：与 ErrNotFound / ErrAuthFailed 同为「api 报事实、cmd 管呈现」的分层边界
 
 ## 成员清单
+- `build_log.go` / `build_log_test.go`：BuildLogChunk 与 GetBuildLog(ctx, taskID, cursor)，固定 BUILD scope，空日志合法、缺 data 拒绝；请求契约、业务错误和取消测试。
+- `build.go`：GetBuildTaskContext 用于日志查任务，旧 GetBuildTask 委托同一路径。
+- `client.go`：requestContext 使用 NewRequestWithContext；旧 request 以 Background 委托，认证、追踪和解码保持统一。
 - `client.go`（App 配对知识）: App.Role（meta.appRole，缺省视为 prod）/ PairAppKey / HostedEnv（beta 角色承载 EnvBeta，prod 承载 EnvProduction）/ KeyForEnv(env)（自身承载则自己，否则配对 app，无配对报错）——环境 → 承载 app key 的定位收口在数据类型上，deploy 建仓库与 delete 定位配对共用；RoleProd / RoleBeta 常量
 - `agent_plugin.go`: AgentPluginDefinition 与 ListAgentPlugins，独立于已绑定 AgentPlugin；POST /agent/v1/plugin + ListResources，默认可用项，仅分页，完整保留 configSchema。
 - `agent_plugin_test.go`: httptest 验证插件字段、嵌套 JSON Schema 保留、空数组、业务/鉴权错误与非法响应。
