@@ -310,29 +310,33 @@ makecli entity --app TODO list Task --output json
 - `--output json` 列表模式输出 `data` 和 `pagination`，详情模式输出单个 `data` 对象
 - 列表模式支持 `--page` 和 `--size`，其中 `--page` 默认从 `1` 开始
 
-### 构建日志
+### 构建与部署日志
 
 ```bash
-# 推送后读取本地 HEAD 对应的 Beta 构建日志
 makecli app deploy
-makecli app logs
+makecli logs deploy
 
-# 等待任务创建并持续输出新日志，默认总超时 5 分钟
-makecli app logs --follow --timeout 5m
+# 最后 100 行并继续跟随；--timeout 仅用于 --follow，默认 3m
+makecli logs deploy --tail 100 -f --timeout 2m
 
-# 指定完整提交 SHA，或精确查询某次构建（不要求在项目目录内）
-makecli app logs --commit-sha <40位SHA> --output json
-makecli app logs --id <buildTaskId>
+# 在项目外指定应用和完整提交 SHA
+makecli logs deploy --app <appKey> --commit-sha <40位SHA> --output json
 
-# 使用接口返回的游标续读
-makecli app logs --id <buildTaskId> --cursor <nextCursor>
+# 跳过已有日志，只读取之后新增的内容
+makecli logs deploy --tail 0 -f
+
+# 读取全部历史，或使用此前返回的游标续读
+makecli logs deploy --tail -1
+makecli logs deploy --commit-sha <40位SHA> --cursor <nextCursor>
 ```
 
-`app logs` 只读，不推送、不触发构建，也不要求工作树干净。未指定 `--id` 时，按提交 SHA + Beta 环境查询任务，取到任务 ID 后固定读取该任务；`--id` 与 `--commit-sha` 互斥。读取生产或历史构建可直接指定任务 ID。后端及凭证沿用 `--context` / `--profile`。
+`logs deploy` 默认从 `apps/dsl/app.yaml` 读取应用，从 Git HEAD 读取提交 SHA，查询 Beta 构建任务后固定该任务读取。首版支持 `--stage build`；部署阶段尚未接入，`--stage deploy/all` 会报错。最终部署状态使用 `makecli app deploy --status --wait` 查询。
 
-不带 `--follow` 时只读取一次：默认 `auto` 在终端输出日志正文，在管道/Agent 下输出含 `buildTaskId`、`content`、`nextCursor`、`completed` 的 JSON；`--output table` 可强制输出正文。`--follow` 默认始终输出正文，提示与任务 ID 写入 stderr，首版不支持 `--follow --output json`。
+`--tail N` 由服务端截取首次读取的最后 N 行，默认 200；`0` 跳过历史，`-1` 读取全部。跟随时后续请求按游标读取新增内容。显式 `--tail` 与 `--cursor` 互斥；指定游标时不应用默认行数限制。服务端需支持 `tailLines`，旧服务可使用 `--tail=-1` 读取。
 
-按 SHA 跟随时允许等待任务异步创建；指定 ID 不存在则立即报错。日志阶段完成后退出不代表部署成功，最终结果使用 `makecli app deploy --status --wait` 查询。日志读取成功返回 0（包括失败构建的日志），参数/接口错误返回 1，跟随超时返回 124，Ctrl+C 中断返回 130。
+`--follow` / `-f` 等待任务创建并持续输出正文，`--timeout` 支持 `3m`、`180s` 等时长，总超时默认 3 分钟，覆盖任务查询、请求、轮询和进程输出。超时仅停止本地读取，返回 124；Ctrl+C 返回 130；读取成功返回 0，参数或接口错误返回 1。
+
+单次读取的 `--output auto` 在终端输出正文，在管道或 Agent 下输出 JSON（`appKey`、`commitSha`、`stage`、`content`、`nextCursor`、`completed`）；`--output table` 可强制正文。跟随模式不支持 JSON，诊断信息写入 stderr。后端与凭证沿用 `--context` / `--profile`。
 
 ## 开发指南
 ### 编译

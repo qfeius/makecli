@@ -2,8 +2,8 @@
 > L2 | 父级: /CLAUDE.md
 
 ## 渲染约定
-- `app_logs.go`：只读 BUILD 日志，默认 HEAD 或显式 SHA/ID；固定任务后按服务端游标续读。follow 默认正文，JSON 仅快照；超时 124、中断 130。
-- `app_logs_test.go`：任务定位、脏工作树只读、异步建任务、游标固定、输出隔离、失败/超时/取消与写入失败测试。
+- `logs_deploy.go`：顶级 logs deploy，app.yaml/--app 与 HEAD/--commit-sha 定位并校验 Beta 任务归属；stage=build；服务端 tail 默认 200，follow 默认 3m，游标续读；进程输出阻塞仍可取消。
+- `logs_deploy_test.go` / `logs_deploy_contract_test.go` / `logs_pipe_test.go`：项目默认值、SHA 与应用归属、tail/游标契约、错误、HTTP 取消和子进程阻塞管道退出测试。
 - `output.go`：writeJSONTo 可注入输出流，writeJSON 保留旧 stdout 与通知语义。
 - 表格统一用 `github.com/olekukonko/tablewriter`（边框 + Header），禁止用 stdlib `text/tabwriter`
 - key-value 头部信息（File / Name / App 等）用 `fmt.Printf("%-N s %s\n", ...)` 平铺，不进表格

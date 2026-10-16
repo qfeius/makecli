@@ -1,5 +1,14 @@
 # AI 变更记录：构建日志查询
 
+## 2026-10-16：日志命令与 tail/timeout
+- 摘要：改为 `logs deploy`，按 app.yaml/--app 与 HEAD/--commit-sha 查询；移除公开任务 ID 参数。
+- 涉及模块：`cmd/logs_deploy*`、`cmd/logs_pipe_test.go`、命令注册、`internal/api/build_log*` 与 GetAppContext。
+- 决策：初次服务端 tail 默认 200，0 跳过历史，-1 全量；后续固定任务和字节游标，tail 与 cursor 互斥。
+- 超时：follow 默认 3m；单个进程输出 worker 使阻塞 stdout 仍可按 124/130 退出，不给每个日志块创建 goroutine。
+- 依赖：make-build-service 同步增加 tailLines 与回执；旧服务明确报错，可显式 --tail=-1。首版仅支持 build 阶段。
+- TDD：先验证新入口/参数/API 缺失的红测，再补实现；另以空 cursor、tail 范围异常红测修正边界。
+- 验证：make vet/test、lint 0 issues、相关竞态测试通过；本地 CLI→Build HTTP→TOS SDK 联调覆盖 tail/游标/0/-1/follow/124。
+
 ## 2026-10-16：升级前补充验证完成
 - 真构建：App 提交 `9f4138d` 触发任务 1821，构建及部署 SUCCESS，完整日志 18,940 字节。
 - 真接口：HEAD / SHA / ID 定位、实时跟随、游标续读与完整内容拼接一致，完成后续读为空。

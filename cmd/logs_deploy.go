@@ -1,6 +1,6 @@
 /**
- * [INPUT]: Build log API, go-git HEAD, shared profile/output/error helpers
- * [OUTPUT]: app logs with HEAD/commit SHA/task ID selection and bounded follow
+ * [INPUT]: Build log API with server-side tail, app manifest, Git HEAD and CLI output helpers
+ * [OUTPUT]: logs deploy with app/SHA selection, initial tail and bounded follow
  * [POS]: Read-only build log command; stdout is content/JSON, diagnostics use stderr
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -28,44 +28,58 @@ var (
 	errLogsInterrupted   = errors.New("build log reading interrupted")
 )
 
-type appLogsOptions struct {
+type logsDeployOptions struct {
+	appKey    string
+	stage     string
+	tail      int64
 	commitSHA string
-	id        string
 	cursor    string
 	follow    bool
 	timeout   time.Duration
 	output    string
 }
 
-func newAppLogsCmd() *cobra.Command {
-	opts := appLogsOptions{}
-	command := &cobra.Command{
-		Use:   "logs",
-		Short: "Read build logs for a commit or build task",
-		Long: `Read the BUILD log for the current Git HEAD in beta, an explicit full
-commit SHA, or a build task ID. This command never pushes or starts a build.
+func newLogsCmd() *cobra.Command {
+	command := &cobra.Command{Use: "logs", Short: "Read Make logs"}
+	command.AddCommand(newLogsDeployCmd())
+	return command
+}
 
---follow waits for a commit's task to appear, then reads new log content until
-the build log stage ends. Log completion does not imply deployment success.
-An explicit --id or --commit-sha also works outside a Git repository.`,
-		Example: `  makecli app logs
-  makecli app logs --follow --timeout 5m
-  makecli app logs --commit-sha <fullSHA> --output json
-  makecli app logs --id <buildTaskId> --cursor <cursor>`,
+func newLogsDeployCmd() *cobra.Command {
+	opts := logsDeployOptions{}
+	command := &cobra.Command{
+		Use:   "deploy",
+		Short: "Read build and deployment logs",
+		Long: `Read beta deployment logs for an app and commit. The current release
+supports --stage build. App and commit default to apps/dsl/app.yaml and Git HEAD.
+
+--tail limits the initial history on the server. --follow then reads new content
+until the stage completes or --timeout expires.`,
+		Example: `  makecli logs deploy
+  makecli logs deploy -f --timeout 3m --tail 100
+  makecli logs deploy --app <appKey> --commit-sha <fullSHA>
+  makecli logs deploy --commit-sha <fullSHA> --cursor <cursor>`,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if err := opts.validate(command); err != nil {
 				return err
 			}
-			if opts.id == "" && opts.commitSHA == "" {
+			if opts.appKey == "" {
+				key, err := appKeyFromManifest(appDSLPath)
+				if err != nil {
+					return fmt.Errorf("read app identity: %w; use --app outside an app project", err)
+				}
+				opts.appKey = key
+			}
+			if opts.commitSHA == "" {
 				repo, err := openRepo()
 				if err != nil {
-					return fmt.Errorf("read current Git HEAD: %w; use --commit-sha or --id outside a repository", err)
+					return fmt.Errorf("read current Git HEAD: %w; use --commit-sha outside a repository", err)
 				}
 				head, err := repo.Head()
 				if err != nil {
-					return fmt.Errorf("read current Git HEAD: %w; commit first or use --commit-sha / --id", err)
+					return fmt.Errorf("read current Git HEAD: %w; commit first or use --commit-sha", err)
 				}
 				opts.commitSHA = head.Hash().String()
 			}
@@ -81,10 +95,10 @@ An explicit --id or --commit-sha also works outside a Git repository.`,
 				ctx, cancel = context.WithTimeout(ctx, opts.timeout)
 				defer cancel()
 			}
-			err = readAppLogs(ctx, client, opts, command.OutOrStdout(), command.ErrOrStderr())
+			err = readLogsCommand(ctx, client, opts, command.OutOrStdout(), command.ErrOrStderr())
 			switch {
 			case opts.follow && errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded):
-				return fmt.Errorf("%w: build logs (%s); use --id or --cursor to resume", errWaitTimeout, opts.timeout)
+				return fmt.Errorf("%w: build logs (%s); retry with --commit-sha %s", errWaitTimeout, opts.timeout, opts.commitSHA)
 			case errors.Is(err, context.Canceled):
 				return errLogsInterrupted
 			default:
@@ -92,32 +106,60 @@ An explicit --id or --commit-sha also works outside a Git repository.`,
 			}
 		},
 	}
+	command.Flags().StringVar(&opts.appKey, "app", "", "app key (default: apps/dsl/app.yaml)")
 	command.Flags().StringVar(&opts.commitSHA, "commit-sha", "", "full commit SHA to query in beta (default: current HEAD)")
-	command.Flags().StringVar(&opts.id, "id", "", "exact build task ID; bypasses commit lookup")
+	command.Flags().StringVar(&opts.stage, "stage", "build", "log stage (currently: build)")
+	command.Flags().Int64Var(&opts.tail, "tail", 200, "initial history lines; 0 skips history, -1 reads all")
 	command.Flags().StringVar(&opts.cursor, "cursor", "", "resume cursor returned by a previous log response")
-	command.Flags().BoolVar(&opts.follow, "follow", false, "wait for the task and follow new build log content")
-	command.Flags().DurationVar(&opts.timeout, "timeout", defaultWaitTimeout, "total task/log wait limit (requires --follow)")
+	command.Flags().BoolVarP(&opts.follow, "follow", "f", false, "wait for the task and follow new log content")
+	command.Flags().DurationVar(&opts.timeout, "timeout", 3*time.Minute, "total follow limit, e.g. 3m or 180s (requires --follow)")
 	addOutputFlag(command, &opts.output)
-	command.MarkFlagsMutuallyExclusive("id", "commit-sha")
 	return command
+}
+
+// A CLI process owns its stdout writer. One worker keeps a blocked pipe from
+// preventing cancellation; main exits with 124/130 without waiting on that pipe.
+// Injected writers run synchronously so callers retain ownership and no worker
+// can outlive an in-process command or continue writing into a reused buffer.
+func readLogsCommand(ctx context.Context, client *api.Client, opts logsDeployOptions, stdout, stderr io.Writer) error {
+	file, processOutput := stdout.(*os.File)
+	if !processOutput || file != os.Stdout {
+		return readDeployLogs(ctx, client, opts, stdout, stderr)
+	}
+	result := make(chan error, 1)
+	go func() { result <- readDeployLogs(ctx, client, opts, stdout, stderr) }()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-result:
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
+	}
 }
 
 // validate is pure with respect to the filesystem/network; invalid flags never
 // resolve credentials, inspect Git, or send a request.
-func (opts *appLogsOptions) validate(command *cobra.Command) error {
-	if command.Flags().Changed("id") {
-		id, err := strconv.ParseInt(opts.id, 10, 64)
-		if err != nil || id <= 0 {
-			return fmt.Errorf("--id must be a positive int64 build task ID")
+func (opts *logsDeployOptions) validate(command *cobra.Command) error {
+	if command.Flags().Changed("app") {
+		if err := validResourceKey(opts.appKey); err != nil {
+			return fmt.Errorf("--app: %w", err)
 		}
 	}
 	if command.Flags().Changed("commit-sha") && !fullCommitSHA.MatchString(opts.commitSHA) {
 		return fmt.Errorf("--commit-sha must be a full 40-character hexadecimal commit SHA")
 	}
-	if opts.id != "" && opts.commitSHA != "" {
-		return fmt.Errorf("--id and --commit-sha are mutually exclusive")
+	if opts.stage != "build" {
+		return fmt.Errorf("--stage %q is not supported yet; use build", opts.stage)
 	}
-	if opts.cursor != "" {
+	if opts.tail < -1 {
+		return fmt.Errorf("--tail must be -1 or a non-negative line count")
+	}
+	if command.Flags().Changed("tail") && command.Flags().Changed("cursor") {
+		return fmt.Errorf("--tail and --cursor are mutually exclusive")
+	}
+	if command.Flags().Changed("cursor") {
 		cursor, err := strconv.ParseInt(opts.cursor, 10, 64)
 		if err != nil || cursor < 0 {
 			return fmt.Errorf("--cursor must be a non-negative int64 decimal string")
@@ -145,13 +187,15 @@ func (opts *appLogsOptions) validate(command *cobra.Command) error {
 }
 
 type buildLogView struct {
-	BuildTaskID string `json:"buildTaskId"`
+	AppKey    string `json:"appKey"`
+	CommitSHA string `json:"commitSha"`
+	Stage     string `json:"stage"`
 	api.BuildLogChunk
 }
 
-// readAppLogs is the I/O boundary. It logs selection/wait/completion to stderr;
+// readDeployLogs is the I/O boundary. It logs selection/wait/completion to stderr;
 // errors propagate to the standard CLI error reporter without logging secrets.
-func readAppLogs(ctx context.Context, client *api.Client, opts appLogsOptions, stdout, stderr io.Writer) error {
+func readDeployLogs(ctx context.Context, client *api.Client, opts logsDeployOptions, stdout, stderr io.Writer) error {
 	_, _ = fmt.Fprintln(stderr, "Reading build logs...")
 	id, err := resolveBuildLogTask(ctx, client, opts, stderr)
 	if err != nil {
@@ -160,8 +204,12 @@ func readAppLogs(ctx context.Context, client *api.Client, opts appLogsOptions, s
 	}
 	_, _ = fmt.Fprintf(stderr, "Build: #%d\n", id)
 	cursor := opts.cursor
+	var tail *int64
+	if opts.cursor == "" && opts.tail >= 0 {
+		tail = &opts.tail
+	}
 	for {
-		chunk, err := client.GetBuildLog(ctx, id, cursor)
+		chunk, err := client.GetBuildLogWithOptions(ctx, id, api.BuildLogOptions{Cursor: cursor, TailLines: tail})
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "Build log read failed (task #%d).\n", id)
 			return err
@@ -173,7 +221,7 @@ func readAppLogs(ctx context.Context, client *api.Client, opts appLogsOptions, s
 			}
 		}
 		if opts.output == outputJSON {
-			return writeJSONTo(stdout, buildLogView{BuildTaskID: strconv.FormatInt(id, 10), BuildLogChunk: *chunk})
+			return writeJSONTo(stdout, buildLogView{AppKey: opts.appKey, CommitSHA: opts.commitSHA, Stage: opts.stage, BuildLogChunk: *chunk})
 		}
 		if _, err := io.WriteString(stdout, chunk.Content); err != nil {
 			return fmt.Errorf("write build logs: %w", err)
@@ -183,6 +231,7 @@ func readAppLogs(ctx context.Context, client *api.Client, opts appLogsOptions, s
 			return nil
 		}
 		cursor = chunk.NextCursor
+		tail = nil
 		if err := waitBuildLogPoll(ctx); err != nil {
 			_, _ = fmt.Fprintf(stderr, "Build log follow stopped (task #%d, nextCursor=%s).\n", id, cursor)
 			return err
@@ -210,14 +259,27 @@ func checkBuildLogCursor(previous string, chunk api.BuildLogChunk) error {
 	return nil
 }
 
-func resolveBuildLogTask(ctx context.Context, client *api.Client, opts appLogsOptions, stderr io.Writer) (int64, error) {
-	if opts.id != "" {
-		return strconv.ParseInt(opts.id, 10, 64)
-	}
+func resolveBuildLogTask(ctx context.Context, client *api.Client, opts logsDeployOptions, stderr io.Writer) (int64, error) {
 	waiting := false
 	for {
 		task, err := client.GetBuildTaskContext(ctx, opts.commitSHA, api.EnvBeta)
 		if err == nil {
+			if task.ID <= 0 {
+				return 0, fmt.Errorf("invalid build task response: missing task ID")
+			}
+			if task.AppKey != opts.appKey {
+				app, appErr := client.GetAppContext(ctx, opts.appKey)
+				if appErr != nil {
+					return 0, fmt.Errorf("resolve beta app: %w", appErr)
+				}
+				betaKey, appErr := app.KeyForEnv(api.EnvBeta)
+				if appErr != nil {
+					return 0, appErr
+				}
+				if task.AppKey != betaKey {
+					return 0, fmt.Errorf("commit %s has no build task for app %s", opts.commitSHA, opts.appKey)
+				}
+			}
 			return task.ID, nil
 		}
 		if !errors.Is(err, api.ErrNotFound) {

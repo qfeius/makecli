@@ -1,6 +1,6 @@
 /**
  * [INPUT]: Build log/context clients, httptest and context cancellation
- * [OUTPUT]: Request contracts, empty logs, API failures and in-flight cancellation tests
+ * [OUTPUT]: Tail/cursor contracts, empty logs, API failures and in-flight cancellation tests
  * [POS]: Build log HTTP client regression tests
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -77,7 +78,7 @@ func TestGetBuildLogResponses(t *testing.T) {
 }
 
 func TestBuildLogRequestsRespectContext(t *testing.T) {
-	for _, operation := range []string{"logs", "task"} {
+	for _, operation := range []string{"logs", "task", "app"} {
 		t.Run(operation, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 				_, _ = io.Copy(io.Discard, r.Body)
@@ -88,14 +89,50 @@ func TestBuildLogRequestsRespectContext(t *testing.T) {
 			defer cancel()
 			client := New(srv.URL, "t")
 			var err error
-			if operation == "logs" {
+			switch operation {
+			case "logs":
 				_, err = client.GetBuildLog(ctx, 42, "")
-			} else {
+			case "app":
+				_, err = client.GetAppContext(ctx, "test_app")
+			default:
 				_, err = client.GetBuildTaskContext(ctx, "commit", EnvBeta)
 			}
 			if !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("request was not canceled: %v", err)
 			}
 		})
+	}
+}
+
+func TestGetBuildLogTailContract(t *testing.T) {
+	for _, n := range []int64{0, 2, 200} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				if body["tailLines"] != float64(n) || body["cursor"] != nil {
+					t.Errorf("tail body: %#v", body)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"content": "tail", "nextCursor": "99", "completed": true, "tailLines": n}})
+			}))
+			defer srv.Close()
+			chunk, err := New(srv.URL, "test-token").GetBuildLogWithOptions(context.Background(), 42, BuildLogOptions{TailLines: &n})
+			if err != nil || chunk.NextCursor != "99" {
+				t.Fatalf("chunk=%+v err=%v", chunk, err)
+			}
+		})
+	}
+}
+
+func TestGetBuildLogRejectsIgnoredTail(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"code":200,"data":{"content":"unbounded history","nextCursor":"99"}}`))
+	}))
+	defer srv.Close()
+	n := int64(200)
+	if _, err := New(srv.URL, "test-token").GetBuildLogWithOptions(context.Background(), 42, BuildLogOptions{TailLines: &n}); err == nil {
+		t.Fatal("server silently ignored tail")
 	}
 }

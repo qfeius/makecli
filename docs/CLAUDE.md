@@ -3,7 +3,7 @@
 
 需求变更记录说明修改原因、验证和影响范围，不替代模块契约或发布说明。
 
-ai-changes-app-build-logs.md: app logs 构建日志读取、游标跟随及真实构建验证记录
+ai-changes-app-build-logs.md: logs deploy 构建日志、tail/timeout、游标跟随及真实构建验证记录
 
 ai-changes-daemon-context-execution.md: daemon Execution 协议接入的收尾、工具历史和租户路由修复记录
 ai-changes-preflight-dockerignore.md: preflight D2 的关键构建输入检查、规则有效性及测试记录
