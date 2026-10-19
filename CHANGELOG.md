@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.20] - 2026-10-19
+
+### Features
+
+- **logs**: Adds `logs deploy` to read build logs and deployment events by commit SHA, defaulting to the project App key and Git HEAD. Supports `--appRole beta|prod`, `--stage build|deploy|all`, per-stage tail limits, resumable cursors, JSON snapshots, and cancellable follow with a total timeout. (#48)
+
+### Maintenance
+
+- **skills**: Bumps embedded Make platform skills to `f7e37b5`, including deployment log guidance and Canvas Table updates.
+
 ## [v0.5.19] - 2026-10-14
 
 ### Breaking Changes
@@ -366,7 +376,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.16...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.20...HEAD
+[v0.5.20]: https://github.com/qfeius/makecli/releases/tag/v0.5.20
 [v0.5.16]: https://github.com/qfeius/makecli/releases/tag/v0.5.16
 [v0.5.15]: https://github.com/qfeius/makecli/releases/tag/v0.5.15
 [v0.5.14]: https://github.com/qfeius/makecli/releases/tag/v0.5.14
