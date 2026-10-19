@@ -1,5 +1,14 @@
 # AI 变更记录：构建日志查询
 
+## 2026-10-19：补齐 deploy / all 阶段
+- 摘要：`logs deploy --stage` 支持 build（默认）、deploy、all；移除仅限 build 的参数限制。
+- 涉及模块：`cmd/logs_deploy.go`、`cmd/logs_stages*`、`cmd/logs_pipe_test.go`、`internal/api/build.go`、`internal/api/deployment_log*` 及分层文档。
+- 决策：部署日志接入现有 deployment/events；CLI 按页读取后保留最后 N 行，首次截取后按事件序号续读，无服务端变更。
+- all：按构建、部署顺序输出，每阶段独立 tail；组合游标保存两个阶段位置并绑定任务，共用一次 follow 总超时。
+- 边界：构建失败且未部署时结束读取；无终态事件时固定任务 ID 查状态；先输出构建内容，再等待部署请求。
+- TDD：先复现阶段拒绝/缺客户端方法，再复现慢部署吞掉构建输出、空日志组合游标不可续读及路由字段影响状态 JSON，逐项修复。
+- 验证：make vet/test/build、golangci-lint 0 issues、日志相关竞态测试通过；dev 任务 1837 的 23 组检查通过，all 内容等于 18,951 字节构建日志 + 1,438 字节部署事件。
+
 ## 2026-10-16：日志命令与 tail/timeout
 - 摘要：改为 `logs deploy`，按 app.yaml/--app 与 HEAD/--commit-sha 查询；移除公开任务 ID 参数。
 - 涉及模块：`cmd/logs_deploy*`、`cmd/logs_pipe_test.go`、命令注册、`internal/api/build_log*` 与 GetAppContext。

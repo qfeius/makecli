@@ -1,7 +1,7 @@
 /**
- * [INPUT]: Build log API with server-side tail, app manifest, Git HEAD and CLI output helpers
- * [OUTPUT]: logs deploy with app/SHA selection, initial tail and bounded follow
- * [POS]: Read-only build log command; stdout is content/JSON, diagnostics use stderr
+ * [INPUT]: Build and deployment event APIs, app manifest, Git HEAD and CLI output helpers
+ * [OUTPUT]: logs deploy with build/deploy/all selection, initial tail and bounded follow
+ * [POS]: Read-only deployment log command; stdout is content/JSON, diagnostics use stderr
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 package cmd
@@ -50,13 +50,14 @@ func newLogsDeployCmd() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "deploy",
 		Short: "Read build and deployment logs",
-		Long: `Read beta deployment logs for an app and commit. The current release
-supports --stage build. App and commit default to apps/dsl/app.yaml and Git HEAD.
+		Long: `Read beta deployment logs for an app and commit. Select build (dependencies,
+compilation and image push), deploy (instances, startup and health checks), or all.
+App and commit default to apps/dsl/app.yaml and Git HEAD.
 
---tail limits the initial history on the server. --follow then reads new content
+--tail limits the initial history of each selected stage. --follow reads new content
 until the stage completes or --timeout expires.`,
 		Example: `  makecli logs deploy
-  makecli logs deploy -f --timeout 3m --tail 100
+  makecli logs deploy --stage all -f --timeout 3m --tail 100
   makecli logs deploy --app <appKey> --commit-sha <fullSHA>
   makecli logs deploy --commit-sha <fullSHA> --cursor <cursor>`,
 		Args:         cobra.NoArgs,
@@ -98,7 +99,7 @@ until the stage completes or --timeout expires.`,
 			err = readLogsCommand(ctx, client, opts, command.OutOrStdout(), command.ErrOrStderr())
 			switch {
 			case opts.follow && errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded):
-				return fmt.Errorf("%w: build logs (%s); retry with --commit-sha %s", errWaitTimeout, opts.timeout, opts.commitSHA)
+				return fmt.Errorf("%w: %s logs (%s); retry with --commit-sha %s", errWaitTimeout, opts.stage, opts.timeout, opts.commitSHA)
 			case errors.Is(err, context.Canceled):
 				return errLogsInterrupted
 			default:
@@ -108,8 +109,8 @@ until the stage completes or --timeout expires.`,
 	}
 	command.Flags().StringVar(&opts.appKey, "app", "", "app key (default: apps/dsl/app.yaml)")
 	command.Flags().StringVar(&opts.commitSHA, "commit-sha", "", "full commit SHA to query in beta (default: current HEAD)")
-	command.Flags().StringVar(&opts.stage, "stage", "build", "log stage (currently: build)")
-	command.Flags().Int64Var(&opts.tail, "tail", 200, "initial history lines; 0 skips history, -1 reads all")
+	command.Flags().StringVar(&opts.stage, "stage", "build", "log stage: build|deploy|all")
+	command.Flags().Int64Var(&opts.tail, "tail", 200, "initial lines per stage; 0 skips history, -1 reads all")
 	command.Flags().StringVar(&opts.cursor, "cursor", "", "resume cursor returned by a previous log response")
 	command.Flags().BoolVarP(&opts.follow, "follow", "f", false, "wait for the task and follow new log content")
 	command.Flags().DurationVar(&opts.timeout, "timeout", 3*time.Minute, "total follow limit, e.g. 3m or 180s (requires --follow)")
@@ -150,8 +151,8 @@ func (opts *logsDeployOptions) validate(command *cobra.Command) error {
 	if command.Flags().Changed("commit-sha") && !fullCommitSHA.MatchString(opts.commitSHA) {
 		return fmt.Errorf("--commit-sha must be a full 40-character hexadecimal commit SHA")
 	}
-	if opts.stage != "build" {
-		return fmt.Errorf("--stage %q is not supported yet; use build", opts.stage)
+	if opts.stage != "build" && opts.stage != "deploy" && opts.stage != "all" {
+		return fmt.Errorf("--stage must be build, deploy or all")
 	}
 	if opts.tail < -1 {
 		return fmt.Errorf("--tail must be -1 or a non-negative line count")
@@ -160,9 +161,8 @@ func (opts *logsDeployOptions) validate(command *cobra.Command) error {
 		return fmt.Errorf("--tail and --cursor are mutually exclusive")
 	}
 	if command.Flags().Changed("cursor") {
-		cursor, err := strconv.ParseInt(opts.cursor, 10, 64)
-		if err != nil || cursor < 0 {
-			return fmt.Errorf("--cursor must be a non-negative int64 decimal string")
+		if err := validateStageCursor(opts.stage, opts.cursor); err != nil {
+			return err
 		}
 	}
 	if command.Flags().Changed("timeout") && !opts.follow {
@@ -196,13 +196,20 @@ type buildLogView struct {
 // readDeployLogs is the I/O boundary. It logs selection/wait/completion to stderr;
 // errors propagate to the standard CLI error reporter without logging secrets.
 func readDeployLogs(ctx context.Context, client *api.Client, opts logsDeployOptions, stdout, stderr io.Writer) error {
-	_, _ = fmt.Fprintln(stderr, "Reading build logs...")
-	id, err := resolveBuildLogTask(ctx, client, opts, stderr)
+	_, _ = fmt.Fprintf(stderr, "Reading %s logs...\n", opts.stage)
+	task, err := resolveBuildLogTask(ctx, client, opts, stderr)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "Build log task lookup failed.")
 		return err
 	}
-	_, _ = fmt.Fprintf(stderr, "Build: #%d\n", id)
+	_, _ = fmt.Fprintf(stderr, "Build: #%d\n", task.ID)
+	if opts.stage != "build" {
+		return readDeploymentStages(ctx, client, *task, opts, stdout, stderr)
+	}
+	return readBuildLogStage(ctx, client, task.ID, opts, stdout, stderr)
+}
+
+func readBuildLogStage(ctx context.Context, client *api.Client, id int64, opts logsDeployOptions, stdout, stderr io.Writer) error {
 	cursor := opts.cursor
 	var tail *int64
 	if opts.cursor == "" && opts.tail >= 0 {
@@ -259,41 +266,41 @@ func checkBuildLogCursor(previous string, chunk api.BuildLogChunk) error {
 	return nil
 }
 
-func resolveBuildLogTask(ctx context.Context, client *api.Client, opts logsDeployOptions, stderr io.Writer) (int64, error) {
+func resolveBuildLogTask(ctx context.Context, client *api.Client, opts logsDeployOptions, stderr io.Writer) (*api.BuildTask, error) {
 	waiting := false
 	for {
 		task, err := client.GetBuildTaskContext(ctx, opts.commitSHA, api.EnvBeta)
 		if err == nil {
 			if task.ID <= 0 {
-				return 0, fmt.Errorf("invalid build task response: missing task ID")
+				return nil, fmt.Errorf("invalid build task response: missing task ID")
 			}
 			if task.AppKey != opts.appKey {
 				app, appErr := client.GetAppContext(ctx, opts.appKey)
 				if appErr != nil {
-					return 0, fmt.Errorf("resolve beta app: %w", appErr)
+					return nil, fmt.Errorf("resolve beta app: %w", appErr)
 				}
 				betaKey, appErr := app.KeyForEnv(api.EnvBeta)
 				if appErr != nil {
-					return 0, appErr
+					return nil, appErr
 				}
 				if task.AppKey != betaKey {
-					return 0, fmt.Errorf("commit %s has no build task for app %s", opts.commitSHA, opts.appKey)
+					return nil, fmt.Errorf("commit %s has no build task for app %s", opts.commitSHA, opts.appKey)
 				}
 			}
-			return task.ID, nil
+			return task, nil
 		}
 		if !errors.Is(err, api.ErrNotFound) {
-			return 0, err
+			return nil, err
 		}
 		if !opts.follow {
-			return 0, fmt.Errorf("commit %s has no beta build task; deploy it first or use --follow to wait: %w", opts.commitSHA, err)
+			return nil, fmt.Errorf("commit %s has no beta build task; deploy it first or use --follow to wait: %w", opts.commitSHA, err)
 		}
 		if !waiting {
 			_, _ = fmt.Fprintf(stderr, "Waiting for beta build task of %s...\n", opts.commitSHA)
 			waiting = true
 		}
 		if err := waitBuildLogPoll(ctx); err != nil {
-			return 0, err
+			return nil, err
 		}
 	}
 }

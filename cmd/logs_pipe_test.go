@@ -1,6 +1,6 @@
 /**
  * [INPUT]: logs deploy, subprocesses and an unread stdout pipe
- * [OUTPUT]: Regression tests for timeout and SIGINT while output is blocked
+ * [OUTPUT]: Regression tests for stage timeouts and SIGINT while output is blocked
  * [POS]: Process-lifetime cancellation tests; no real deployments
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -30,7 +30,11 @@ func TestLogsDeployPipeChild(t *testing.T) {
 	command := newLogsCmd()
 	command.SetOut(os.Stdout)
 	command.SetErr(os.Stderr)
-	command.SetArgs([]string{"deploy", "--app", "test_app", "--commit-sha", strings.Repeat("a", 40), "--tail", "-1", "-f", "--timeout", os.Getenv("MAKECLI_LOG_PIPE_TIMEOUT")})
+	stage := os.Getenv("MAKECLI_LOG_PIPE_STAGE")
+	if stage == "" {
+		stage = "build"
+	}
+	command.SetArgs([]string{"deploy", "--stage", stage, "--app", "test_app", "--commit-sha", strings.Repeat("a", 40), "--tail", "-1", "-f", "--timeout", os.Getenv("MAKECLI_LOG_PIPE_TIMEOUT")})
 	os.Exit(ExitCode(command.Execute()))
 }
 
@@ -38,28 +42,35 @@ func TestLogsDeployBlockedPipe(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("os.Interrupt delivery is not supported by Go on Windows")
 	}
-	for _, scenario := range []string{"timeout", "interrupt"} {
+	for _, scenario := range []string{"timeout", "interrupt", "deploy-timeout", "deploy-interrupt", "all-timeout", "all-interrupt"} {
 		t.Run(scenario, func(t *testing.T) {
 			responseSent := make(chan struct{}, 1)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if strings.HasSuffix(r.URL.Path, "/build") {
-					_, _ = w.Write([]byte(`{"code":200,"data":{"id":42,"appKey":"test_app"}}`))
+					_, _ = w.Write([]byte(`{"code":200,"data":{"id":42,"orgId":1001,"appKey":"test_app","phase":"DEPLOY"}}`))
 					return
 				}
-				_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"content": strings.Repeat("x", 1<<20), "nextCursor": "1048576", "completed": true}})
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"content": strings.Repeat("x", 1<<20), "nextCursor": logPipeCursor(r.URL.Path), "completed": true}})
 				responseSent <- struct{}{}
 			}))
 			defer srv.Close()
 			timeout := "400ms"
 			want := 124
-			if scenario == "interrupt" {
+			if strings.HasSuffix(scenario, "interrupt") {
 				timeout = "10s"
 				want = 130
 			}
 			childCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			child := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestLogsDeployPipeChild$")
-			child.Env = append(os.Environ(), "MAKECLI_LOG_PIPE_CHILD=1", "MAKECLI_LOG_PIPE_TIMEOUT="+timeout, EnvAccessToken+"=test-token", EnvMetaServerURL+"="+srv.URL, EnvContext+"=dev", "MAKE_CLI_CONFIG_DIR="+t.TempDir())
+			stage := "build"
+			if strings.HasPrefix(scenario, "deploy-") {
+				stage = "deploy"
+			}
+			if strings.HasPrefix(scenario, "all-") {
+				stage = "all"
+			}
+			child.Env = append(os.Environ(), "MAKECLI_LOG_PIPE_STAGE="+stage, "MAKECLI_LOG_PIPE_CHILD=1", "MAKECLI_LOG_PIPE_TIMEOUT="+timeout, EnvAccessToken+"=test-token", EnvMetaServerURL+"="+srv.URL, EnvContext+"=dev", "MAKE_CLI_CONFIG_DIR="+t.TempDir())
 			stdout, err := child.StdoutPipe()
 			if err != nil {
 				t.Fatal(err)
@@ -78,7 +89,7 @@ func TestLogsDeployBlockedPipe(t *testing.T) {
 			if _, err := io.ReadFull(stdout, make([]byte, 1)); err != nil {
 				t.Fatal(err)
 			}
-			if scenario == "interrupt" {
+			if strings.HasSuffix(scenario, "interrupt") {
 				if err := child.Process.Signal(os.Interrupt); err != nil {
 					t.Fatal(err)
 				}
@@ -90,4 +101,11 @@ func TestLogsDeployBlockedPipe(t *testing.T) {
 			}
 		})
 	}
+}
+
+func logPipeCursor(path string) any {
+	if strings.HasSuffix(path, "/deployment/events") {
+		return 400
+	}
+	return "1048576"
 }

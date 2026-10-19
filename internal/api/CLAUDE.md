@@ -30,7 +30,8 @@
 
 ## 成员清单
 - `build_log.go` / `build_log_test.go`：BuildLogChunk、BuildLogOptions 与 GetBuildLog/GetBuildLogWithOptions，固定 BUILD scope，支持 tailLines 回执校验及游标；GetAppContext 让配对查询共用取消期限。空日志合法、缺 data 拒绝；请求契约、业务错误和取消测试。
-- `build.go`：GetBuildTaskContext 用于日志查任务，旧 GetBuildTask 委托同一路径。
+- `build.go`：GetBuildTaskContext 用于日志查任务，GetBuildTaskByIDContext 固定 ID 查终态；OrgID 仅供部署事件路由，不改变状态 JSON 输出。旧 GetBuildTask 委托同一路径。
+- `deployment_log.go` / `deployment_log_test.go`：GetDeploymentLog 按租户、实际 Beta appKey、任务 ID 和事件序号读取 deployment/events；复用认证/追踪/取消，请求契约、异常回执与超时测试。
 - `client.go`：requestContext 使用 NewRequestWithContext；旧 request 以 Background 委托，认证、追踪和解码保持统一。
 - `client.go`（App 配对知识）: App.Role（meta.appRole，缺省视为 prod）/ PairAppKey / HostedEnv（beta 角色承载 EnvBeta，prod 承载 EnvProduction）/ KeyForEnv(env)（自身承载则自己，否则配对 app，无配对报错）——环境 → 承载 app key 的定位收口在数据类型上，deploy 建仓库与 delete 定位配对共用；RoleProd / RoleBeta 常量
 - `agent_plugin.go`: AgentPluginDefinition 与 ListAgentPlugins，独立于已绑定 AgentPlugin；POST /agent/v1/plugin + ListResources，默认可用项，仅分页，完整保留 configSchema。

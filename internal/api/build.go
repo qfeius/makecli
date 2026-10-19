@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 复用 client.go 的 Client.requestContext / checkGetResult / ErrNotFound，依赖 context 与 net/http
- * [OUTPUT]: 对外提供 BuildTask、终态常量及判定方法、GetBuildTask 和可取消的 GetBuildTaskContext
+ * [OUTPUT]: 对外提供 BuildTask、终态常量及判定方法、GetBuildTask、GetBuildTaskContext 与固定 ID 查询 GetBuildTaskByIDContext
  * [POS]: internal/api 的构建服务（make-build-service）查询层：按 commitSha + environment 精确查询构建任务详情
  *        （POST /build/v1/build + X-Make-Target: MakeService.GetResource，网关前缀 /api/make 由 cmd 层补齐），
  *        供 `app deploy --status` 用本地 HEAD sha 反查部署进度
@@ -11,7 +11,9 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"strconv"
 )
 
 // BuildTask 是构建服务返回的构建任务详情（字段契约见 make-build-service 设计文档 §11）。
@@ -19,6 +21,7 @@ import (
 // ID 是 Build→Deploy 全链路的关联键（后续日志接口按它定位）。
 type BuildTask struct {
 	ID                int64  `json:"id"`
+	OrgID             int64  `json:"-"` // Internal log routing identity; excluded from status output.
 	AppKey            string `json:"appKey"`
 	DeploymentVersion string `json:"deploymentVersion"`
 	Environment       string `json:"environment"`
@@ -71,11 +74,29 @@ func (c *Client) GetBuildTask(commitSha, env string) (*BuildTask, error) {
 // GetBuildTaskContext is the cancellable task lookup used before following logs.
 // Once resolved, callers retain the returned ID instead of selecting by SHA again.
 func (c *Client) GetBuildTaskContext(ctx context.Context, commitSha, env string) (*BuildTask, error) {
-	reqBody := map[string]any{"commitSha": commitSha, "environment": env}
+	return c.getBuildTask(ctx, map[string]any{"commitSha": commitSha, "environment": env})
+}
+
+// GetBuildTaskByIDContext keeps log following attached to the originally selected task.
+func (c *Client) GetBuildTaskByIDContext(ctx context.Context, id int64) (*BuildTask, error) {
+	task, err := c.getBuildTask(ctx, map[string]any{"id": strconv.FormatInt(id, 10)})
+	if err != nil {
+		return nil, err
+	}
+	if task.ID != id {
+		return nil, fmt.Errorf("build task response identity changed")
+	}
+	return task, nil
+}
+
+func (c *Client) getBuildTask(ctx context.Context, reqBody map[string]any) (*BuildTask, error) {
 	var result struct {
-		Code    int       `json:"code"`
-		Message string    `json:"msg"`
-		Data    BuildTask `json:"data"`
+		Code    int    `json:"code"`
+		Message string `json:"msg"`
+		Data    struct {
+			BuildTask
+			OrgID int64 `json:"orgId"`
+		} `json:"data"`
 	}
 	if err := c.requestContext(ctx, http.MethodPost, "MakeService.GetResource", "/build/v1/build", reqBody, &result); err != nil {
 		return nil, err
@@ -83,5 +104,7 @@ func (c *Client) GetBuildTaskContext(ctx context.Context, commitSha, env string)
 	if err := checkGetResult(result.Code, result.Message, result.Data.ID != 0); err != nil {
 		return nil, err
 	}
-	return &result.Data, nil
+	task := result.Data.BuildTask
+	task.OrgID = result.Data.OrgID
+	return &task, nil
 }

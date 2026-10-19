@@ -100,7 +100,7 @@ func TestLogsDeployContractRejectsWrongApp(t *testing.T) {
 }
 
 func TestLogsDeployContractValidation(t *testing.T) {
-	cases := [][]string{{"--tail", "-2"}, {"--cursor", ""}, {"--tail", "x"}, {"--tail", "1", "--cursor", "0"}, {"--follow", "--timeout", "0s"}, {"--follow", "--timeout", "120"}, {"--timeout", "2m"}, {"--id", "42"}, {"--stage", "deploy"}, {"--stage", "all"}}
+	cases := [][]string{{"--tail", "-2"}, {"--cursor", ""}, {"--tail", "x"}, {"--tail", "1", "--cursor", "0"}, {"--follow", "--timeout", "0s"}, {"--follow", "--timeout", "120"}, {"--timeout", "2m"}, {"--id", "42"}, {"--stage", "unknown"}}
 	for _, args := range cases {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			setupDeployLogsTest(t, func(http.ResponseWriter, *http.Request) { t.Error("invalid args reached network") })

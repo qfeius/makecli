@@ -79,7 +79,7 @@ brew install makecli
 
 ## 文档入口与变更
 
-- `logs deploy`：默认 app.yaml + HEAD + beta 定位任务；首版 stage=build，首次服务端 tail 默认 200 行，随后游标续读；follow 默认 3m，总超时 124、中断 130；不提供任务 ID 参数。
+- `logs deploy`：默认 app.yaml + HEAD + beta 定位任务；stage=build（默认）/deploy/all，构建读 TOS、部署读 deployment/events；tail 默认每阶段 200 行，独立游标续读；follow 默认总计 3m，超时 124、中断 130；不提供任务 ID 参数。
 
 `app +favo` 是当前用户收藏列表的只读快捷命令，等价于 `app list --filter "workbenchGroup=favorite"`；共享列表执行路径、分页与输出，不增加 API 客户端职责。
 

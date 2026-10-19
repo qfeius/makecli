@@ -2,8 +2,9 @@
 > L2 | 父级: /CLAUDE.md
 
 ## 渲染约定
-- `logs_deploy.go`：顶级 logs deploy，app.yaml/--app 与 HEAD/--commit-sha 定位并校验 Beta 任务归属；stage=build；服务端 tail 默认 200，follow 默认 3m，游标续读；进程输出阻塞仍可取消。
-- `logs_deploy_test.go` / `logs_deploy_contract_test.go` / `logs_pipe_test.go`：项目默认值、SHA 与应用归属、tail/游标契约、错误、HTTP 取消和子进程阻塞管道退出测试。
+- `logs_deploy.go`：顶级 logs deploy，app.yaml/--app 与 HEAD/--commit-sha 定位并校验 Beta 任务归属；stage=build/deploy/all；tail 默认每阶段 200，follow 默认总计 3m；进程输出阻塞仍可取消。
+- `logs_stages.go`：部署事件分页与末尾行截取；all 按构建、部署顺序读取，组合游标隔离字节偏移和事件序号并绑定任务；固定 ID 查终态，构建失败后不等待不存在的部署。
+- `logs_deploy_test.go` / `logs_deploy_contract_test.go` / `logs_stages_test.go` / `logs_pipe_test.go`：项目默认值、SHA 与应用归属、阶段选择、tail/分页/游标契约、错误、HTTP 取消和各阶段阻塞管道退出测试。
 - `output.go`：writeJSONTo 可注入输出流，writeJSON 保留旧 stdout 与通知语义。
 - 表格统一用 `github.com/olekukonko/tablewriter`（边框 + Header），禁止用 stdlib `text/tabwriter`
 - key-value 头部信息（File / Name / App 等）用 `fmt.Printf("%-N s %s\n", ...)` 平铺，不进表格
