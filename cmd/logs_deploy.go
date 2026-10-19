@@ -1,6 +1,6 @@
 /**
  * [INPUT]: Build and deployment event APIs, app manifest, Git HEAD, beta/prod app roles and CLI output helpers
- * [OUTPUT]: logs deploy with app role and stage selection, JSON appRole, initial tail and bounded follow
+ * [OUTPUT]: logs deploy with beta/prod build queries, JSON appRole, initial tail and bounded follow
  * [POS]: Read-only deployment log command; process worker owns stdout, stderr and final error output
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -292,7 +292,7 @@ func checkBuildLogCursor(previous string, chunk api.BuildLogChunk) error {
 func resolveBuildLogTask(ctx context.Context, client *api.Client, opts logsDeployOptions, stderr io.Writer) (*api.BuildTask, error) {
 	waiting := false
 	for {
-		task, err := client.GetBuildTaskContext(ctx, opts.commitSHA, opts.taskEnvironment())
+		task, err := client.GetBuildTaskContext(ctx, opts.commitSHA, opts.appRole)
 		if err == nil {
 			if task.ID <= 0 {
 				return nil, fmt.Errorf("invalid build task response: missing task ID")
@@ -305,7 +305,7 @@ func resolveBuildLogTask(ctx context.Context, client *api.Client, opts logsDeplo
 				if appErr != nil {
 					return nil, fmt.Errorf("resolve %s app: %w", opts.appRole, appErr)
 				}
-				envKey, appErr := app.KeyForEnv(opts.taskEnvironment())
+				envKey, appErr := app.KeyForEnv(opts.appEnvironment())
 				if appErr != nil {
 					return nil, appErr
 				}
@@ -331,7 +331,7 @@ func resolveBuildLogTask(ctx context.Context, client *api.Client, opts logsDeplo
 	}
 }
 
-func (opts logsDeployOptions) taskEnvironment() string {
+func (opts logsDeployOptions) appEnvironment() string {
 	if opts.appRole == api.RoleProd {
 		return api.EnvProduction
 	}
@@ -344,7 +344,7 @@ func (opts logsDeployOptions) matchesTaskEnvironment(env string) bool {
 	if env == "" {
 		return opts.appRole == api.RoleBeta
 	}
-	return env == opts.appRole || api.DisplayEnv(env) == opts.taskEnvironment()
+	return env == opts.appRole || api.DisplayEnv(env) == opts.appEnvironment()
 }
 
 func waitBuildLogPoll(ctx context.Context) error {

@@ -1,6 +1,6 @@
 /**
  * [INPUT]: logs deploy appRole flag and build/deployment HTTP fixtures
- * [OUTPUT]: beta/prod role selection, app pairing, cursor isolation and validation tests
+ * [OUTPUT]: canonical beta/prod requests, JSON roles, legacy response pairing and isolation tests
  * [POS]: App role contracts shared by build/deploy/all log stages
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -23,7 +23,7 @@ func TestLogsDeployAppRoleSelection(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/%s/follow=%t", env, stage, follow), func(t *testing.T) {
 					publicEnv, serverEnv, taskID := "beta", "beta", "42"
 					if env == "prod" {
-						publicEnv, serverEnv, taskID = "prod", "production", "84"
+						publicEnv, serverEnv, taskID = "prod", "prod", "84"
 					}
 					setupDeployLogsTest(t, func(w http.ResponseWriter, r *http.Request) {
 						var body map[string]any
@@ -94,6 +94,11 @@ func TestLogsDeployProdResolvesPairedApp(t *testing.T) {
 	setupDeployLogsTest(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/build"):
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["environment"] != "prod" {
+				t.Errorf("task environment=%v want=prod", body["environment"])
+			}
 			_, _ = io.WriteString(w, `{"code":200,"data":{"id":84,"orgId":1001,"appKey":"prod_app","environment":"production","status":"SUCCESS","phase":"DEPLOY"}}`)
 		case strings.HasSuffix(r.URL.Path, "/app"):
 			_, _ = io.WriteString(w, `{"code":200,"data":{"key":"test_app","meta":{"appRole":"beta","pairAppKey":"prod_app"}}}`)

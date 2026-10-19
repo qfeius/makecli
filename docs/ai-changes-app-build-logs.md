@@ -1,5 +1,12 @@
 # AI 变更记录：构建日志查询
 
+## 2026-10-19：build 查询统一传 prod
+- 摘要：logs deploy 按 appRole 原样发送 build 查询的 environment（beta/prod）。
+- 涉及模块：`cmd/logs_deploy.go`、`cmd/logs_app_role_test.go`、根与 cmd 模块地图。
+- 决策：应用配对仍沿用共享环境词汇；兼容任务响应中的 production，JSON appRole 不变。
+- TDD：先将六个 Prod 阶段/跟随场景及生产配对请求断言改为 prod，复现 production 请求导致的失败后修复。
+- 验证：请求契约、全量测试、竞态、lint、编译及 18 个 CLI 场景通过；dev 三阶段 Beta 可读，Prod 无任务明确报错。
+
 ## 2026-10-19：统一日志 JSON 角色字段为 appRole
 - 摘要：build/deploy/all 的 JSON 快照使用 appRole（beta/prod），移除旧 env 字段，与 --appRole 参数对应。
 - 涉及模块：`cmd/logs_deploy.go`、`cmd/logs_stages.go`、`cmd/logs_app_role_test.go`、README 和命令地图。
