@@ -1,5 +1,5 @@
 /**
- * [INPUT]: Build byte logs, deployment event pages and a pinned task identity
+ * [INPUT]: Build byte logs, deployment event pages and an environment-selected pinned task identity
  * [OUTPUT]: deploy/all snapshots and follow with independent cursors and a final drain after task termination
  * [POS]: Stage orchestration; shares the command context and process output cancellation
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -112,7 +112,7 @@ func readDeploymentStages(ctx context.Context, client *api.Client, task api.Buil
 		}
 		cursor := reader.cursor.encode(opts.stage)
 		if opts.output == outputJSON {
-			return writeJSONTo(stdout, buildLogView{AppKey: opts.appKey, CommitSHA: opts.commitSHA, Stage: opts.stage, BuildLogChunk: api.BuildLogChunk{Content: content, NextCursor: cursor, Completed: completed}})
+			return writeJSONTo(stdout, buildLogView{AppKey: opts.appKey, Env: opts.env, CommitSHA: opts.commitSHA, Stage: opts.stage, BuildLogChunk: api.BuildLogChunk{Content: content, NextCursor: cursor, Completed: completed}})
 		}
 		if !opts.follow || completed {
 			_, _ = fmt.Fprintf(stderr, "%s logs read (task #%d, nextCursor=%s, completed=%t).\n", opts.stage, task.ID, cursor, completed)

@@ -322,6 +322,9 @@ makecli logs deploy --stage deploy
 # 构建和部署两个阶段，持续跟随
 makecli logs deploy --stage all -f
 
+# 查看生产环境同一提交的日志
+makecli logs deploy --env prod --commit-sha <40位SHA> --stage all
+
 # 最后 100 行并继续跟随；--timeout 仅用于 --follow，默认 3m
 makecli logs deploy --tail 100 -f --timeout 2m
 
@@ -336,7 +339,7 @@ makecli logs deploy --tail -1
 makecli logs deploy --commit-sha <40位SHA> --cursor <nextCursor>
 ```
 
-`logs deploy` 默认从 `apps/dsl/app.yaml` 读取应用，从 Git HEAD 读取提交 SHA，查询 Beta 构建任务后固定该任务读取。`--stage build`（默认）查看安装依赖、编译、构建及推送镜像的日志；`--stage deploy` 查看实例创建或更新、启动、健康检查的部署事件；`--stage all` 按构建、部署顺序输出。最终部署状态使用 `makecli app deploy --status --wait` 查询。
+`logs deploy` 默认从 `apps/dsl/app.yaml` 读取应用，从 Git HEAD 读取提交 SHA。`--env beta|prod` 默认 `beta`，按 SHA 和环境查询并固定任务；使用配对应用的 key 时会定位所选环境的应用。`--stage build`（默认）查看安装依赖、编译、构建及推送镜像的日志；`--stage deploy` 查看实例创建或更新、启动、健康检查的部署事件；`--stage all` 按构建、部署顺序输出。日志读取完成不代表发布成功。
 
 `--tail N` 限制每个阶段首次读取的历史行数，默认 200；`0` 跳过该阶段已有日志，`-1` 读取全部。构建日志由服务端截取，部署事件由 CLI 分页读取后截取。`all` 分别保留两个阶段的最后 N 行。跟随时后续请求按游标读取新增内容。显式 `--tail` 与 `--cursor` 互斥；指定游标时不应用默认行数限制。构建日志服务端需支持 `tailLines`，旧服务可使用 `--tail=-1` 读取。
 
@@ -344,7 +347,7 @@ makecli logs deploy --commit-sha <40位SHA> --cursor <nextCursor>
 
 `--follow` / `-f` 等待任务创建并持续输出正文，`--timeout` 支持 `3m`、`180s` 等时长，总超时默认 3 分钟，覆盖任务查询、请求、轮询和进程输出。stdout 或 stderr 管道阻塞时仍会退出；stderr 堵塞时，最后的超时或中断提示可能无法输出。超时仅停止本地读取，返回 124；Ctrl+C 返回 130；读取成功返回 0，参数或接口错误返回 1。
 
-单次读取的 `--output auto` 在终端输出正文，在管道或 Agent 下输出 JSON（`appKey`、`commitSha`、`stage`、`content`、`nextCursor`、`completed`）；`--output table` 可强制正文。跟随模式不支持 JSON，诊断信息写入 stderr。后端与凭证沿用 `--context` / `--profile`。
+单次读取的 `--output auto` 在终端输出正文，在管道或 Agent 下输出 JSON（`appKey`、`env`、`commitSha`、`stage`、`content`、`nextCursor`、`completed`）；`--output table` 可强制正文。跟随模式不支持 JSON，诊断信息写入 stderr。后端与凭证沿用 `--context` / `--profile`。
 
 ## 开发指南
 ### 编译

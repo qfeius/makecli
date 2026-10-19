@@ -1,5 +1,13 @@
 # AI 变更记录：构建日志查询
 
+## 2026-10-19：增加 beta/prod 日志环境选择
+- 摘要：`logs deploy --env beta|prod` 默认 beta；三个日志阶段共用环境选择，JSON 增加 env。
+- 涉及模块：`cmd/logs_deploy.go`、`cmd/logs_stages.go`、`cmd/logs_env_test.go`、README 及命令地图。
+- 决策：prod 映射 API production，按 SHA 和环境选定任务后固定 ID；应用配对校验改为匹配所选环境。
+- 边界：拒绝不匹配的任务环境及跨任务组合游标；生产任务缺环境身份时报错；等待和超时重试提示保留 env。
+- TDD：新增测试先复现缺少 --env 和 JSON env，再实现环境选择；覆盖默认值、build/deploy/all 快照与跟随、配对、非法输入及超时。
+- 验证：make vet/test/build、竞态检查、lint 0 issues 及编译后 12 组环境/阶段/输出组合通过；dev 同 SHA 的 Beta 可读、Prod 无任务且未回退 Beta；新增环境辅助逻辑覆盖率 100%。
+
 ## 2026-10-19：修复部署终态事件漏读
 - 摘要：任务终态不再直接替代事件 completed；观察终态后从当前事件游标再次读取，继续分页至 completed 或后续空页。
 - 涉及模块：`cmd/logs_stages.go`、`cmd/logs_terminal_test.go`、命令模块文档。
