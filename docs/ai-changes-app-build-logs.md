@@ -1,5 +1,14 @@
 # AI 变更记录：构建日志查询
 
+## 2026-10-19：修复部署终态事件漏读
+- 摘要：任务终态不再直接替代事件 completed；观察终态后从当前事件游标再次读取，继续分页至 completed 或后续空页。
+- 涉及模块：`cmd/logs_stages.go`、`cmd/logs_terminal_test.go`、命令模块文档。
+- 决策：终态已在选任务时确认的，后续首次事件查询即满足补拉条件；运行中任务按固定 ID 查终态后继续读取，不重置游标或总超时。
+- 边界：无终态事件时补拉到空页可结束；补拉失败按错误返回，等待仍受同一 context 控制；首次 tail 与后续增量读取语义保持不变。
+- TDD：先复现空事件响应后任务变终态，12 个 deploy/all 快照及 follow 场景均丢失最后两页，再用终态观察标记修复。
+- 专项：新增 18 个场景，覆盖 SUCCESS/FAILED/CANCELED、0/1 行 tail 不重复应用、空页、错误、异常游标及超时。
+- 验证：make vet/test/build、golangci-lint 0 issues、日志与 API 竞态检查通过；review 原始漏读复现测试已转为通过。
+
 ## 2026-10-19：修复 stderr 阻塞时无法按超时退出
 - 摘要：日志读取、debug 转储和最终错误打印统一由现有进程 worker 负责，取消后不等待阻塞写入。
 - 涉及模块：`cmd/logs_deploy.go`、`cmd/errors.go`、对应测试与命令文档。

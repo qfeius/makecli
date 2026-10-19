@@ -1,6 +1,6 @@
 /**
  * [INPUT]: Build byte logs, deployment event pages and a pinned task identity
- * [OUTPUT]: deploy/all snapshots and ordered follow with independent resumable cursors
+ * [OUTPUT]: deploy/all snapshots and follow with independent cursors and a final drain after task termination
  * [POS]: Stage orchestration; shares the command context and process output cancellation
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -185,11 +185,13 @@ func readStageBuild(ctx context.Context, client *api.Client, id int64, cursor st
 
 // readStageDeployment drains existing pages before applying tail. Resume requests
 // retain the event sequence even when tail zero suppresses all initial content.
+// An observed terminal task requires a subsequent event read before completion.
 func readStageDeployment(ctx context.Context, client *api.Client, task api.BuildTask, cursor uint64, tail int64, initial bool) (*api.DeploymentLogChunk, error) {
 	if task.Finished() && task.Phase != "DEPLOY" {
 		return &api.DeploymentLogChunk{NextCursor: cursor, Completed: true}, nil
 	}
 	history := ""
+	terminalObserved := task.Finished()
 	for {
 		chunk, err := client.GetDeploymentLog(ctx, task, cursor)
 		if err != nil {
@@ -204,13 +206,16 @@ func readStageDeployment(ctx context.Context, client *api.Client, task api.Build
 		}
 		cursor = chunk.NextCursor
 		if chunk.Completed || chunk.Content == "" {
-			completed := chunk.Completed
+			completed := chunk.Completed || terminalObserved
 			if !completed {
 				current, statusErr := client.GetBuildTaskByIDContext(ctx, task.ID)
 				if statusErr != nil {
 					return nil, statusErr
 				}
-				completed = current.Finished()
+				if current.Finished() {
+					terminalObserved = true
+					continue
+				}
 			}
 			content := history
 			if initial {
