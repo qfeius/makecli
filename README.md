@@ -342,7 +342,7 @@ makecli logs deploy --commit-sha <40位SHA> --cursor <nextCursor>
 
 `--cursor` 使用同一阶段上次返回的 `nextCursor`：`build` 为字节偏移，`deploy` 为事件序号，`all` 为包含两个阶段位置的组合游标。组合游标绑定构建任务，不能用于另一任务。构建失败或取消且未进入部署时，部署阶段返回空日志并结束跟随。
 
-`--follow` / `-f` 等待任务创建并持续输出正文，`--timeout` 支持 `3m`、`180s` 等时长，总超时默认 3 分钟，覆盖任务查询、请求、轮询和进程输出。超时仅停止本地读取，返回 124；Ctrl+C 返回 130；读取成功返回 0，参数或接口错误返回 1。
+`--follow` / `-f` 等待任务创建并持续输出正文，`--timeout` 支持 `3m`、`180s` 等时长，总超时默认 3 分钟，覆盖任务查询、请求、轮询和进程输出。stdout 或 stderr 管道阻塞时仍会退出；stderr 堵塞时，最后的超时或中断提示可能无法输出。超时仅停止本地读取，返回 124；Ctrl+C 返回 130；读取成功返回 0，参数或接口错误返回 1。
 
 单次读取的 `--output auto` 在终端输出正文，在管道或 Agent 下输出 JSON（`appKey`、`commitSha`、`stage`、`content`、`nextCursor`、`completed`）；`--output table` 可强制正文。跟随模式不支持 JSON，诊断信息写入 stderr。后端与凭证沿用 `--context` / `--profile`。
 

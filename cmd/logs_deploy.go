@@ -1,7 +1,7 @@
 /**
  * [INPUT]: Build and deployment event APIs, app manifest, Git HEAD and CLI output helpers
  * [OUTPUT]: logs deploy with build/deploy/all selection, initial tail and bounded follow
- * [POS]: Read-only deployment log command; stdout is content/JSON, diagnostics use stderr
+ * [POS]: Read-only deployment log command; process worker owns stdout, stderr and final error output
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 package cmd
@@ -96,15 +96,7 @@ until the stage completes or --timeout expires.`,
 				ctx, cancel = context.WithTimeout(ctx, opts.timeout)
 				defer cancel()
 			}
-			err = readLogsCommand(ctx, client, opts, command.OutOrStdout(), command.ErrOrStderr())
-			switch {
-			case opts.follow && errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded):
-				return fmt.Errorf("%w: %s logs (%s); retry with --commit-sha %s", errWaitTimeout, opts.stage, opts.timeout, opts.commitSHA)
-			case errors.Is(err, context.Canceled):
-				return errLogsInterrupted
-			default:
-				return err
-			}
+			return readLogsCommand(ctx, client, opts, command.OutOrStdout(), command.ErrOrStderr())
 		},
 	}
 	command.Flags().StringVar(&opts.appKey, "app", "", "app key (default: apps/dsl/app.yaml)")
@@ -118,24 +110,47 @@ until the stage completes or --timeout expires.`,
 	return command
 }
 
-// A CLI process owns its stdout writer. One worker keeps a blocked pipe from
-// preventing cancellation; main exits with 124/130 without waiting on that pipe.
+// One process worker owns both output streams, debug and final error reporting.
+// Cancellation returns 124/130 without waiting on blocked writes or asking root
+// to write another diagnostic. A saturated stderr may lose the final message.
 // Injected writers run synchronously so callers retain ownership and no worker
 // can outlive an in-process command or continue writing into a reused buffer.
 func readLogsCommand(ctx context.Context, client *api.Client, opts logsDeployOptions, stdout, stderr io.Writer) error {
 	file, processOutput := stdout.(*os.File)
 	if !processOutput || file != os.Stdout {
-		return readDeployLogs(ctx, client, opts, stdout, stderr)
+		err := readDeployLogs(ctx, client, opts, stdout, stderr)
+		return classifyLogsError(opts, err, ctx.Err())
 	}
 	result := make(chan error, 1)
-	go func() { result <- readDeployLogs(ctx, client, opts, stdout, stderr) }()
+	go func() { result <- readAndReportLogs(ctx, client, opts, stdout, stderr) }()
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return &commandOutputError{classifyLogsError(opts, ctx.Err(), ctx.Err())}
 	case err := <-result:
-		if ctx.Err() != nil {
-			return ctx.Err()
+		if contextErr := ctx.Err(); contextErr != nil {
+			return &commandOutputError{classifyLogsError(opts, contextErr, contextErr)}
 		}
+		return err
+	}
+}
+
+func readAndReportLogs(ctx context.Context, client *api.Client, opts logsDeployOptions, stdout, stderr io.Writer) error {
+	err := readDeployLogs(ctx, client, opts, stdout, stderr)
+	err = classifyLogsError(opts, err, ctx.Err())
+	reportExecuteError(stderr, err)
+	if err != nil {
+		return &commandOutputError{err}
+	}
+	return nil
+}
+
+func classifyLogsError(opts logsDeployOptions, err, contextErr error) error {
+	switch {
+	case opts.follow && errors.Is(err, context.DeadlineExceeded) && errors.Is(contextErr, context.DeadlineExceeded):
+		return fmt.Errorf("%w: %s logs (%s); retry with --commit-sha %s", errWaitTimeout, opts.stage, opts.timeout, opts.commitSHA)
+	case errors.Is(err, context.Canceled):
+		return errLogsInterrupted
+	default:
 		return err
 	}
 }

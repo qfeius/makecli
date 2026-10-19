@@ -1,5 +1,14 @@
 # AI 变更记录：构建日志查询
 
+## 2026-10-19：修复 stderr 阻塞时无法按超时退出
+- 摘要：日志读取、debug 转储和最终错误打印统一由现有进程 worker 负责，取消后不等待阻塞写入。
+- 涉及模块：`cmd/logs_deploy.go`、`cmd/errors.go`、对应测试与命令文档。
+- 决策：`commandOutputError` 标记输出归属，根错误出口跳过重复打印；错误链保留，退出码及正常鉴权指引不变。
+- 边界：stderr 堵塞时允许最后一条提示丢失，以保证 124/130 退出；不增加每条日志的 goroutine。
+- TDD：先以完整根命令子进程复现 400ms 超时被阻塞至 3s 强杀，再补标记类型及 worker 内最终错误呈现。
+- 专项：三个阶段的 stderr 阻塞 9 场景、stdout 阻塞 6 场景及正常错误仅打印一次的测试通过。
+- 验证：make vet/test/build、golangci-lint 0 issues、日志及公共错误处理竞态测试通过；原二进制复现场景现可在超时后返回 124。
+
 ## 2026-10-19：补齐 deploy / all 阶段
 - 摘要：`logs deploy --stage` 支持 build（默认）、deploy、all；移除仅限 build 的参数限制。
 - 涉及模块：`cmd/logs_deploy.go`、`cmd/logs_stages*`、`cmd/logs_pipe_test.go`、`internal/api/build.go`、`internal/api/deployment_log*` 及分层文档。

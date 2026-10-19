@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 bytes、errors、fmt、strings、testing，依赖 internal/api 的 ErrAuthFailed；用 setProfile/setContextFlag 隔离全局态
- * [OUTPUT]: 覆盖 reportExecuteError 各分支（nil/退出码哨兵静默/真实错误打印/鉴权升级）+ authFailedHint 文案 + ExitCode 退出码映射（0/2/124/1）
+ * [OUTPUT]: 覆盖根错误呈现、worker 输出归属、authFailedHint 与 ExitCode/错误链保持
  * [POS]: cmd 模块错误呈现单一出口的测试，守护退出码哨兵静默、真实错误打印、鉴权引导升级三态与退出码契约
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -93,5 +93,22 @@ func TestExitCode(t *testing.T) {
 				t.Errorf("ExitCode(%v) = %d, want %d", c.err, got, c.want)
 			}
 		})
+	}
+}
+
+func TestCommandOutputErrorPreservesCauseWithoutReportingAgain(t *testing.T) {
+	for _, cause := range []error{errWaitTimeout, errLogsInterrupted, fmt.Errorf("%w: invalid token", api.ErrAuthFailed)} {
+		err := fmt.Errorf("command: %w", &commandOutputError{cause})
+		if !errors.Is(err, cause) {
+			t.Fatalf("cause lost: %v", err)
+		}
+		if ExitCode(err) != ExitCode(cause) {
+			t.Fatalf("exit code changed: %v", err)
+		}
+		var output bytes.Buffer
+		reportExecuteError(&output, err)
+		if output.Len() != 0 {
+			t.Fatalf("root repeated worker diagnostic: %s", output.String())
+		}
 	}
 }
