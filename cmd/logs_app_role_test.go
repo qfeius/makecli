@@ -34,6 +34,9 @@ func TestLogsDeployAppRoleSelection(t *testing.T) {
 							if body["environment"] != serverEnv || body["commitSha"] != strings.Repeat("a", 40) {
 								t.Errorf("task selection=%v", body)
 							}
+							if body["appRole"] != nil || body["env"] != nil {
+								t.Errorf("task lookup must keep its environment protocol: %v", body)
+							}
 							_, _ = fmt.Fprintf(w, `{"code":200,"data":{"id":%s,"orgId":1001,"appKey":"test_app","environment":%q,"status":"SUCCESS","phase":"DEPLOY"}}`, taskID, publicEnv)
 							return
 						}
@@ -64,12 +67,16 @@ func TestLogsDeployAppRoleSelection(t *testing.T) {
 					}
 					content := out
 					if !follow {
-						var snapshot struct{ Env, Content string }
+						var snapshot struct {
+							AppRole string          `json:"appRole"`
+							Content string          `json:"content"`
+							Env     json.RawMessage `json:"env"`
+						}
 						if err := json.Unmarshal([]byte(out), &snapshot); err != nil {
 							t.Fatal(err)
 						}
-						if snapshot.Env != publicEnv {
-							t.Errorf("snapshot env=%q want=%s", snapshot.Env, publicEnv)
+						if snapshot.AppRole != publicEnv || snapshot.Env != nil {
+							t.Errorf("snapshot appRole=%q want=%s obsolete env=%s", snapshot.AppRole, publicEnv, snapshot.Env)
 						}
 						content = snapshot.Content
 					}

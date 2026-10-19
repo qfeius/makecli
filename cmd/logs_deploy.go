@@ -1,6 +1,6 @@
 /**
  * [INPUT]: Build and deployment event APIs, app manifest, Git HEAD, beta/prod app roles and CLI output helpers
- * [OUTPUT]: logs deploy with app role and stage selection, initial tail and bounded follow
+ * [OUTPUT]: logs deploy with app role and stage selection, JSON appRole, initial tail and bounded follow
  * [POS]: Read-only deployment log command; process worker owns stdout, stderr and final error output
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -210,7 +210,7 @@ func (opts *logsDeployOptions) validate(command *cobra.Command) error {
 
 type buildLogView struct {
 	AppKey    string `json:"appKey"`
-	Env       string `json:"env"`
+	AppRole   string `json:"appRole"`
 	CommitSHA string `json:"commitSha"`
 	Stage     string `json:"stage"`
 	api.BuildLogChunk
@@ -251,7 +251,7 @@ func readBuildLogStage(ctx context.Context, client *api.Client, id int64, opts l
 			}
 		}
 		if opts.output == outputJSON {
-			return writeJSONTo(stdout, buildLogView{AppKey: opts.appKey, Env: opts.appRole, CommitSHA: opts.commitSHA, Stage: opts.stage, BuildLogChunk: *chunk})
+			return writeJSONTo(stdout, buildLogView{AppKey: opts.appKey, AppRole: opts.appRole, CommitSHA: opts.commitSHA, Stage: opts.stage, BuildLogChunk: *chunk})
 		}
 		if _, err := io.WriteString(stdout, chunk.Content); err != nil {
 			return fmt.Errorf("write build logs: %w", err)

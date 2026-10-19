@@ -1,5 +1,12 @@
 # AI 变更记录：构建日志查询
 
+## 2026-10-19：统一日志 JSON 角色字段为 appRole
+- 摘要：build/deploy/all 的 JSON 快照使用 appRole（beta/prod），移除旧 env 字段，与 --appRole 参数对应。
+- 涉及模块：`cmd/logs_deploy.go`、`cmd/logs_stages.go`、`cmd/logs_app_role_test.go`、README 和命令地图。
+- 决策：只调整日志呈现视图；构建任务查询的 environment 参数、角色映射和其他命令的 JSON 不变。
+- TDD：先将九个角色/阶段快照契约改为要求 appRole 且拒绝 env，复现原输出失败后再调整两个输出路径。
+- 验证：字段契约、全量测试、竞态、lint 和编译通过；编译后 CLI 18 个场景、dev 接口 6 个快照均通过。
+
 ## 2026-10-19：统一日志角色参数为 appRole
 - 摘要：日志命令使用 `--appRole beta|prod`（默认 beta），移除该命令的 --env；同步帮助、校验错误和超时重试提示。
 - 涉及模块：`cmd/logs_deploy.go`、`cmd/logs_stages.go`、`cmd/logs_app_role_test.go`、README 和模块地图。
