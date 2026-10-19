@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra、github.com/spf13/pflag、os、strings、internal/config（ContextNames/DefaultContext）、internal/notifier
  * [OUTPUT]: 对外提供 Execute 函数、rootCmd 根命令、全局变量 Profile / AccessToken / MetaServerURL / Context / DebugMode；包内 commandName 解析器（Execute 前解析顶级命令名喂给 notifier.Start）、installUsageTemplate（支持 Cobra 命令分组的 usageTemplate + 模板函数装配，根 help 尾附 skills 安装引导）
- * [POS]: cmd 模块的入口，挂载 version / configure / context / doctor / login / whoami / app / entity / relation / record / apply / diff / update / skills / schema / integration / preflight 子命令；定义全局 --profile / --access-token / --meta-server-url / --context / --debug PersistentFlag；后端 URL 兜底交给 config.Context preset；错误呈现经 reportExecuteError 单一出口（SilenceErrors，见 errors.go）
+ * [POS]: cmd 模块的入口，挂载 version / configure / context / doctor / login / whoami / app / logs / entity / relation / record / apply / diff / update / skills / schema / integration / preflight 子命令；定义全局 --profile / --access-token / --meta-server-url / --context / --debug PersistentFlag；后端 URL 兜底交给 config.Context preset；错误呈现经 reportExecuteError 单一出口（SilenceErrors，见 errors.go）
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -125,6 +125,7 @@ func Execute(version, buildDate string) error {
 	rootCmd.AddCommand(newWhoamiCmd())
 	rootCmd.AddCommand(newApplyCmd())
 	rootCmd.AddCommand(newAppCmd())
+	rootCmd.AddCommand(newLogsCmd())
 	rootCmd.AddCommand(newEntityCmd())
 	rootCmd.AddCommand(newRelationCmd())
 	rootCmd.AddCommand(newRecordCmd())

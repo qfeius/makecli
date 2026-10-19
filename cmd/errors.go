@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 errors、fmt、io，依赖 internal/api 的 ErrAuthFailed；读取全局 Profile 与 contextName() / accessTokenSource()
- * [OUTPUT]: 对外提供 reportExecuteError（CLI 错误呈现单一出口）、authFailedHint（鉴权引导文案）、ExitCode（错误→退出码翻译：0 成功 / 2 构建或发布未成功（errBuildFailed/errPromoteFailed） / 124 等待超时 / 其余 1）
+ * [OUTPUT]: reportExecuteError、commandOutputError 输出归属标记、authFailedHint、ExitCode（0/2/124/130/1）
  * [POS]: cmd 模块错误呈现的单一出口，被 root.go Execute 调用；收口原 diff/preflight 各自 SilenceErrors+自打印的特例；ExitCode 被 main 消费，语义化退出码让 CI/agent 免解析文本
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -15,12 +15,23 @@ import (
 	"github.com/qfeius/makecli/internal/api"
 )
 
+// commandOutputError assigns diagnostic output to the command's process worker.
+// Root must not write it again, including when cancellation ends a blocked write.
+type commandOutputError struct{ error }
+
+func (err *commandOutputError) Unwrap() error { return err.error }
+
 // reportExecuteError 是 CLI 错误呈现的单一出口（rootCmd 开 SilenceErrors 后由 Execute 调用）：
 //   - nil：无事发生
+//   - commandOutputError：输出由命令 worker 负责，根出口不重复写入
 //   - errDiffFound / errPreflightFailed / errDoctorFailed：纯退出码哨兵（CI 门禁信号），真实输出已由命令自身打印，此处静默
 //   - api.ErrAuthFailed：升级为带 next-step 的鉴权引导（提示 makecli login + 回显 profile/context）
 //   - 其余：复刻 cobra 默认的 `error: <msg>` 行
 func reportExecuteError(w io.Writer, err error) {
+	var owned *commandOutputError
+	if errors.As(err, &owned) {
+		return
+	}
 	switch {
 	case err == nil:
 		return
@@ -35,7 +46,7 @@ func reportExecuteError(w io.Writer, err error) {
 
 // ExitCode 把 Execute 返回的错误翻译成进程退出码（main 的唯一消费点）：
 // 0 成功；2 构建/发布未成功（deploy/promote --wait 等到非成功终态）；124 等待超时（沿用 GNU timeout 惯例）；
-// 其余一律 1。CI 与 agent 靠退出码判定结果，不必解析输出文本。
+// 日志读取被中断返回 130，其余一律 1。CI 与 agent 靠退出码判定结果。
 func ExitCode(err error) int {
 	switch {
 	case err == nil:
@@ -44,6 +55,8 @@ func ExitCode(err error) int {
 		return 2
 	case errors.Is(err, errWaitTimeout):
 		return 124
+	case errors.Is(err, errLogsInterrupted):
+		return 130
 	default:
 		return 1
 	}

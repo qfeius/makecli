@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runUpdate / runUpdateCheck / applyFunc（白盒），internal/update 的 Release 类型 + SetAPIBaseURLForTest，internal/build 的 Version
- * [OUTPUT]: 覆盖 update 子命令决策逻辑的单元测试（含 --check 仅检查模式）
+ * [OUTPUT]: 覆盖 update 子命令决策逻辑（含 --check），已是最新测试隔离本机更新通道配置
  * [POS]: cmd 模块 update.go 的配套测试，applyFunc 钩子打桩避免真实替换二进制
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -429,6 +429,7 @@ func TestRunUpdateCheck_UpdateAvailable(t *testing.T) {
 }
 
 func TestRunUpdateCheck_AlreadyLatest(t *testing.T) {
+	t.Setenv(config.EnvConfigDir, t.TempDir())
 	setBuildVersion(t, "0.3.6")
 	cleanup := mockReleaseServer(t, 0, update.Release{TagName: "v0.3.6"})
 	defer cleanup()

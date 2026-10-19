@@ -2,6 +2,11 @@
 > L2 | 父级: /CLAUDE.md
 
 ## 渲染约定
+- `logs_deploy.go`：顶级 logs deploy，app.yaml/--app 与 HEAD/--commit-sha、--appRole beta（默认）/prod 定位任务；build 查询直接传 beta/prod，兼容旧任务环境并校验对应应用配对，JSON 输出 appRole（beta/prod）；stage=build/deploy/all；tail 默认每阶段 200，follow 默认总计 3m；单个进程 worker 负责正文、debug 和最终错误输出，stdout/stderr 阻塞仍可按 124/130 退出。
+- `logs_stages.go`：部署事件分页与末尾行截取；all 按构建、部署顺序读取，组合游标隔离字节偏移和事件序号并绑定任务；固定 ID 观察终态后再补拉事件，读到 completed 或后续空页才结束，构建失败后不等待不存在的部署。
+- `logs_deploy_test.go` / `logs_deploy_contract_test.go` / `logs_stages_test.go` / `logs_terminal_test.go` / `logs_pipe_test.go`：项目默认值、SHA 与应用归属、阶段选择、tail/分页/游标契约、终态补拉和 HTTP 取消；子进程走完整根命令，覆盖各阶段 stdout/stderr 阻塞、最终错误输出和鉴权指引。
+- `logs_app_role_test.go`：默认 Beta、显式 appRole=beta/prod、三个阶段的快照及跟随、生产配对应用、跨环境任务/游标拒绝、非法角色、旧参数移除和超时重试提示。
+- `output.go`：writeJSONTo 可注入输出流，writeJSON 保留旧 stdout 与通知语义。
 - 表格统一用 `github.com/olekukonko/tablewriter`（边框 + Header），禁止用 stdlib `text/tabwriter`
 - key-value 头部信息（File / Name / App 等）用 `fmt.Printf("%-N s %s\n", ...)` 平铺，不进表格
 - 写新输出前先 grep 邻居命令的渲染方式再动手，避免风格漂移
@@ -23,7 +28,7 @@
 
 ## 成员清单
 - `root.go`: 根命令入口，挂载所有顶级子命令（login / whoami / settings / context / doctor / schema / apply / diff / update / skills / integration / preflight 等；deploy 已下沉为 app 子命令），对外暴露 Execute(version, date)；定义全局 PersistentFlag --profile / --access-token / --meta-server-url / --context / --debug，分别绑定全局变量 Profile / AccessToken / MetaServerURL / Context / DebugMode；后端 URL 兜底交给 config.Context preset（不再持 default*Server 常量）；钩入 notifier.Start(cmdName)/Finish 生命周期（cmdName 在 Execute 前解析传入，供 skipCommands 抑制；Finish 仅在 err == nil 时调用且排在 reportExecuteError 之后，对齐 gh：提示只在成功运行的末尾、失败不提示；JSON 出口的 _notice 见 output.go）；包内 commandName 解析顶级命令名；rootCmd.SilenceErrors=true 把错误呈现收口到 Execute 出口的 reportExecuteError（errors.go）单一出口；installUsageTemplate(root) 装配 GitHub CLI 风格 usageTemplate（按 Cobra Groups/GroupID 渲染分类；无分组继续 AVAILABLE COMMANDS，未归组可见项进 ADDITIONAL COMMANDS，隐藏项不展示）与 globalFlags/parentFlags 模板函数，根命令 help 尾附 `Skills setup (one-time, humans): makecli skills install --all --yes` 引导（仅根级，对齐 lark-cli）
-- `errors.go`: CLI 错误呈现单一出口：reportExecuteError(w, err) 把退出码哨兵（errDiffFound/errPreflightFailed/errDoctorFailed）静默、api.ErrAuthFailed 升级为带 makecli login next-step + profile/context/token 来源回显的引导（authFailedHint，context 经 contextName 纯展示解析失败回显 unknown，来源为 flag/env 时附「login 不会覆盖它」提示）、其余复刻 cobra 的 `error: <msg>`；终结了原 diff/preflight 各自 SilenceErrors+自打印的特例；ExitCode(err) 对外收口错误→退出码翻译（0 成功 / errBuildFailed 与 errPromoteFailed→2 / errWaitTimeout→124 / 其余 1，被 main 消费），语义化退出码让 CI/agent 免解析文本判定 deploy --wait 结果
+- `errors.go`: CLI 错误呈现单一出口：reportExecuteError(w, err) 跳过由命令 worker 负责输出的 commandOutputError（保留 Unwrap 与退出码），把退出码哨兵（errDiffFound/errPreflightFailed/errDoctorFailed）静默、api.ErrAuthFailed 升级为带 makecli login next-step + profile/context/token 来源回显的引导（authFailedHint，context 经 contextName 纯展示解析失败回显 unknown，来源为 flag/env 时附「login 不会覆盖它」提示）、其余复刻 cobra 的 `error: <msg>`；终结了原 diff/preflight 各自 SilenceErrors+自打印的特例；ExitCode(err) 对外收口错误→退出码翻译（0 成功 / errBuildFailed 与 errPromoteFailed→2 / errWaitTimeout→124 / 其余 1，被 main 消费），语义化退出码让 CI/agent 免解析文本判定 deploy --wait 结果
 - `errors_test.go`: 覆盖 reportExecuteError 各分支（nil/退出码哨兵静默/真实错误打印/鉴权升级）+ authFailedHint 回显 profile/context/token 来源 + ExitCode 退出码映射（nil→0/构建未成功→2/等待超时→124/普通错误与 diff 哨兵→1），用 setProfile/setContextFlag 隔离全局态
 - `root_test.go`: 覆盖 commandName 顶级命令解析的单元测试（version/version list/update/app create/空 args/未知命令）
 - `root_help_test.go`: 覆盖 installUsageTemplate 的 help 渲染测试（根 help 以 skills 安装引导行结尾 / 子命令 help 不含该行 / 未分组与附加命令显示 / Agent 两组归属与顺序、隐藏 run 不展示），独立构造 root 不依赖包级 rootCmd

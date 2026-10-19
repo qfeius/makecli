@@ -310,6 +310,45 @@ makecli entity --app TODO list Task --output json
 - `--output json` 列表模式输出 `data` 和 `pagination`，详情模式输出单个 `data` 对象
 - 列表模式支持 `--page` 和 `--size`，其中 `--page` 默认从 `1` 开始
 
+### 构建与部署日志
+
+```bash
+makecli app deploy
+makecli logs deploy
+
+# 部署阶段：实例创建或更新、启动、健康检查
+makecli logs deploy --stage deploy
+
+# 构建和部署两个阶段，持续跟随
+makecli logs deploy --stage all -f
+
+# 查看生产环境同一提交的日志
+makecli logs deploy --appRole prod --commit-sha <40位SHA> --stage all
+
+# 最后 100 行并继续跟随；--timeout 仅用于 --follow，默认 3m
+makecli logs deploy --tail 100 -f --timeout 2m
+
+# 在项目外指定应用和完整提交 SHA
+makecli logs deploy --app <appKey> --commit-sha <40位SHA> --output json
+
+# 跳过已有日志，只读取之后新增的内容
+makecli logs deploy --tail 0 -f
+
+# 读取全部历史，或使用此前返回的游标续读
+makecli logs deploy --tail -1
+makecli logs deploy --commit-sha <40位SHA> --cursor <nextCursor>
+```
+
+`logs deploy` 默认从 `apps/dsl/app.yaml` 读取应用，从 Git HEAD 读取提交 SHA。`--appRole beta|prod` 默认 `beta`，选择应用角色对应的环境，按 SHA 查询并固定任务；使用配对应用的 key 时会定位所选角色的应用。`--stage build`（默认）查看安装依赖、编译、构建及推送镜像的日志；`--stage deploy` 查看实例创建或更新、启动、健康检查的部署事件；`--stage all` 按构建、部署顺序输出。日志读取完成不代表发布成功。
+
+`--tail N` 限制每个阶段首次读取的历史行数，默认 200；`0` 跳过该阶段已有日志，`-1` 读取全部。构建日志由服务端截取，部署事件由 CLI 分页读取后截取。`all` 分别保留两个阶段的最后 N 行。跟随时后续请求按游标读取新增内容。显式 `--tail` 与 `--cursor` 互斥；指定游标时不应用默认行数限制。构建日志服务端需支持 `tailLines`，旧服务可使用 `--tail=-1` 读取。
+
+`--cursor` 使用同一阶段上次返回的 `nextCursor`：`build` 为字节偏移，`deploy` 为事件序号，`all` 为包含两个阶段位置的组合游标。组合游标绑定构建任务，不能用于另一任务。构建失败或取消且未进入部署时，部署阶段返回空日志并结束跟随。
+
+`--follow` / `-f` 等待任务创建并持续输出正文，`--timeout` 支持 `3m`、`180s` 等时长，总超时默认 3 分钟，覆盖任务查询、请求、轮询和进程输出。stdout 或 stderr 管道阻塞时仍会退出；stderr 堵塞时，最后的超时或中断提示可能无法输出。超时仅停止本地读取，返回 124；Ctrl+C 返回 130；读取成功返回 0，参数或接口错误返回 1。
+
+单次读取的 `--output auto` 在终端输出正文，在管道或 Agent 下输出 JSON（`appKey`、`appRole`、`commitSha`、`stage`、`content`、`nextCursor`、`completed`）；`appRole` 为本次选择的 `beta` 或 `prod`。`--output table` 可强制正文。跟随模式不支持 JSON，诊断信息写入 stderr。后端与凭证沿用 `--context` / `--profile`。
+
 ## 开发指南
 ### 编译
 ```

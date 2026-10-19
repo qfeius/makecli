@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 bytes、encoding/json、fmt、os、github.com/mattn/go-isatty、github.com/spf13/cobra；依赖 internal/notifier 的 Pending
+ * [INPUT]: 依赖 bytes、encoding/json、fmt、io、os、github.com/mattn/go-isatty、github.com/spf13/cobra；依赖 internal/notifier 的 Pending
  * [OUTPUT]: 对外提供 --output 旗标注册（addOutputFlag）、格式解析（resolveOutputFormat：auto 按 stdout TTY 落到 table/json）和 JSON 编码辅助函数；包内 stdoutIsTerminal 可打桩探针、resolvedOutput / resolveInvokedOutput（root PersistentPreRun 落定本次调用的输出格式，供 --debug 选转储形态）、attachNotice 把 _notice 追加到顶层 JSON 对象末尾
- * [POS]: cmd 模块的输出层辅助，--output 三态 auto|table|json 的单一真相源（默认 auto：人在终端看表格，agent/管道/CI 收 JSON），所有 --output json 的唯一 stdout 出口；有待提示更新时在顶层对象末尾追加 _notice.update（对齐 lark-cli：agent 在非 TTY 下也能收到升级提示，stderr 文本提示只给 TTY 上的人看）
+ * [POS]: cmd 模块的输出层辅助，auto|table|json 解析与 JSON 编码/通知统一出口；writeJSONTo 支持注入输出流，writeJSON 保留原 stdout 行为
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/mattn/go-isatty"
@@ -70,6 +71,12 @@ func resolveOutputFormat(output string) (string, error) {
 
 // writeJSON 把 v 以 2 空格缩进写到 stdout；有待提示更新时把 _notice 挂到顶层对象上。
 func writeJSON(v any) error {
+	return writeJSONTo(os.Stdout, v)
+}
+
+// writeJSONTo preserves the standard JSON/notice contract for commands with an
+// injected output writer, including build log read and broken-pipe handling.
+func writeJSONTo(writer io.Writer, v any) error {
 	body, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -86,7 +93,7 @@ func writeJSON(v any) error {
 		return err
 	}
 	out.WriteByte('\n')
-	_, err = os.Stdout.Write(out.Bytes())
+	_, err = writer.Write(out.Bytes())
 	return err
 }
 

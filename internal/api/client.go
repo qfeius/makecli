@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 bytes、encoding/json、errors、fmt、io、net/http、strings、time，依赖 debug.go 的 debugSink，依赖 internal/trace 的 TraceID/Traceparent
- * [OUTPUT]: 对外提供 Client 类型、ErrNotFound / ErrAuthFailed 哨兵错误、UniqueConstraintError 类型化错误（409 且 data 带 constraint 的唯一性冲突，errors.As 判定；其余 409 是业务规则拒绝，服务端 msg 原样返回）、Option / WithDebug(on, DebugFormat) / WithHeaders / WithDryRun / WithAppRole 功能选项、New 构造函数、App（Role / PairAppKey / HostedEnv / KeyForEnv：prod/beta 配对知识收口，环境 → 承载 app key）、RoleForEnv（HostedEnv 逆映射：环境 → app 角色）、RoleProd / RoleBeta 常量 / Field / Entity / EntityProperties / UniqueConstraint / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp(key, name, properties) / ListApps(page, size, filter) / DeleteApp(key) / GetApp(key) / CreateEntity(key, name, appKey, props) / ListEntities(appKey, page, size, filter) / GetEntity(appKey, key) / UpdateEntity(key, name, appKey, props) / DeleteEntity / CreateRelation(key, name, appKey, props) / UpdateRelation / ListRelations(appKey, ...) / GetRelation(appKey, key) / DeleteRelation / GetSchema(appKey) 方法。资源以 Key 为唯一标识符（英数下划线），Name 为用户可见展示名（支持中文）。Get* 方法在资源确实不存在时返回 ErrNotFound（可用 errors.Is 判定），其余错误（传输/非 not-found 业务码/解码）原样返回
- * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用
+ * [INPUT]: 依赖 context、bytes、encoding/json、errors、fmt、io、net/http、strings、time，依赖 debug.go 的 debugSink，依赖 internal/trace 的 TraceID/Traceparent
+ * [OUTPUT]: 对外提供 Client 类型、ErrNotFound / ErrAuthFailed 哨兵错误、UniqueConstraintError 类型化错误（409 且 data 带 constraint 的唯一性冲突，errors.As 判定；其余 409 是业务规则拒绝，服务端 msg 原样返回）、Option / WithDebug(on, DebugFormat) / WithHeaders / WithDryRun / WithAppRole 功能选项、New 构造函数、App（Role / PairAppKey / HostedEnv / KeyForEnv：prod/beta 配对知识收口，环境 → 承载 app key）、RoleForEnv（HostedEnv 逆映射：环境 → app 角色）、RoleProd / RoleBeta 常量 / Field / Entity / EntityProperties / UniqueConstraint / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp(key, name, properties) / ListApps(page, size, filter) / DeleteApp(key) / GetApp(key) / GetAppContext(ctx, key) / CreateEntity(key, name, appKey, props) / ListEntities(appKey, page, size, filter) / GetEntity(appKey, key) / UpdateEntity(key, name, appKey, props) / DeleteEntity / CreateRelation(key, name, appKey, props) / UpdateRelation / ListRelations(appKey, ...) / GetRelation(appKey, key) / DeleteRelation / GetSchema(appKey) 方法。资源以 Key 为唯一标识符（英数下划线），Name 为用户可见展示名（支持中文）。Get* 方法在资源确实不存在时返回 ErrNotFound（可用 errors.Is 判定），其余错误（传输/非 not-found 业务码/解码）原样返回
+ * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用；requestContext 支持取消，旧 request 委托同一路径以保持兼容
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -9,6 +9,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -415,13 +416,18 @@ func (c *Client) GetEntity(appKey, key string) (*Entity, error) {
 // GetApp 调用 MakeService.GetResource 获取指定 App（按 key 定位）
 // 资源不存在时返回 ErrNotFound；传输/非 not-found 业务错误原样返回
 func (c *Client) GetApp(key string) (*App, error) {
+	return c.GetAppContext(context.Background(), key)
+}
+
+// GetAppContext resolves app pairing under the caller's cancellation deadline.
+func (c *Client) GetAppContext(ctx context.Context, key string) (*App, error) {
 	reqBody := map[string]any{"key": key}
 	var result struct {
 		Code    int    `json:"code"`
 		Message string `json:"msg"`
 		Data    App    `json:"data"`
 	}
-	if err := c.do("MakeService.GetResource", "/meta/v1/app", reqBody, &result); err != nil {
+	if err := c.requestContext(ctx, http.MethodPost, "MakeService.GetResource", "/meta/v1/app", reqBody, &result); err != nil {
 		return nil, err
 	}
 	if err := checkGetResult(result.Code, result.Message, result.Data.Key != ""); err != nil {
@@ -587,6 +593,12 @@ func (c *Client) requestURL(path string) string {
 // request 执行任意 HTTP 方法的请求并将响应体解码到 result。
 // body 为 nil 时不携带请求体与 Content-Type（GET 类只读调用），非 nil 时 JSON 序列化。
 func (c *Client) request(method, target, path string, body, result any) error {
+	return c.requestContext(context.Background(), method, target, path, body, result)
+}
+
+// requestContext shares authentication, tracing and decoding with existing requests,
+// while allowing log followers to cancel both task lookup and HTTP body reads.
+func (c *Client) requestContext(ctx context.Context, method, target, path string, body, result any) error {
 	var data []byte
 	if body != nil {
 		var err error
@@ -622,7 +634,7 @@ func (c *Client) request(method, target, path string, body, result any) error {
 		payload = bytes.NewReader(data)
 	}
 	fullURL := c.requestURL(path)
-	req, err := http.NewRequest(method, fullURL, payload)
+	req, err := http.NewRequestWithContext(ctx, method, fullURL, payload)
 	if err != nil {
 		return err
 	}
