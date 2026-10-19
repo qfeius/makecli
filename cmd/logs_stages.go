@@ -112,7 +112,7 @@ func readDeploymentStages(ctx context.Context, client *api.Client, task api.Buil
 		}
 		cursor := reader.cursor.encode(opts.stage)
 		if opts.output == outputJSON {
-			return writeJSONTo(stdout, buildLogView{AppKey: opts.appKey, Env: opts.env, CommitSHA: opts.commitSHA, Stage: opts.stage, BuildLogChunk: api.BuildLogChunk{Content: content, NextCursor: cursor, Completed: completed}})
+			return writeJSONTo(stdout, buildLogView{AppKey: opts.appKey, Env: opts.appRole, CommitSHA: opts.commitSHA, Stage: opts.stage, BuildLogChunk: api.BuildLogChunk{Content: content, NextCursor: cursor, Completed: completed}})
 		}
 		if !opts.follow || completed {
 			_, _ = fmt.Fprintf(stderr, "%s logs read (task #%d, nextCursor=%s, completed=%t).\n", opts.stage, task.ID, cursor, completed)

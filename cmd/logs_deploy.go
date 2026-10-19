@@ -1,6 +1,6 @@
 /**
- * [INPUT]: Build and deployment event APIs, app manifest, Git HEAD, beta/prod selection and CLI output helpers
- * [OUTPUT]: logs deploy with environment and stage selection, initial tail and bounded follow
+ * [INPUT]: Build and deployment event APIs, app manifest, Git HEAD, beta/prod app roles and CLI output helpers
+ * [OUTPUT]: logs deploy with app role and stage selection, initial tail and bounded follow
  * [POS]: Read-only deployment log command; process worker owns stdout, stderr and final error output
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -30,7 +30,7 @@ var (
 
 type logsDeployOptions struct {
 	appKey    string
-	env       string
+	appRole   string
 	stage     string
 	tail      int64
 	commitSHA string
@@ -51,15 +51,15 @@ func newLogsDeployCmd() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "deploy",
 		Short: "Read build and deployment logs",
-		Long: `Read deployment logs for an app, commit and environment (beta by default).
-Use --env prod for production. Select build (dependencies,
+		Long: `Read deployment logs for an app, commit and app role (beta by default).
+Use --appRole prod for production. Select build (dependencies,
 compilation and image push), deploy (instances, startup and health checks), or all.
 App and commit default to apps/dsl/app.yaml and Git HEAD.
 
 --tail limits the initial history of each selected stage. --follow reads new content
 until the stage completes or --timeout expires.`,
 		Example: `  makecli logs deploy
-  makecli logs deploy --env prod --commit-sha <fullSHA>
+  makecli logs deploy --appRole prod --commit-sha <fullSHA>
   makecli logs deploy --stage all -f --timeout 3m --tail 100
   makecli logs deploy --app <appKey> --commit-sha <fullSHA>
   makecli logs deploy --commit-sha <fullSHA> --cursor <cursor>`,
@@ -103,7 +103,7 @@ until the stage completes or --timeout expires.`,
 		},
 	}
 	command.Flags().StringVar(&opts.appKey, "app", "", "app key (default: apps/dsl/app.yaml)")
-	command.Flags().StringVar(&opts.env, "env", "beta", "app environment: beta|prod")
+	command.Flags().StringVar(&opts.appRole, "appRole", api.RoleBeta, "app role: beta|prod")
 	command.Flags().StringVar(&opts.commitSHA, "commit-sha", "", "full commit SHA to query (default: current HEAD)")
 	command.Flags().StringVar(&opts.stage, "stage", "build", "log stage: build|deploy|all")
 	command.Flags().Int64Var(&opts.tail, "tail", 200, "initial lines per stage; 0 skips history, -1 reads all")
@@ -151,7 +151,7 @@ func readAndReportLogs(ctx context.Context, client *api.Client, opts logsDeployO
 func classifyLogsError(opts logsDeployOptions, err, contextErr error) error {
 	switch {
 	case opts.follow && errors.Is(err, context.DeadlineExceeded) && errors.Is(contextErr, context.DeadlineExceeded):
-		return fmt.Errorf("%w: %s logs (%s); retry with --env %s --commit-sha %s", errWaitTimeout, opts.stage, opts.timeout, opts.env, opts.commitSHA)
+		return fmt.Errorf("%w: %s logs (%s); retry with --appRole %s --commit-sha %s", errWaitTimeout, opts.stage, opts.timeout, opts.appRole, opts.commitSHA)
 	case errors.Is(err, context.Canceled):
 		return errLogsInterrupted
 	default:
@@ -162,8 +162,8 @@ func classifyLogsError(opts logsDeployOptions, err, contextErr error) error {
 // validate is pure with respect to the filesystem/network; invalid flags never
 // resolve credentials, inspect Git, or send a request.
 func (opts *logsDeployOptions) validate(command *cobra.Command) error {
-	if opts.env != "beta" && opts.env != "prod" {
-		return fmt.Errorf("--env must be beta or prod")
+	if opts.appRole != api.RoleBeta && opts.appRole != api.RoleProd {
+		return fmt.Errorf("--appRole must be beta or prod")
 	}
 	if command.Flags().Changed("app") {
 		if err := validResourceKey(opts.appKey); err != nil {
@@ -219,7 +219,7 @@ type buildLogView struct {
 // readDeployLogs is the I/O boundary. It logs selection/wait/completion to stderr;
 // errors propagate to the standard CLI error reporter without logging secrets.
 func readDeployLogs(ctx context.Context, client *api.Client, opts logsDeployOptions, stdout, stderr io.Writer) error {
-	_, _ = fmt.Fprintf(stderr, "Reading %s %s logs...\n", opts.env, opts.stage)
+	_, _ = fmt.Fprintf(stderr, "Reading %s %s logs...\n", opts.appRole, opts.stage)
 	task, err := resolveBuildLogTask(ctx, client, opts, stderr)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "Build log task lookup failed.")
@@ -251,7 +251,7 @@ func readBuildLogStage(ctx context.Context, client *api.Client, id int64, opts l
 			}
 		}
 		if opts.output == outputJSON {
-			return writeJSONTo(stdout, buildLogView{AppKey: opts.appKey, Env: opts.env, CommitSHA: opts.commitSHA, Stage: opts.stage, BuildLogChunk: *chunk})
+			return writeJSONTo(stdout, buildLogView{AppKey: opts.appKey, Env: opts.appRole, CommitSHA: opts.commitSHA, Stage: opts.stage, BuildLogChunk: *chunk})
 		}
 		if _, err := io.WriteString(stdout, chunk.Content); err != nil {
 			return fmt.Errorf("write build logs: %w", err)
@@ -298,19 +298,19 @@ func resolveBuildLogTask(ctx context.Context, client *api.Client, opts logsDeplo
 				return nil, fmt.Errorf("invalid build task response: missing task ID")
 			}
 			if !opts.matchesTaskEnvironment(task.Environment) {
-				return nil, fmt.Errorf("build task environment %q does not match --env %s", task.Environment, opts.env)
+				return nil, fmt.Errorf("build task environment %q does not match --appRole %s", task.Environment, opts.appRole)
 			}
 			if task.AppKey != opts.appKey {
 				app, appErr := client.GetAppContext(ctx, opts.appKey)
 				if appErr != nil {
-					return nil, fmt.Errorf("resolve %s app: %w", opts.env, appErr)
+					return nil, fmt.Errorf("resolve %s app: %w", opts.appRole, appErr)
 				}
 				envKey, appErr := app.KeyForEnv(opts.taskEnvironment())
 				if appErr != nil {
 					return nil, appErr
 				}
 				if task.AppKey != envKey {
-					return nil, fmt.Errorf("commit %s has no %s build task for app %s", opts.commitSHA, opts.env, opts.appKey)
+					return nil, fmt.Errorf("commit %s has no %s build task for app %s", opts.commitSHA, opts.appRole, opts.appKey)
 				}
 			}
 			return task, nil
@@ -319,10 +319,10 @@ func resolveBuildLogTask(ctx context.Context, client *api.Client, opts logsDeplo
 			return nil, err
 		}
 		if !opts.follow {
-			return nil, fmt.Errorf("commit %s has no %s build task; use --follow to wait: %w", opts.commitSHA, opts.env, err)
+			return nil, fmt.Errorf("commit %s has no %s build task; use --follow to wait: %w", opts.commitSHA, opts.appRole, err)
 		}
 		if !waiting {
-			_, _ = fmt.Fprintf(stderr, "Waiting for %s build task of %s...\n", opts.env, opts.commitSHA)
+			_, _ = fmt.Fprintf(stderr, "Waiting for %s build task of %s...\n", opts.appRole, opts.commitSHA)
 			waiting = true
 		}
 		if err := waitBuildLogPoll(ctx); err != nil {
@@ -332,7 +332,7 @@ func resolveBuildLogTask(ctx context.Context, client *api.Client, opts logsDeplo
 }
 
 func (opts logsDeployOptions) taskEnvironment() string {
-	if opts.env == "prod" {
+	if opts.appRole == api.RoleProd {
 		return api.EnvProduction
 	}
 	return api.EnvBeta
@@ -342,9 +342,9 @@ func (opts logsDeployOptions) matchesTaskEnvironment(env string) bool {
 	// Keep the existing beta response contract; prod requires an explicit identity
 	// so an older service ignoring environment cannot silently return beta logs.
 	if env == "" {
-		return opts.env == "beta"
+		return opts.appRole == api.RoleBeta
 	}
-	return env == opts.env || api.DisplayEnv(env) == opts.taskEnvironment()
+	return env == opts.appRole || api.DisplayEnv(env) == opts.taskEnvironment()
 }
 
 func waitBuildLogPoll(ctx context.Context) error {

@@ -1,5 +1,12 @@
 # AI 变更记录：构建日志查询
 
+## 2026-10-19：统一日志角色参数为 appRole
+- 摘要：日志命令使用 `--appRole beta|prod`（默认 beta），移除该命令的 --env；同步帮助、校验错误和超时重试提示。
+- 涉及模块：`cmd/logs_deploy.go`、`cmd/logs_stages.go`、`cmd/logs_app_role_test.go`、README 和模块地图。
+- 决策：内部选项改名 appRole；接口 environment、prod→production 映射、JSON env 及任务配对校验保持原语义。
+- TDD：先将角色测试切换到 --appRole，复现 unknown flag；增加默认值及旧 --env 被拒绝的契约测试，再调整实现。
+- 验证：make vet/test/build、竞态检查、lint 0 issues；编译后 12 组角色/阶段/输出组合及 dev Beta 可读、Prod 无任务不回退检查通过。
+
 ## 2026-10-19：增加 beta/prod 日志环境选择
 - 摘要：`logs deploy --env beta|prod` 默认 beta；三个日志阶段共用环境选择，JSON 增加 env。
 - 涉及模块：`cmd/logs_deploy.go`、`cmd/logs_stages.go`、`cmd/logs_env_test.go`、README 及命令地图。

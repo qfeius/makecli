@@ -323,7 +323,7 @@ makecli logs deploy --stage deploy
 makecli logs deploy --stage all -f
 
 # 查看生产环境同一提交的日志
-makecli logs deploy --env prod --commit-sha <40位SHA> --stage all
+makecli logs deploy --appRole prod --commit-sha <40位SHA> --stage all
 
 # 最后 100 行并继续跟随；--timeout 仅用于 --follow，默认 3m
 makecli logs deploy --tail 100 -f --timeout 2m
@@ -339,7 +339,7 @@ makecli logs deploy --tail -1
 makecli logs deploy --commit-sha <40位SHA> --cursor <nextCursor>
 ```
 
-`logs deploy` 默认从 `apps/dsl/app.yaml` 读取应用，从 Git HEAD 读取提交 SHA。`--env beta|prod` 默认 `beta`，按 SHA 和环境查询并固定任务；使用配对应用的 key 时会定位所选环境的应用。`--stage build`（默认）查看安装依赖、编译、构建及推送镜像的日志；`--stage deploy` 查看实例创建或更新、启动、健康检查的部署事件；`--stage all` 按构建、部署顺序输出。日志读取完成不代表发布成功。
+`logs deploy` 默认从 `apps/dsl/app.yaml` 读取应用，从 Git HEAD 读取提交 SHA。`--appRole beta|prod` 默认 `beta`，选择应用角色对应的环境，按 SHA 查询并固定任务；使用配对应用的 key 时会定位所选角色的应用。`--stage build`（默认）查看安装依赖、编译、构建及推送镜像的日志；`--stage deploy` 查看实例创建或更新、启动、健康检查的部署事件；`--stage all` 按构建、部署顺序输出。日志读取完成不代表发布成功。
 
 `--tail N` 限制每个阶段首次读取的历史行数，默认 200；`0` 跳过该阶段已有日志，`-1` 读取全部。构建日志由服务端截取，部署事件由 CLI 分页读取后截取。`all` 分别保留两个阶段的最后 N 行。跟随时后续请求按游标读取新增内容。显式 `--tail` 与 `--cursor` 互斥；指定游标时不应用默认行数限制。构建日志服务端需支持 `tailLines`，旧服务可使用 `--tail=-1` 读取。
 

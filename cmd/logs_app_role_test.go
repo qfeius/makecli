@@ -1,7 +1,7 @@
 /**
- * [INPUT]: logs deploy environment flags and build/deployment HTTP fixtures
- * [OUTPUT]: beta/prod task selection, app pairing, cursor isolation and validation tests
- * [POS]: Environment contracts shared by build/deploy/all log stages
+ * [INPUT]: logs deploy appRole flag and build/deployment HTTP fixtures
+ * [OUTPUT]: beta/prod role selection, app pairing, cursor isolation and validation tests
+ * [POS]: App role contracts shared by build/deploy/all log stages
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 package cmd
@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-func TestLogsDeployEnvironmentSelection(t *testing.T) {
+func TestLogsDeployAppRoleSelection(t *testing.T) {
 	for _, env := range []string{"default", "beta", "prod"} {
 		for _, stage := range []string{"build", "deploy", "all"} {
 			for _, follow := range []bool{false, true} {
@@ -51,7 +51,7 @@ func TestLogsDeployEnvironmentSelection(t *testing.T) {
 					})
 					args := stageArgs(stage)
 					if env != "default" {
-						args = append(args, "--env", env)
+						args = append(args, "--appRole", env)
 					}
 					if follow {
 						args = append(args, "-f", "--timeout", "1s")
@@ -99,18 +99,18 @@ func TestLogsDeployProdResolvesPairedApp(t *testing.T) {
 			_, _ = io.WriteString(w, `{"code":200,"data":{"content":"prod ready\n","nextCursor":400,"completed":true}}`)
 		}
 	})
-	out, _, err := executeLogsContract(context.Background(), append(stageArgs("deploy"), "--env", "prod", "--output", "table")...)
+	out, _, err := executeLogsContract(context.Background(), append(stageArgs("deploy"), "--appRole", "prod", "--output", "table")...)
 	if err != nil || out != "prod ready\n" {
 		t.Fatalf("out=%q err=%v", out, err)
 	}
 }
 
-func TestLogsDeployEnvironmentValidation(t *testing.T) {
+func TestLogsDeployAppRoleValidation(t *testing.T) {
 	for _, env := range []string{"", "production", "preview", "all", "PROD"} {
 		t.Run(env, func(t *testing.T) {
 			setupDeployLogsTest(t, func(http.ResponseWriter, *http.Request) { t.Error("invalid environment reached HTTP") })
-			_, _, err := executeLogsContract(context.Background(), append(stageArgs("build"), "--env", env)...)
-			if err == nil || !strings.Contains(err.Error(), "--env") {
+			_, _, err := executeLogsContract(context.Background(), append(stageArgs("build"), "--appRole", env)...)
+			if err == nil || !strings.Contains(err.Error(), "--appRole") {
 				t.Fatalf("err=%v", err)
 			}
 		})
@@ -126,7 +126,7 @@ func TestLogsDeployRejectsWrongTaskEnvironment(t *testing.T) {
 				}
 				_, _ = fmt.Fprintf(w, `{"code":200,"data":{"id":42,"appKey":"test_app","environment":%q}}`, test.returned)
 			})
-			out, _, err := executeLogsContract(context.Background(), append(stageArgs("build"), "--env", test.selected)...)
+			out, _, err := executeLogsContract(context.Background(), append(stageArgs("build"), "--appRole", test.selected)...)
 			if err == nil || out != "" || !strings.Contains(err.Error(), "environment") {
 				t.Fatalf("out=%q err=%v", out, err)
 			}
@@ -142,7 +142,7 @@ func TestLogsDeployProdRejectsBetaCombinedCursor(t *testing.T) {
 		_, _ = io.WriteString(w, `{"code":200,"data":{"id":84,"appKey":"test_app","environment":"production"}}`)
 	})
 	cursor := (stageLogCursor{TaskID: 42, Build: "20", Deploy: 400}).encode("all")
-	_, _, err := executeLogsContract(context.Background(), append(stageArgs("all"), "--env", "prod", "--cursor", cursor)...)
+	_, _, err := executeLogsContract(context.Background(), append(stageArgs("all"), "--appRole", "prod", "--cursor", cursor)...)
 	if err == nil || !strings.Contains(err.Error(), "another build task") {
 		t.Fatalf("err=%v", err)
 	}
@@ -152,8 +152,21 @@ func TestLogsDeployProdWaitTimeoutHint(t *testing.T) {
 	setupDeployLogsTest(t, func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"code":404,"msg":"not found"}`)
 	})
-	_, diag, err := executeLogsContract(context.Background(), append(stageArgs("build"), "--env", "prod", "-f", "--timeout", "30ms")...)
-	if ExitCode(err) != 124 || !strings.Contains(diag, "Waiting for prod") || !strings.Contains(err.Error(), "--env prod") {
+	_, diag, err := executeLogsContract(context.Background(), append(stageArgs("build"), "--appRole", "prod", "-f", "--timeout", "30ms")...)
+	if ExitCode(err) != 124 || !strings.Contains(diag, "Waiting for prod") || !strings.Contains(err.Error(), "--appRole prod") {
 		t.Fatalf("diag=%q code=%d err=%v", diag, ExitCode(err), err)
+	}
+}
+
+func TestLogsDeployAppRoleFlagContract(t *testing.T) {
+	command := newLogsDeployCmd()
+	role, err := command.Flags().GetString("appRole")
+	if err != nil || role != "beta" || command.Flags().Lookup("env") != nil {
+		t.Fatalf("appRole=%q env=%v err=%v", role, command.Flags().Lookup("env"), err)
+	}
+	setupDeployLogsTest(t, func(http.ResponseWriter, *http.Request) { t.Error("removed --env reached HTTP") })
+	_, _, err = executeLogsContract(context.Background(), append(stageArgs("build"), "--env", "prod")...)
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --env") {
+		t.Fatalf("removed flag accepted: %v", err)
 	}
 }
