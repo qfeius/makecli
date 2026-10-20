@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 errors、fmt、os、charm.land/huh/v2、github.com/mattn/go-isatty
  * [OUTPUT]: 包内 confirmDeletionByTypingKey，共用删除确认表单
- * [POS]: cmd 的删除交互原语，由 app delete 与 agent delete 传入 key 和目标描述
+ * [POS]: cmd 的删除交互原语，由 app delete、agent delete、app variable/secret delete 传入 key 和目标描述
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 

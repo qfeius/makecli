@@ -1,8 +1,8 @@
 /**
  * [INPUT]: 依赖 api 包内的 debugSink / debugRequest / newDebugSink（包内白盒），bytes、encoding/json、net/http、net/http/httptest、strings、testing
- * [OUTPUT]: 覆盖 --debug 文本渲染（摘要头 + 可复制 curl + 缩进 body）、JSON 渲染（{request,response,timing} 形态）、非 JSON 响应体退化、humanBytes 的单元测试
+ * [OUTPUT]: 覆盖 text/JSON debug、properties.scope 筛选请求可见性与密钥值清理、损坏响应兜底、真实响应大小及 humanBytes
  * [POS]: internal/api 模块 debug.go 的配套测试
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package api
@@ -10,6 +10,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -116,5 +117,77 @@ func TestHumanBytes(t *testing.T) {
 		if got := humanBytes(n); got != want {
 			t.Errorf("humanBytes(%d) = %q, want %q", n, got, want)
 		}
+	}
+}
+
+func TestVariableListDebug(t *testing.T) {
+	const response = `{"code":200,"msg":"list success","data":[{"key":"BASE_URL","type":"Make.Variable","appKey":"demo","properties":{"scope":"runtime","value":"https://api.example.com"}},{"key":"TOKEN","type":"Make.Secret","appKey":"demo","properties":{"scope":"runtime","value":"must-not-leak","description":"credential"},"meta":{"id":1120351053724795006}}],"pagination":{"total":2}}`
+	for _, format := range []DebugFormat{DebugText, DebugJSON} {
+		t.Run(fmt.Sprint(format), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				filter, _ := body["filter"].(map[string]any)
+				if filter["expression"] != "properties.scope == 'runtime'" || body["appKey"] != "demo" {
+					t.Error("debug must not change actual list request")
+				}
+				_, _ = w.Write([]byte(response))
+			}))
+			defer srv.Close()
+			var output bytes.Buffer
+			client := New(srv.URL, "test-token")
+			client.debug = &debugSink{w: &output, format: format}
+			if _, _, err := client.ListVariables("demo", "runtime", 1, 20); err != nil {
+				t.Fatal(err)
+			}
+			out := output.String()
+			for _, want := range []string{"properties.scope == 'runtime'", "appKey", "pagination", "list success", "BASE_URL", "https://api.example.com", "TOKEN", "credential", "1120351053724795006"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("debug missing %q", want)
+				}
+			}
+			if strings.Contains(out, "must-not-leak") || strings.Contains(out, "redacted") {
+				t.Fatal("valid list must show request and response without secret values")
+			}
+			if client.debug.redactVariables || client.debug.hideBody {
+				t.Fatal("list debug must not mutate shared client")
+			}
+			if format == DebugText && !strings.Contains(out, humanBytes(len(response))) {
+				t.Fatal("debug must report actual response size")
+			}
+			if format == DebugJSON {
+				var entry struct {
+					Request  struct{ Body json.RawMessage }
+					Response struct{ Body json.RawMessage }
+				}
+				if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
+					t.Fatal(err)
+				}
+				var body struct{ Data []Variable }
+				if err := json.Unmarshal(entry.Response.Body, &body); err != nil || len(body.Data) != 2 || body.Data[1].Properties.Value != nil {
+					t.Fatal("secret value present in JSON debug response")
+				}
+			}
+		})
+	}
+}
+
+func TestVariableListDebugInvalidResponse(t *testing.T) {
+	for _, tc := range []struct{ raw, want string }{
+		{`{"code":400,"msg":"unsupported filter expression","data":{}}`, "unsupported filter expression"},
+		{`{"code":200,"data":[null]}`, `null`},
+		{`{"code":200,"data":[{"properties":{"value":"must-not-leak"}}]}`, `"properties":{}`},
+		{`{"code":200,"data":[{"type":"Make.Secret","properties":"must-not-leak"}]}`, `redacted`},
+		{`{"code":200,"data":{"value":"must-not-leak"}}`, `redacted`},
+		{`malformed must-not-leak`, `redacted`},
+	} {
+		t.Run(tc.raw[:min(30, len(tc.raw))], func(t *testing.T) {
+			out := string(redactVariableList([]byte(tc.raw)))
+			if strings.Contains(out, "must-not-leak") || !strings.Contains(out, tc.want) {
+				t.Fatal("malformed response leaked a value or lost diagnostics")
+			}
+		})
 	}
 }

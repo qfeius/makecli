@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 client.go 的 Client.do / Client.post / checkGetResult / authFailedErr / metaVersion，encoding/json、fmt
- * [OUTPUT]: 对外提供 Variable / VariableProperties 类型及 Client.GetVariable / CreateVariable / UpdateVariable
- * [POS]: internal/api 的应用配置读写层，调用 /secret/v1/variable；Get 显式传 type=Make.Variable，appRole 由客户端选项注入，scope 始终显式传递
+ * [INPUT]: 依赖 client.go 的 Client.do / Client.post / checkGetResult / authFailedErr / metaVersion、secret.go 的密钥脱敏，encoding/json、fmt
+ * [OUTPUT]: 对外提供 Variable / VariableProperties 类型及 Client.GetVariable / ListVariables / CreateVariable / UpdateVariable / DeleteVariable；包内 getVariable 按类型查询
+ * [POS]: internal/api 的应用配置 CRUD-L 层，调用 /secret/v1/variable；与 secret.go 共用按 properties.scope 筛选的列表及按类型删除，debug 保留筛选请求和安全响应
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -19,6 +19,7 @@ type Variable struct {
 	Key        string             `json:"key"`
 	Type       string             `json:"type"`
 	AppKey     string             `json:"appKey"`
+	Meta       map[string]any     `json:"meta,omitempty"`
 	Properties VariableProperties `json:"properties"`
 }
 
@@ -30,8 +31,12 @@ type VariableProperties struct {
 
 // GetVariable 显式声明资源类型；只将明确的 404 视为不存在，损坏响应不得触发创建。
 func (c *Client) GetVariable(key, appKey, scope string) (*Variable, error) {
+	return c.getVariable(key, appKey, scope, "Make.Variable")
+}
+
+func (c *Client) getVariable(key, appKey, scope, resourceType string) (*Variable, error) {
 	body := map[string]any{
-		"key": key, "type": "Make.Variable", "appKey": appKey,
+		"key": key, "type": resourceType, "appKey": appKey,
 		"properties": map[string]string{"scope": scope},
 	}
 	var result struct {
@@ -70,10 +75,93 @@ func (c *Client) UpdateVariable(variable Variable) error {
 	return c.writeVariable("MakeService.UpdateResource", variable)
 }
 
+// ListVariables 按 API 文档的 properties.scope 限定列表；debug 保留请求，只清理响应中的密钥值。
+func (c *Client) ListVariables(appKey, scope string, page, size int) ([]Variable, int, error) {
+	return c.listVariables(appKey, scope, "", page, size)
+}
+
+func (c *Client) listVariables(appKey, scope, resourceType string, page, size int) ([]Variable, int, error) {
+	filter := "properties.scope == '" + scope + "'"
+	if resourceType != "" {
+		filter += " && type == '" + resourceType + "'"
+	}
+	body := map[string]any{
+		"appKey":     appKey,
+		"filter":     expression(filter),
+		"pagination": map[string]int{"page": page, "size": size},
+	}
+	var result struct {
+		Code       int             `json:"code"`
+		Message    string          `json:"msg"`
+		Data       json.RawMessage `json:"data"`
+		Pagination struct {
+			Total int `json:"total"`
+		} `json:"pagination"`
+	}
+	if err := c.variableListClient().do("MakeService.ListResources", variablePath, body, &result); err != nil {
+		return nil, 0, err
+	}
+	if result.Code == 401 {
+		return nil, 0, authFailedErr(result.Code, result.Message)
+	}
+	if result.Code != 200 {
+		return nil, 0, writeStatusErr(result.Code, result.Message, result.Data)
+	}
+	variables := []Variable{}
+	if err := json.Unmarshal(result.Data, &variables); err != nil {
+		return nil, 0, fmt.Errorf("无效的变量列表响应: %w", err)
+	}
+	for i, variable := range variables {
+		if variable.AppKey != appKey || variable.Properties.Scope != scope || variable.Key == "" {
+			return nil, 0, fmt.Errorf("变量列表响应与请求的 appKey/scope 不一致或缺少 key")
+		}
+		if variable.Type != "Make.Variable" && variable.Type != "Make.Secret" {
+			return nil, 0, fmt.Errorf("无效的变量类型 %q", variable.Type)
+		}
+		if resourceType != "" && variable.Type != resourceType {
+			return nil, 0, fmt.Errorf("变量列表响应类型与请求的 %s 不一致", resourceType)
+		}
+		if variable.Type == "Make.Secret" {
+			variables[i].Properties.Value = nil
+		}
+	}
+	if variables == nil {
+		variables = []Variable{}
+	}
+	return variables, result.Pagination.Total, nil
+}
+
+func (c *Client) variableListClient() *Client {
+	clone := *c
+	if c.debug != nil {
+		sink := *c.debug
+		sink.redactVariables = true
+		clone.debug = &sink
+	}
+	return &clone
+}
+
+// DeleteVariable 只发送普通变量的完整命名空间，不携带值或修改应用清单。
+func (c *Client) DeleteVariable(key, appKey, scope string) error {
+	return c.deleteVariable(key, appKey, scope, "Make.Variable")
+}
+
+func (c *Client) deleteVariable(key, appKey, scope, resourceType string) error {
+	body := map[string]any{
+		"key": key, "type": resourceType, "appKey": appKey,
+		"properties": map[string]string{"scope": scope},
+	}
+	return c.post("MakeService.DeleteResource", variablePath, body)
+}
+
 func (c *Client) writeVariable(target string, variable Variable) error {
 	body := map[string]any{
 		"key": variable.Key, "type": variable.Type, "appKey": variable.AppKey,
 		"meta": map[string]string{"version": metaVersion}, "properties": variable.Properties,
+	}
+	if variable.Type == "Make.Secret" {
+		err := c.secretClient().post(target, variablePath, body)
+		return redactSecretError(err, variable.Properties.Value)
 	}
 	return c.post(target, variablePath, body)
 }

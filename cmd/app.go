@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra、fmt、path/filepath、regexp、slices
  * [OUTPUT]: 对外提供 newAppCmd 函数、loadAppManifestFromFile helper、validResourceKey 通用 key 校验函数
- * [POS]: cmd 模块的 app 命令组，挂载 create / list / +favo / info / init / delete / deploy / clone / pull / promote / variable；提供 App 清单加载与通用 key 校验
+ * [POS]: cmd 模块的 app 命令组，挂载 create / list / +favo / info / init / delete / deploy / clone / pull / promote / variable / secret；提供 App 清单加载与通用 key 校验
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -44,6 +44,7 @@ func newAppCmd() *cobra.Command {
 	cmd.AddCommand(newPullCmd())
 	cmd.AddCommand(newPromoteCmd())
 	cmd.AddCommand(newAppVariableCmd())
+	cmd.AddCommand(newAppSecretCmd())
 	return cmd
 }
 

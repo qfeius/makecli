@@ -328,6 +328,37 @@ makecli entity --app TODO list Task --output json
 - `--output json` 列表模式输出 `data` 和 `pagination`，详情模式输出单个 `data` 对象
 - 列表模式支持 `--page` 和 `--size`，其中 `--page` 默认从 `1` 开始
 
+### 应用变量与密钥
+
+在应用项目根目录执行，从 `apps/dsl/app.yaml` 读取应用身份：
+
+```bash
+makecli app variable add BASE_URL https://api.example.com
+makecli app variable put BASE_URL https://api-v2.example.com
+makecli app variable put LOG_LEVEL debug --appRole production --output json
+makecli app variable list
+makecli app variable list --appRole production --page 1 --size 100 --output json
+makecli app variable delete BASE_URL
+makecli app variable delete BASE_URL --appRole production --yes
+makecli app secret add OPENAI_API_KEY
+# Enter a secret value: ************
+makecli app secret put OPENAI_API_KEY
+makecli app secret list --output json
+makecli app secret delete OPENAI_API_KEY
+makecli app secret delete OPENAI_API_KEY --appRole production --yes
+
+makecli app secret add OPENAI_API_KEY --appRole production
+printf '%s' "$OPENAI_API_KEY" | makecli app secret add OPENAI_API_KEY --from-stdin
+```
+
+固定写入 runtime，`--appRole beta|production` 默认 `beta`；同名同类型配置更新，拒绝跨类型覆盖。保存后在下一次部署生效。密钥输入显示掩码，交互提示写入 stderr，支持 `--output auto|table|json`；debug 隐藏密钥写入的请求及响应正文，列表请求正常展示筛选与分页，响应仅移除密钥值。`--from-stdin` 允许空值、保留空格和内部换行，仅去除一个末尾 LF 或 CRLF，值最多 32 KiB。
+
+`variable put <KEY> <VALUE>` 只更新已存在的普通变量，保留原有说明，支持空字符串；变量不存在、读取失败或类型为密钥时返回错误，不创建变量。更新在下一次部署生效。
+
+`secret put <KEY>` 只更新已存在的密钥，保留说明；输入方式与 `secret add` 一致，支持掩码输入和 `--from-stdin`，不接受值参数。`secret list` 仅列出密钥元数据，支持 `--page`、`--size` 和 `--output`，表格值显示 `(encrypted)`、JSON 省略 value。`secret delete` 只删除密钥，输入 key 确认或使用 `--yes/-y`；非交互环境必须显式使用 `--yes`。更新与删除均在下次部署生效，不改写 app.yaml 的 requiredSecrets 声明。
+
+`variable list` 固定查询 runtime，列出普通变量及密钥元数据，密钥值显示 `(encrypted)`；`--page` 默认 1，`--size` 默认 20（1–100），JSON 包含 `data` 与 `pagination`。`variable delete` 仅删除普通变量，默认输入 key 确认，`--yes/-y` 跳过；非交互环境必须显式使用 `--yes`。删除不会触发部署或改写 app.yaml；若变量仍在 `properties.vars` 中，后续 apply 会重新创建它。
+
 ### 构建与部署日志
 
 ```bash

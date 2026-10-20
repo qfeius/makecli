@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 variable.go、Client 与错误哨兵，encoding/json、errors、net/http/httptest、net/http、strings、testing
- * [OUTPUT]: 验证变量读写请求及 Get 必填 type、环境与 scope 隔离、空值、错误分类及损坏回执拒绝
+ * [INPUT]: 依赖 variable.go、Client、debugSink 与错误哨兵，bytes、encoding/json、errors、httptest、http、strings、testing
+ * [OUTPUT]: 验证变量 CRUD-L 的请求类型/环境/properties.scope 筛选/分页、空值、错误分类、损坏回执拒绝与 debug 密钥值脱敏
  * [POS]: internal/api 的变量协议测试，全部请求发往本地 httptest 服务
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -8,6 +8,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -15,6 +16,102 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestListVariables(t *testing.T) {
+	for _, role := range []string{RoleBeta, RoleProd} {
+		for _, scope := range []string{"runtime", "automation"} {
+			t.Run(role+"/"+scope, func(t *testing.T) {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != http.MethodPost || r.URL.Path != variablePath || r.URL.Query().Get("appRole") != role || r.Header.Get("X-Make-Target") != "MakeService.ListResources" || r.Header.Get("Authorization") != "Bearer token" || r.Header.Get("Traceparent") == "" {
+						t.Errorf("unexpected list request: %s %s", r.Method, r.URL)
+					}
+					var body struct {
+						AppKey     string
+						Filter     struct{ Expression string }
+						Pagination struct{ Page, Size int }
+					}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					if body.AppKey != "demo" || body.Filter.Expression != "properties.scope == '"+scope+"'" || body.Pagination.Page != 2 || body.Pagination.Size != 10 {
+						t.Errorf("unexpected list body: %+v", body)
+					}
+					value := ""
+					secret := "must-not-leak"
+					variables := []Variable{
+						{Key: "X", AppKey: "demo", Type: "Make.Variable", Properties: VariableProperties{Scope: scope, Value: &value}},
+						{Key: "TOKEN", AppKey: "demo", Type: "Make.Secret", Properties: VariableProperties{Scope: scope, Value: &secret}},
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": variables, "pagination": map[string]int{"total": 15}})
+				}))
+				defer srv.Close()
+				var debug bytes.Buffer
+				client := New(srv.URL, "token", WithAppRole(role))
+				client.debug = &debugSink{w: &debug, format: DebugJSON}
+				variables, total, err := client.ListVariables("demo", scope, 2, 10)
+				if err != nil || total != 15 || len(variables) != 2 {
+					t.Fatalf("list = %+v, %d, %v", variables, total, err)
+				}
+				if variables[0].Properties.Value == nil || *variables[0].Properties.Value != "" || variables[1].Properties.Value != nil {
+					t.Fatal("plain empty value lost or secret value exposed")
+				}
+				if strings.Contains(debug.String(), "must-not-leak") || !strings.Contains(debug.String(), "properties.scope == '") || !strings.Contains(debug.String(), "TOKEN") || client.debug.hideBody || client.debug.redactVariables {
+					t.Fatal("list debug must retain the request and metadata without leaking secret values or mutating the shared sink")
+				}
+			})
+		}
+	}
+}
+
+func TestListVariablesErrors(t *testing.T) {
+	for _, response := range []string{
+		`{"code":500,"msg":"unavailable","data":{}}`, `{"code":401,"msg":"expired"}`,
+		`{"code":990300403,"msg":"expired"}`, `{`, `{"code":200,"data":{}}`,
+		`{"code":200,"data":[{"key":"X","appKey":"other","type":"Make.Variable","properties":{"scope":"runtime"}}]}`,
+		`{"code":200,"data":[{"key":"X","appKey":"demo","type":"Make.Variable","properties":{"scope":"automation"}}]}`,
+		`{"code":200,"data":[{"key":"X","appKey":"demo","type":"Make.App","properties":{"scope":"runtime"}}]}`,
+		`{"code":200,"data":[{"appKey":"demo","type":"Make.Variable","properties":{"scope":"runtime"}}]}`,
+	} {
+		t.Run(response, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(response)) }))
+			defer srv.Close()
+			variables, _, err := New(srv.URL, "token").ListVariables("demo", "runtime", 1, 20)
+			if err == nil || variables != nil {
+				t.Fatalf("expected rejected response, got %+v, %v", variables, err)
+			}
+			if strings.Contains(response, "expired") && !errors.Is(err, ErrAuthFailed) {
+				t.Fatalf("authentication sentinel lost: %v", err)
+			}
+		})
+	}
+}
+
+func TestDeleteVariableRequests(t *testing.T) {
+	for _, role := range []string{RoleBeta, RoleProd} {
+		for _, scope := range []string{"runtime", "automation"} {
+			t.Run(role+"/"+scope, func(t *testing.T) {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != http.MethodPost || r.URL.Path != variablePath || r.URL.Query().Get("appRole") != role || r.Header.Get("X-Make-Target") != "MakeService.DeleteResource" {
+						t.Errorf("unexpected delete routing: %s %s", r.Method, r.URL)
+					}
+					var body map[string]any
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					props, _ := body["properties"].(map[string]any)
+					if len(body) != 4 || body["key"] != "X" || body["type"] != "Make.Variable" || body["appKey"] != "demo" || len(props) != 1 || props["scope"] != scope {
+						t.Errorf("unexpected delete identity: %+v", body)
+					}
+					_, _ = w.Write([]byte(`{"code":200,"data":{}}`))
+				}))
+				defer srv.Close()
+				if err := New(srv.URL, "token", WithAppRole(role)).DeleteVariable("X", "demo", scope); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
+	}
+}
 
 func TestVariableRequests(t *testing.T) {
 	for _, role := range []string{RoleBeta, RoleProd} {

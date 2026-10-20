@@ -1,12 +1,12 @@
 /**
  * [INPUT]: 依赖 bytes、encoding/json、fmt、io、net/http、os、strings、time，github.com/mattn/go-isatty
- * [OUTPUT]: 对外提供 DebugFormat 枚举（DebugText / DebugJSON）；包内提供 debugSink 类型（request / response 渲染）、
+ * [OUTPUT]: 对外提供 DebugFormat 枚举（DebugText / DebugJSON）；包内提供 debugSink 类型（密钥写入隐藏正文，列表仅清理密钥值）、
  *           debugRequest 数据结构、newDebugSink 构造（stderr + TTY/NO_COLOR 判色）、humanBytes
  * [POS]: internal/api 的 --debug 渲染层。一份结构化数据、两种渲染：
  *        DebugText 是 curl -v 风格（→ 出站 / ← 入站摘要头按 HTTP 状态着色 + 两格缩进正文，curl 命令可直接复制）；
  *        DebugJSON 每请求一个 {request,response,timing} 对象，供 --output json 的 agent/管道消费。
  *        request() 与 integration.go 的 OCR 上传共用
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package api
@@ -72,12 +72,16 @@ type debugRequest struct {
 
 // debugSink 是 --debug 的渲染器；Client 持 nil 即关闭
 type debugSink struct {
-	w       io.Writer
-	format  DebugFormat
-	color   bool
-	start   time.Time    // 最近一次 request 的起点，response 据此算耗时
-	pending debugRequest // JSON 模式暂存的请求，与响应合成一个对象
+	w               io.Writer
+	format          DebugFormat
+	color           bool
+	start           time.Time    // 最近一次 request 的起点，response 据此算耗时
+	pending         debugRequest // JSON 模式暂存的请求，与响应合成一个对象
+	hideBody        bool         // 密钥写入等调用隐藏双方正文
+	redactVariables bool         // 配置列表保留请求及响应元数据，只移除密钥值
 }
+
+const redactedBody = `{"redacted":true}`
 
 // newDebugSink 输出到 stderr；文本模式仅当 stderr 是 TTY 且未设 NO_COLOR 时上色
 func newDebugSink(format DebugFormat) *debugSink {
@@ -99,6 +103,9 @@ func (d *debugSink) paint(color, s string) string {
 
 // request 记录出站起点；文本模式立即渲染摘要头与 curl 命令，JSON 模式暂存等响应一起出
 func (d *debugSink) request(r debugRequest) {
+	if d.hideBody {
+		r.Body = []byte(redactedBody)
+	}
 	d.start = time.Now()
 	if d.format == DebugJSON {
 		d.pending = r
@@ -116,14 +123,61 @@ func (d *debugSink) request(r debugRequest) {
 
 // response 渲染入站：文本模式是摘要头 + 缩进美化的 body，JSON 模式是完整 {request,response,timing}
 func (d *debugSink) response(resp *http.Response, raw []byte) {
+	size := len(raw)
+	switch {
+	case d.hideBody:
+		raw = []byte(redactedBody)
+	case d.redactVariables:
+		raw = redactVariableList(raw)
+	}
 	dur := time.Since(d.start)
 	if d.format == DebugJSON {
 		d.writeJSON(resp, raw, dur)
 		return
 	}
 	head := d.paint(statusColor(resp.StatusCode), "← "+resp.Status) + "  " +
-		d.paint(ansiDim, fmt.Sprintf("%s  %s", dur.Round(time.Millisecond), humanBytes(len(raw))))
+		d.paint(ansiDim, fmt.Sprintf("%s  %s", dur.Round(time.Millisecond), humanBytes(size)))
 	_, _ = fmt.Fprintf(d.w, "\n%s\n%s\n\n", head, indent(string(prettyJSON(raw))))
+}
+
+// redactVariableList 保留原始字段及数值精度，损坏的 data 单独隐藏，错误码与消息仍可诊断。
+func redactVariableList(raw []byte) []byte {
+	var body map[string]json.RawMessage
+	if json.Unmarshal(raw, &body) != nil {
+		return []byte(redactedBody)
+	}
+	data, ok := body["data"]
+	if !ok {
+		return raw
+	}
+	var variables []map[string]json.RawMessage
+	if json.Unmarshal(data, &variables) != nil {
+		body["data"] = json.RawMessage(redactedBody)
+	} else {
+		for _, variable := range variables {
+			redactVariableProperties(variable)
+		}
+		body["data"], _ = json.Marshal(variables)
+	}
+	out, _ := json.Marshal(body)
+	return out
+}
+
+func redactVariableProperties(variable map[string]json.RawMessage) {
+	if variable == nil {
+		return
+	}
+	var resourceType string
+	if json.Unmarshal(variable["type"], &resourceType) == nil && resourceType == "Make.Variable" {
+		return
+	}
+	var properties map[string]json.RawMessage
+	if json.Unmarshal(variable["properties"], &properties) != nil {
+		variable["properties"] = json.RawMessage(redactedBody)
+		return
+	}
+	delete(properties, "value")
+	variable["properties"], _ = json.Marshal(properties)
 }
 
 // debugEntry 是 JSON 模式的输出形态；struct 而非 map，让字段按阅读顺序（method → url → headers → body）而非字母序
