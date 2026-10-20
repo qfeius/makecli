@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.21] - 2026-10-20
+
+### Features
+
+- **skills**: Makes Skill installation, updates, and remote version checks follow `settings.channel`: `stable` uses `main`, and `beta` uses `beta`. Switching channels and updating replaces same-name Skills while retaining Skills absent from the target branch.
+- **skills**: Adds a `CHANNEL` column to `skills list` and installed channel/ref fields to JSON output. Each installed Skill reports its recorded source branch independently of the configured target; legacy records without a branch show `unknown`.
+
+### Maintenance
+
+- **skills**: Bumps embedded Make platform skills to `e99b30e`, including stable/beta channel documentation and Canvas Table updates.
+
 ## [v0.5.20] - 2026-10-19
 
 ### Features
@@ -376,7 +387,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.20...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.21...HEAD
+[v0.5.21]: https://github.com/qfeius/makecli/releases/tag/v0.5.21
 [v0.5.20]: https://github.com/qfeius/makecli/releases/tag/v0.5.20
 [v0.5.16]: https://github.com/qfeius/makecli/releases/tag/v0.5.16
 [v0.5.15]: https://github.com/qfeius/makecli/releases/tag/v0.5.15
