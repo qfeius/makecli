@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 context、encoding/json、strings、testing、internal/skillsync
  * [OUTPUT]: 覆盖 runSkillsList（table/json/空态/警告/非法格式）与 skills 默认行为 = list
  * [POS]: cmd/skills list 子命令测试，stubListSkills 打桩隔离 lockfile 与网络
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -66,7 +66,7 @@ func stubListSkills(t *testing.T, inv skillsync.Inventory) {
 	// list 读 [settings] role 决定 available 分母，隔离配置目录（缺省 developer = 全量）
 	t.Setenv(config.EnvConfigDir, t.TempDir())
 	orig := listSkillsFunc
-	listSkillsFunc = func(ctx context.Context) skillsync.Inventory { return inv }
+	listSkillsFunc = func(ctx context.Context, channel string) skillsync.Inventory { return inv }
 	t.Cleanup(func() { listSkillsFunc = orig })
 }
 
@@ -76,6 +76,31 @@ func sampleInventory() skillsync.Inventory {
 		{Name: "makedsl", Version: "0.2.4", Status: skillsync.StatusOutdated, Description: "DSL 设计与生成", UpdatedAt: "2026-07-02T00:00:00.000Z", LocalHash: "a", RemoteHash: "b"},
 		{Name: "makeui", Version: "0.3.1", Status: skillsync.StatusUpToDate, Description: "页面布局", UpdatedAt: "2026-07-01T00:00:00.000Z", LocalHash: "c", RemoteHash: "c"},
 	}}
+}
+
+func TestSkillsListFollowsConfiguredChannel(t *testing.T) {
+	stubListSkills(t, sampleInventory())
+	if err := setSetting("channel", config.ChannelBeta); err != nil {
+		t.Fatal(err)
+	}
+	listSkillsFunc = func(_ context.Context, channel string) skillsync.Inventory {
+		if channel != config.ChannelBeta {
+			t.Errorf("catalog channel = %q, want beta", channel)
+		}
+		return sampleInventory()
+	}
+	out := captureStdout(t, func() {
+		if err := runSkillsList(context.Background(), outputJSON, false); err != nil {
+			t.Fatal(err)
+		}
+	})
+	var payload struct{ Channel, Branch string }
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Channel != "beta" || payload.Branch != "beta" {
+		t.Fatalf("missing target channel: %s", out)
+	}
 }
 
 func TestRunSkillsListTable(t *testing.T) {

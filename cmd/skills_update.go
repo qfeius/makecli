@@ -1,8 +1,8 @@
 /**
  * [INPUT]: 依赖 github.com/spf13/cobra、internal/build
  * [OUTPUT]: 对外提供 newSkillsUpdateCmd 函数
- * [POS]: cmd/skills 的 update 子命令，复用 update.go 的 runSkillSync（skillsync.Sync 幂等：装缺的 + 升级已有的），与 makecli update 后置同步同一代码路径
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [POS]: cmd/skills 的 update 子命令，与 makecli update 共用 runSkillSync，按 settings.channel 覆盖安装同名 Skill
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -14,8 +14,12 @@ import (
 
 func newSkillsUpdateCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:          "update",
-		Short:        "Install missing and upgrade installed Make platform skills",
+		Use:   "update",
+		Short: "Install missing and upgrade installed Make platform skills",
+		Long: "Install missing and overwrite installed Make platform skills from the configured channel.\n" +
+			"[settings] channel selects main (stable, default) or beta.\n" +
+			"Switch channels with 'makecli settings set channel stable|beta', then run this command.\n" +
+			"Skills absent from the selected branch are kept; uninstall them explicitly if needed.",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSkillSync(cmd, build.Version, false)

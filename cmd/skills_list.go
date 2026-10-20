@@ -2,7 +2,8 @@
  * [INPUT]: 依赖 context、fmt、os、slices、github.com/olekukonko/tablewriter、github.com/spf13/cobra、internal/skillsync、cmd/output 辅助
  * [OUTPUT]: 对外提供 newSkillsListCmd 函数；包内 runSkillsList 被 skills 命令组默认行为复用
  * [POS]: cmd/skills 的 list 子命令，合并本地 lockfile 与 GitHub 远端状态，输出列 NAME/VERSION/STATUS/DESCRIPTION/UPDATED AT（VERSION 为本地已安装 SKILL.md 的 metadata.version，未安装留空）；默认只列已安装（包管理器 list 惯例），--all 才含远端 not installed 条目（表格与 JSON 同一过滤语义），默认视图汇总行提示 N more available（available 按 [settings] role 的名单过滤：user 不把 developer skills 当可装；空态引导带当前 role）；支持 table|json；远端失败降级 unknown + stderr 警告，退出码恒 0
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * 远端检查跟随 settings.channel，表格及 JSON 标明目标通道和分支。
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -43,7 +44,11 @@ func runSkillsList(ctx context.Context, output string, all bool) error {
 		return err
 	}
 
-	inv := listSkillsFunc(ctx)
+	channel, err := resolveChannel()
+	if err != nil {
+		return err
+	}
+	inv := listSkillsFunc(ctx, channel)
 
 	if inv.LockWarning != "" {
 		_, _ = fmt.Fprintf(os.Stderr, "warning: %s\n", inv.LockWarning)
@@ -61,8 +66,9 @@ func runSkillsList(ctx context.Context, output string, all bool) error {
 	}
 
 	if output == outputJSON {
-		return writeJSON(map[string]any{"data": skills})
+		return writeJSON(map[string]any{"data": skills, "channel": channel, "branch": skillsync.Branch(channel)})
 	}
+	fmt.Printf("Channel: %s (branch: %s)\n", channel, skillsync.Branch(channel))
 
 	// 角色决定"可装"的分母：user 只关心名单内的 skill，其余 skills 不该被当成 more available；未设置即全量（原有行为）
 	role, err := resolveRole()

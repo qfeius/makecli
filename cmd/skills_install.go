@@ -3,7 +3,8 @@
  * [OUTPUT]: 对外提供 newSkillsInstallCmd 函数；包级 planInstallFunc / installSkillsFunc / confirmInstallFunc 可打桩变量；包内 installSelection → installPlanArgs（按名 / --all / --role 归一，附确认后的 role 落盘动作）
  * [POS]: cmd/skills 的 install 子命令：按名选装（不碰 role）/ --all（全量，原有行为，并清除 [settings] role 回到全量同步）/ --role user（名单由 skillsync.RoleSkills 给出：只装 makecli，确认后、安装前写 [settings] role，让 update 后置同步沿用同一范围）三者互斥，
  *        缺省 huh confirm 确认（--yes 跳过，非 TTY 拒绝并指引），两阶段调用 skillsync.PlanInstall → Install
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * 按 settings.channel 规划来源与确认展示。
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -40,7 +41,10 @@ func newSkillsInstallCmd() *cobra.Command {
 --role user installs only the makecli skill (manage resources, no app
 development) and remembers the choice in [settings] role, so "makecli update"
 keeps syncing just that. --all installs everything and clears the role again.
-Explicit names leave the role untouched.`,
+Explicit names leave the role untouched.
+
+[settings] channel selects the source branch: stable (default) uses main,
+beta uses beta. Existing skills with the same name are overwritten.`,
 		Example: `  makecli skills install makedsl makeui    # 按名选装
   makecli skills install --all             # 全量安装（装缺的 + 升级已有）
   makecli skills install --all --yes       # 跳过确认（CI / 非交互）
@@ -104,7 +108,11 @@ func runSkillsInstall(ctx context.Context, cmd *cobra.Command, names []string, s
 		return err
 	}
 
-	plan, err := planInstallFunc(ctx, args.names, args.all)
+	channel, err := resolveChannel()
+	if err != nil {
+		return err
+	}
+	plan, err := planInstallFunc(ctx, channel, args.names, args.all)
 	if err != nil {
 		return err
 	}
@@ -155,7 +163,7 @@ func confirmInstall(plan skillsync.InstallPlan) error {
 			huh.NewConfirm().
 				Title("Install Make platform skills?").
 				Description(fmt.Sprintf("Source: %s\nSkills: %s\nTarget: all detected code agents",
-					skillsync.SkillsSource, list)).
+					plan.Source, list)).
 				Affirmative("Install").
 				Negative("Abort").
 				Value(&confirmed),

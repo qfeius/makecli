@@ -239,7 +239,7 @@ func TestDoctorReport(t *testing.T) {
 			original := listSkillsFunc
 			t.Cleanup(func() { listSkillsFunc = original })
 			calls := 0
-			listSkillsFunc = func(context.Context) skillsync.Inventory {
+			listSkillsFunc = func(context.Context, string) skillsync.Inventory {
 				calls++
 				if tc.fix && !tc.updateFails && len(*synced) != 1 {
 					t.Error("skills list must run after update sync")

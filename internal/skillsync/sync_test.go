@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 context、testing；白盒替换 runSkillsCommand
  * [OUTPUT]: 覆盖 Make platform skills 同步器的强制同步、跳过和失败提示
  * [POS]: internal/skillsync 的单元测试，隔离 npx 副作用并验证 update 默认每次刷新 skills
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package skillsync
@@ -23,8 +23,8 @@ func setRunSkillsCommand(t *testing.T, f func(context.Context, []string) (string
 }
 
 func TestSkillsCommandPinsGlobalScope(t *testing.T) {
-	want := []string{"npx", "-y", "skills", "add", SkillsSource, "--all", "-y", "--global"}
-	if got := SkillsCommand(); !slices.Equal(got, want) {
+	want := []string{"npx", "-y", "skills", "add", SourceURL(""), "--all", "-y", "--global"}
+	if got := SkillsCommand(""); !slices.Equal(got, want) {
 		t.Fatalf("unexpected command:\n got %v\nwant %v", got, want)
 	}
 }
@@ -45,10 +45,10 @@ func TestSyncAlwaysRunsNpx(t *testing.T) {
 	if result.Action != ActionSynced {
 		t.Fatalf("action = %q, want %q", result.Action, ActionSynced)
 	}
-	if !slices.Equal(gotCommand, SkillsCommand()) {
-		t.Fatalf("command = %#v, want %#v", gotCommand, SkillsCommand())
+	if !slices.Equal(gotCommand, SkillsCommand("")) {
+		t.Fatalf("command = %#v, want %#v", gotCommand, SkillsCommand(""))
 	}
-	if result.CommandString() != "npx -y skills add qfeius/make-platform-skills --all -y --global" {
+	if result.CommandString() != "npx -y skills add https://github.com/qfeius/make-platform-skills/tree/main --all -y --global" {
 		t.Fatalf("command string = %q", result.CommandString())
 	}
 }
@@ -103,7 +103,7 @@ func TestSyncCommandFailureIncludesManualCommandAndOutput(t *testing.T) {
 	if result.Action != ActionFailed {
 		t.Fatalf("action = %q, want %q", result.Action, ActionFailed)
 	}
-	if !strings.Contains(err.Error(), "npx -y skills add qfeius/make-platform-skills --all -y") {
+	if !strings.Contains(err.Error(), "npx -y skills add https://github.com/qfeius/make-platform-skills/tree/main --all -y") {
 		t.Fatalf("error missing manual command: %v", err)
 	}
 	if !strings.Contains(err.Error(), "registry timeout") {

@@ -2,7 +2,8 @@
  * [INPUT]: 依赖 context、fmt、maps、slices、strings
  * [OUTPUT]: 对外提供 PlanInstall / Install / InstallPlan / InstallCommand，安装指定或全部 Make platform skills
  * [POS]: internal/skillsync 的安装层，被 cmd/skills_install.go 消费；两阶段：PlanInstall（EnsureNpx 门禁 + 远端校验 + 构造命令）供 cmd 层确认展示，Install 执行；按名清单去重排序（Command 由去重后的 plan.Names 构造），并统一拒绝 flag 形状名字；复用 sync.go 的 runSkillsCommand / syncTimeout / trimOutput / dedupSortedNames 与 inventory.go 的 fetchRemoteSkills
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * 安装计划与命令按 channel.go 指定相同分支。
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package skillsync
@@ -17,6 +18,7 @@ import (
 
 // InstallPlan 是一次安装的已解析计划：cmd 层拿它渲染确认提示，确认后原样交给 Install 执行。
 type InstallPlan struct {
+	Source  string   // 含分支的来源 URL，确认展示与实际命令使用同一来源。
 	Names   []string // 将安装的 skill 名；--all 且远端不可达时为空（装什么由 npx 裁决）
 	All     bool
 	Command []string // 将执行的 npx 命令
@@ -25,18 +27,18 @@ type InstallPlan struct {
 
 // InstallCommand 返回安装命令：--all 与 update 同一条命令（同一语义）；
 // 按名走上游 -s（单 flag 贪婪收集空格分隔多值）+ -a '*'（全部 agent，与 --all 行为一致）。
-func InstallCommand(names []string, all bool) []string {
+func InstallCommand(channel string, names []string, all bool) []string {
 	if all {
-		return SkillsCommand()
+		return SkillsCommand(channel)
 	}
-	command := []string{"npx", "-y", "skills", "add", SkillsSource, "-s"}
+	command := []string{"npx", "-y", "skills", "add", SourceURL(channel), "-s"}
 	command = append(command, names...)
 	return append(command, "-a", "*", "-y", "--global")
 }
 
 // PlanInstall 解析一次安装：npx 环境门禁 → 远端清单校验/展开 → 构造命令。
 // 按名拼错即报错并列出可用名字；远端不可达是降级不是门禁（Warning 提示，npx 裁决）。
-func PlanInstall(ctx context.Context, names []string, all bool) (InstallPlan, error) {
+func PlanInstall(ctx context.Context, channel string, names []string, all bool) (InstallPlan, error) {
 	if err := EnsureNpx(); err != nil {
 		return InstallPlan{}, err
 	}
@@ -44,8 +46,8 @@ func PlanInstall(ctx context.Context, names []string, all bool) (InstallPlan, er
 		ctx = context.Background()
 	}
 
-	plan := InstallPlan{All: all}
-	remote, err := fetchRemoteSkills(ctx)
+	plan := InstallPlan{All: all, Source: SourceURL(channel)}
+	remote, err := fetchRemoteSkills(ctx, channel)
 	switch {
 	case all && err == nil:
 		plan.Names = slices.Sorted(maps.Keys(remote))
@@ -53,7 +55,7 @@ func PlanInstall(ctx context.Context, names []string, all bool) (InstallPlan, er
 		plan.Warning = fmt.Sprintf("cannot list remote skills: %v", err)
 	case err != nil:
 		plan.Names = dedupSortedNames(names)
-		plan.Warning = fmt.Sprintf("cannot verify skill names against %s: %v", SkillsSource, err)
+		plan.Warning = fmt.Sprintf("cannot verify skill names against %s: %v", plan.Source, err)
 	default:
 		var invalid []string
 		for _, name := range names {
@@ -74,7 +76,7 @@ func PlanInstall(ctx context.Context, names []string, all bool) (InstallPlan, er
 			return InstallPlan{}, fmt.Errorf("invalid skill name: %q", name)
 		}
 	}
-	plan.Command = InstallCommand(plan.Names, all)
+	plan.Command = InstallCommand(channel, plan.Names, all)
 	return plan, nil
 }
 

@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 bytes、context、errors、strings、testing、internal/skillsync
  * [OUTPUT]: 覆盖 skills install 的互斥校验/无参报错/确认流/-y 跳过/警告出 stderr/错误透传/非 TTY 门控/子命令注册
  * [POS]: cmd/skills install 子命令测试；planInstallFunc / installSkillsFunc / confirmInstallFunc 打桩隔离网络、npx 与终端交互
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -133,12 +133,28 @@ func TestSkillsInstallRolePersistsAfterConfirmBeforeInstall(t *testing.T) {
 
 // installStubs 汇集三个打桩点的调用记录。
 type installStubs struct {
+	planChannel  string
 	planNames    []string
 	planAll      bool
 	planCalls    int
 	confirmCalls int
 	installCalls int
 	installPlan  skillsync.InstallPlan
+}
+
+func TestSkillsInstallFollowsConfiguredChannel(t *testing.T) {
+	rec := stubSkillsInstall(t, skillsync.InstallPlan{Names: []string{"makecli"}}, nil, nil, nil)
+	for _, channel := range []string{config.ChannelBeta, config.ChannelStable} {
+		if err := setSetting("channel", channel); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := runInstallCmd("makecli", "--yes"); err != nil {
+			t.Fatal(err)
+		}
+		if rec.planChannel != channel {
+			t.Fatalf("plan channel = %q, want %q", rec.planChannel, channel)
+		}
+	}
 }
 
 // stubSkillsInstall 打桩 planInstallFunc / confirmInstallFunc / installSkillsFunc。
@@ -149,7 +165,8 @@ func stubSkillsInstall(t *testing.T, plan skillsync.InstallPlan, planErr, confir
 	rec := &installStubs{}
 
 	origPlan := planInstallFunc
-	planInstallFunc = func(_ context.Context, names []string, all bool) (skillsync.InstallPlan, error) {
+	planInstallFunc = func(_ context.Context, channel string, names []string, all bool) (skillsync.InstallPlan, error) {
+		rec.planChannel = channel
 		rec.planCalls++
 		rec.planNames = names
 		rec.planAll = all

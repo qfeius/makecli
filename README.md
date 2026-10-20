@@ -15,9 +15,9 @@ brew install makecli
 ```
 makecli update
 ```
-默认会先更新 makecli 二进制，再每次同步 Make platform skills：
-```
-npx -y skills add qfeius/make-platform-skills --all -y
+默认会先更新 makecli 二进制，再按 `[settings] channel` 每次同步 Make platform skills；stable 的底层命令为：
+```bash
+npx -y skills add https://github.com/qfeius/make-platform-skills/tree/main --all -y --global
 ```
 如需只更新二进制，可跳过 skills：
 ```
@@ -31,10 +31,10 @@ npm 安装的 makecli 执行 `makecli update` 时会自动委托给 `npm install
 
 ## 发布通道（stable / beta）
 
-makecli 有两个发布通道：
+makecli 二进制与已安装的 Make platform skills 共用两个发布通道：
 
-- **stable**（默认）：正式版本，Homebrew 与 `makecli update` 默认追踪
-- **beta**：`vX.Y.Z-beta.N` 预发布版本，先行体验新功能；不进 Homebrew，通过 `makecli update` 自更新或 `npm install -g @qfeius/makecli@beta` 分发
+- **stable**（默认）：CLI 正式版本，Homebrew 与 `makecli update` 默认追踪；Skill 使用 `main` 分支
+- **beta**：CLI 额外跟踪 `vX.Y.Z-beta.N` 预发布版本，不进 Homebrew，通过 `makecli update` 或 `npm install -g @qfeius/makecli@beta` 分发；Skill 使用 `beta` 分支
 
 ```bash
 # 切入 beta 通道：之后裸 update 与后台更新提示自动追踪 beta
@@ -52,6 +52,20 @@ makecli update v0.5.5 --force
 # 不切通道，临时安装某个 beta 版本
 makecli update v0.6.0-beta.1
 ```
+
+只切换和更新 Skill，无需替换 CLI 二进制：
+
+```bash
+makecli settings set channel beta
+makecli skills update
+
+makecli settings set channel stable
+makecli skills update
+```
+
+`settings set` 只保存通道；`skills install`、`skills update` 和 CLI 更新后的自动同步才覆盖已有同名 Skill，角色设置仍决定同步范围。`skills list` 按同一分支检查更新，并展示目标通道和分支；JSON 顶层包含 `channel`、`branch`。切回 stable 也会覆盖安装，不按 Skill 版本号阻止切换；目标分支缺失的已装 Skill 保留，可显式 `skills uninstall`，第三方 Skill 不受影响。
+
+显式安装某个 CLI 版本不修改通道配置，其后的 Skill 同步仍读取 `[settings] channel`。`skills read` 是二进制内嵌的构建快照，使用切换后的全局 Skill 时应让 Agent 读取已安装文件。
 
 `makecli version list` 的 TYPE 列会标注 `Pre-release`，便于分辨预发布版本。
 

@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 role.go 的 RoleSkills / SyncCommand、internal/config 角色常量；slices、testing
  * [OUTPUT]: 覆盖角色名单表与同步命令派生的单元测试
  * [POS]: internal/skillsync 模块 role.go 的配套测试
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package skillsync
@@ -39,11 +39,11 @@ func TestRoleSkills(t *testing.T) {
 }
 
 func TestSyncCommandByRole(t *testing.T) {
-	if got := SyncCommand(""); !slices.Equal(got, SkillsCommand()) {
-		t.Errorf("unset role sync = %v, want SkillsCommand %v", got, SkillsCommand())
+	if got := SyncCommand("", ""); !slices.Equal(got, SkillsCommand("")) {
+		t.Errorf("unset role sync = %v, want SkillsCommand %v", got, SkillsCommand(""))
 	}
-	want := []string{"npx", "-y", "skills", "add", SkillsSource, "-s", "makecli", "-a", "*", "-y", "--global"}
-	if got := SyncCommand(config.RoleUser); !slices.Equal(got, want) {
+	want := []string{"npx", "-y", "skills", "add", SourceURL(""), "-s", "makecli", "-a", "*", "-y", "--global"}
+	if got := SyncCommand("", config.RoleUser); !slices.Equal(got, want) {
 		t.Errorf("user sync = %v, want %v", got, want)
 	}
 }

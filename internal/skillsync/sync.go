@@ -1,8 +1,8 @@
 /**
  * [INPUT]: 依赖 context、os/exec、slices、strings、time
- * [OUTPUT]: 对外提供 Sync / Options / Result / SkillsCommand，执行 Make platform skills 默认同步
- * [POS]: internal/skillsync 的编排层，被 cmd/update.go 在二进制更新后调用；同步命令按 Options.Role 经 role.go SyncCommand 派生（空 → --all，user → 按名）；Skip 判断后前置 EnsureNpx 环境门禁（Skip 不要求 npx）；隔离 npx 副作用，update 每次刷新 skills；dedupSortedNames 去重排序按名清单，被 remove.go / install.go 复用
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [OUTPUT]: 对外提供 Sync / Options / Result / SkillsCommand，按通道与角色同步 Make platform skills
+ * [POS]: internal/skillsync 的编排层，cmd/update 与 skills update 共用；Channel 经 channel.go 定位分支，Role 决定名单；隔离 npx 副作用
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package skillsync
@@ -30,6 +30,7 @@ const syncTimeout = 3 * time.Minute
 type Options struct {
 	Version string
 	Skip    bool
+	Channel string // 与 CLI 共用 settings.channel：stable → main，beta → beta。
 	// Role 决定同步范围（RoleSkills）：空（未设置）→ 全量，user → 只装 makecli。
 	// update 后置同步按它分流，用户在 skills install --role 里的选择不会被冲回全量。
 	Role string
@@ -54,8 +55,8 @@ func (r Result) CommandString() string {
 // 必须钉死 --global：上游 skills CLI 在项目目录内默认落 project scope（写 cwd 的
 // skills-lock.json），而 makecli 的 lockfile / 清单 / 校验全部锚定全局 ~/.agents，
 // 不钉 scope 会导致执行与清单看到的状态分裂。install.go / remove.go 同款约束。
-func SkillsCommand() []string {
-	return []string{"npx", "-y", "skills", "add", SkillsSource, "--all", "-y", "--global"}
+func SkillsCommand(channel string) []string {
+	return []string{"npx", "-y", "skills", "add", SourceURL(channel), "--all", "-y", "--global"}
 }
 
 var runSkillsCommand = defaultRunSkillsCommand
@@ -64,9 +65,9 @@ var runSkillsCommand = defaultRunSkillsCommand
 func Sync(ctx context.Context, opts Options) (Result, error) {
 	result := Result{
 		Action:  ActionSynced,
-		Source:  SkillsSource,
+		Source:  SourceURL(opts.Channel),
 		Version: opts.Version,
-		Command: SyncCommand(opts.Role),
+		Command: SyncCommand(opts.Channel, opts.Role),
 	}
 
 	if opts.Skip {

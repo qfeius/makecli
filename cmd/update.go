@@ -4,7 +4,8 @@
  * [POS]: cmd 模块的 update 子命令，从 GitHub Releases 自更新二进制；
  *        无 arg 走 latest 流程（按 [settings] channel 选通道：stable 走 /releases/latest、beta 走列表取 semver 最高），有 arg 走指定版本流程；降级需 --force；DEV 版本跳过比较；
  *        --check 仅检查最新版本并打印报告，不安装、不同步 skills；stable 通道下持有高于最新稳定版的 beta 时补降级去向提示；二进制流程结束后默认每次同步 Make platform skills
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * Skill 同步与 CLI 共用 settings.channel，stable/main、beta/beta。
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -165,17 +166,22 @@ func runUpdateSpecific(cmd *cobra.Command, currentVersion, target string, force,
 }
 
 func runSkillSync(cmd *cobra.Command, version string, skipSkills bool) error {
+	channel, err := resolveChannel()
+	if err != nil {
+		return err
+	}
 	// 同步范围随 [settings] role：user 只刷 makecli，developer 全量——用户在 skills install --role 里的选择不被冲掉
 	role, err := resolveRole()
 	if err != nil {
 		return err
 	}
-	renderSkillSyncStart(cmd.OutOrStdout(), skillsync.SkillsSource, skillsync.SyncCommand(role))
+	renderSkillSyncStart(cmd.OutOrStdout(), skillsync.SourceURL(channel), skillsync.SyncCommand(channel, role))
 
 	result, err := syncSkillsFunc(cmd.Context(), skillsync.Options{
 		Version: formatCurrentVersion(version),
 		Skip:    skipSkills,
 		Role:    role,
+		Channel: channel,
 	})
 	if err != nil {
 		return err

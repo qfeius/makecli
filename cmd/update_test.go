@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 cmd 包内的 runUpdate / runUpdateCheck / applyFunc（白盒），internal/update 的 Release 类型 + SetAPIBaseURLForTest，internal/build 的 Version
  * [OUTPUT]: 覆盖 update 子命令决策逻辑（含 --check），已是最新测试隔离本机更新通道配置
  * [POS]: cmd 模块 update.go 的配套测试，applyFunc 钩子打桩避免真实替换二进制
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -59,9 +59,9 @@ func setSyncSkillsSuccess(t *testing.T) *[]skillsync.Options {
 		return skillsync.Result{
 			Action:  action,
 			Reason:  reason,
-			Source:  skillsync.SkillsSource,
+			Source:  skillsync.SourceURL(opts.Channel),
 			Version: opts.Version,
-			Command: skillsync.SyncCommand(opts.Role),
+			Command: skillsync.SyncCommand(opts.Channel, opts.Role),
 		}, nil
 	}
 	t.Cleanup(func() { syncSkillsFunc = old })
@@ -176,8 +176,26 @@ func TestRunUpdate_SkillSyncFollowsRole(t *testing.T) {
 	if len(*syncCalls) != 1 || (*syncCalls)[0].Role != config.RoleUser {
 		t.Fatalf("sync calls = %+v, want one call with Role=user", *syncCalls)
 	}
-	if !strings.Contains(out.String(), "Skills command: npx -y skills add qfeius/make-platform-skills -s makecli -a * -y --global") {
+	if !strings.Contains(out.String(), "Skills command: npx -y skills add https://github.com/qfeius/make-platform-skills/tree/main -s makecli -a * -y --global") {
 		t.Fatalf("user role must sync by name:\n%s", out.String())
+	}
+}
+
+func TestRunUpdate_SkillSyncFollowsChannelForExplicitVersion(t *testing.T) {
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+	setBuildVersion(t, "v1.0.0")
+	t.Cleanup(mockReleaseServer(t, 0, update.Release{TagName: "v1.0.0"}))
+	calls := setSyncSkillsSuccess(t)
+	for _, channel := range []string{config.ChannelBeta, config.ChannelStable} {
+		if err := setSetting("channel", channel); err != nil {
+			t.Fatal(err)
+		}
+		if err := runUpdate(dummyCmd(), "v1.0.0", false, false); err != nil {
+			t.Fatal(err)
+		}
+		if got := (*calls)[len(*calls)-1].Channel; got != channel {
+			t.Fatalf("sync channel = %q, want %q", got, channel)
+		}
 	}
 }
 
@@ -200,8 +218,8 @@ func TestRunUpdate_NoArg_UpgradeKeepsBinaryOutputAndAddsSkillsOutput(t *testing.
 		"Checking for updates...",
 		"Updating makecli: v0.3.4-3-g5197914 → v0.4.0",
 		"Updated makecli: v0.3.4-3-g5197914 → v0.4.0",
-		"Syncing Make platform skills: qfeius/make-platform-skills",
-		"Skills command: npx -y skills add qfeius/make-platform-skills --all -y",
+		"Syncing Make platform skills: https://github.com/qfeius/make-platform-skills/tree/main",
+		"Skills command: npx -y skills add https://github.com/qfeius/make-platform-skills/tree/main --all -y",
 		"Skills updated for makecli v0.4.0",
 	} {
 		if !strings.Contains(got, want) {

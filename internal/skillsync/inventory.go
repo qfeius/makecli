@@ -1,8 +1,8 @@
 /**
  * [INPUT]: 依赖 context、encoding/json、fmt、net/http、os、path/filepath、slices、strings、time、gopkg.in/yaml.v3
  * [OUTPUT]: 对外提供 List / Inventory / SkillInfo / Status* 常量（本地 lockfile × 远端 GitHub 状态合并清单）；包内 readLock / lockEntry / readSkillMeta（一次解析 SKILL.md frontmatter 取 description + metadata.version）/ extractFrontmatter 供 Remove（来源校验）复用
- * [POS]: internal/skillsync 的清单层，被 cmd/skills_list.go 调用；lockPathFunc / skillsDirFunc / inventoryAPIBaseURL 为测试接缝
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [POS]: internal/skillsync 的清单层，按 channel.go 的分支比对本地哈希；被 cmd/skills_list.go 调用，lockPathFunc / skillsDirFunc / inventoryAPIBaseURL 为测试接缝
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package skillsync
@@ -167,8 +167,8 @@ var inventoryClient = &http.Client{Timeout: 5 * time.Second}
 
 // fetchRemoteSkills 匿名调 GitHub Contents API，一次拿到全部远端 skill 目录名 → tree SHA。
 // lockfile 的 skillFolderHash 与该 SHA 同语义（GitHub tree SHA），可直接等值比对。
-func fetchRemoteSkills(ctx context.Context) (map[string]string, error) {
-	url := fmt.Sprintf("%s/repos/%s/contents/skills", inventoryAPIBaseURL, SkillsSource)
+func fetchRemoteSkills(ctx context.Context, channel string) (map[string]string, error) {
+	url := fmt.Sprintf("%s/repos/%s/contents/skills?ref=%s", inventoryAPIBaseURL, SkillsSource, Branch(channel))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -204,13 +204,13 @@ func fetchRemoteSkills(ctx context.Context) (map[string]string, error) {
 
 // List 合并本地 lockfile 与 GitHub 远端状态，产出按名字排序的 Make platform skills 清单。
 // 远端失败不是错误：全部已装条目降级 StatusUnknown，错误进 Inventory.RemoteErr。
-func List(ctx context.Context) Inventory {
+func List(ctx context.Context, channel string) Inventory {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	local, warning := readLock()
-	remote, remoteErr := fetchRemoteSkills(ctx)
+	remote, remoteErr := fetchRemoteSkills(ctx, channel)
 
 	names := make(map[string]bool, len(local)+len(remote))
 	for name := range local {

@@ -2,7 +2,7 @@
  * [INPUT]: 依赖 context、net/http、net/http/httptest、os、path/filepath、strings、testing
  * [OUTPUT]: 覆盖 readLock（缺失/过滤/损坏/版本不匹配）、extractFrontmatter / readSkillMeta（description 折叠 + metadata.version）、fetchRemoteSkills（过滤非 dir/HTTP 错误）、List 合并（五状态/排序/远端不可达降级/description 与 version 填充）
  * [POS]: internal/skillsync 清单层测试，本地数据源用 t.TempDir 隔离文件系统，远端数据源用 httptest 隔离网络
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package skillsync
@@ -225,7 +225,7 @@ func TestFetchRemoteSkills(t *testing.T) {
 		_, _ = w.Write([]byte(sampleRemote))
 	})
 
-	remote, err := fetchRemoteSkills(context.Background())
+	remote, err := fetchRemoteSkills(context.Background(), "")
 
 	if err != nil {
 		t.Fatalf("fetchRemoteSkills: %v", err)
@@ -246,7 +246,7 @@ func TestFetchRemoteSkillsHTTPError(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
-	if _, err := fetchRemoteSkills(context.Background()); err == nil {
+	if _, err := fetchRemoteSkills(context.Background(), ""); err == nil {
 		t.Fatal("expected error on HTTP 500")
 	}
 }
@@ -258,7 +258,7 @@ func TestListMergesStatuses(t *testing.T) {
 		_, _ = w.Write([]byte(sampleRemote)) // makedsl hash-dsl-new + makeui hash-ui + make-app-auth
 	})
 
-	inv := List(context.Background())
+	inv := List(context.Background(), "")
 
 	if inv.RemoteErr != nil {
 		t.Fatalf("unexpected remote error: %v", inv.RemoteErr)
@@ -291,7 +291,7 @@ func TestListLocalOnlySkillIsRemovedUpstream(t *testing.T) {
 		_, _ = w.Write([]byte(`[{"name": "makeui", "sha": "hash-ui", "type": "dir"}]`))
 	})
 
-	inv := List(context.Background())
+	inv := List(context.Background(), "")
 
 	statuses := map[string]string{}
 	for _, s := range inv.Skills {
@@ -312,7 +312,7 @@ func TestListRemoteUnreachable(t *testing.T) {
 	inventoryAPIBaseURL = server.URL
 	t.Cleanup(func() { inventoryAPIBaseURL = orig })
 
-	inv := List(context.Background())
+	inv := List(context.Background(), "")
 
 	if inv.RemoteErr == nil {
 		t.Fatal("expected RemoteErr on unreachable remote")
@@ -341,7 +341,7 @@ func TestListFillsDescriptionForInstalled(t *testing.T) {
 		_, _ = w.Write([]byte(sampleRemote))
 	})
 
-	inv := List(context.Background())
+	inv := List(context.Background(), "")
 
 	for _, s := range inv.Skills {
 		switch s.Name {
