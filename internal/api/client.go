@@ -1,8 +1,8 @@
 /**
  * [INPUT]: 依赖 context、bytes、encoding/json、errors、fmt、io、net/http、strings、time，依赖 debug.go 的 debugSink，依赖 internal/trace 的 TraceID/Traceparent
- * [OUTPUT]: 对外提供 Client 类型、ErrNotFound / ErrAuthFailed 哨兵错误、UniqueConstraintError 类型化错误（409 且 data 带 constraint 的唯一性冲突，errors.As 判定；其余 409 是业务规则拒绝，服务端 msg 原样返回）、Option / WithDebug(on, DebugFormat) / WithHeaders / WithDryRun / WithAppRole 功能选项、New 构造函数、App（Role / PairAppKey / HostedEnv / KeyForEnv：prod/beta 配对知识收口，环境 → 承载 app key）、RoleForEnv（HostedEnv 逆映射：环境 → app 角色）、RoleProd / RoleBeta 常量 / Field / Entity / EntityProperties / UniqueConstraint / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp(key, name, properties) / ListApps(page, size, filter) / DeleteApp(key) / GetApp(key) / GetAppContext(ctx, key) / CreateEntity(key, name, appKey, props) / ListEntities(appKey, page, size, filter) / GetEntity(appKey, key) / UpdateEntity(key, name, appKey, props) / DeleteEntity / CreateRelation(key, name, appKey, props) / UpdateRelation / ListRelations(appKey, ...) / GetRelation(appKey, key) / DeleteRelation / GetSchema(appKey) 方法。资源以 Key 为唯一标识符（英数下划线），Name 为用户可见展示名（支持中文）。Get* 方法在资源确实不存在时返回 ErrNotFound（可用 errors.Is 判定），其余错误（传输/非 not-found 业务码/解码）原样返回
+ * [OUTPUT]: 对外提供 Client 类型、ErrNotFound / ErrAuthFailed 哨兵错误、UniqueConstraintError 类型化错误（409 且 data 带 constraint 的唯一性冲突，errors.As 判定；其余 409 是业务规则拒绝，服务端 msg 原样返回）、Option / WithDebug(on, DebugFormat) / WithHeaders / WithDryRun / WithAppRole 功能选项、New 构造函数、App（Role / PairAppKey / HostedEnv / KeyForEnv：prod/beta 配对知识收口，环境 → 承载 app key）、RoleForEnv（HostedEnv 逆映射：环境 → app 角色）、RoleProd / RoleBeta 常量 / Field / Entity / EntityProperties / UniqueConstraint / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp(key, name, properties) / UpdateApp(key, name, properties) / ListApps(page, size, filter) / DeleteApp(key) / GetApp(key) / GetAppContext(ctx, key) / CreateEntity(key, name, appKey, props) / ListEntities(appKey, page, size, filter) / GetEntity(appKey, key) / UpdateEntity(key, name, appKey, props) / DeleteEntity / CreateRelation(key, name, appKey, props) / UpdateRelation / ListRelations(appKey, ...) / GetRelation(appKey, key) / DeleteRelation / GetSchema(appKey) 方法。资源以 Key 为唯一标识符（英数下划线），Name 为用户可见展示名（支持中文）。Get* 方法在资源确实不存在时返回 ErrNotFound（可用 errors.Is 判定），其余错误（传输/非 not-found 业务码/解码）原样返回
  * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用；requestContext 支持取消，旧 request 委托同一路径以保持兼容
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package api
@@ -218,6 +218,15 @@ func (a *App) KeyForEnv(env string) (string, error) {
 // CreateApp 调用 MakeService.CreateResource 在 Meta Server 创建 App
 // key 是英文标识符（不可改），name 是用户可见展示名（必填，支持中文）
 func (c *Client) CreateApp(key, name string, properties map[string]any) error {
+	return c.writeApp("MakeService.CreateResource", key, name, properties)
+}
+
+// UpdateApp 更新应用声明；Meta Service 同时更新配对应用的 name 与 properties。
+func (c *Client) UpdateApp(key, name string, properties map[string]any) error {
+	return c.writeApp("MakeService.UpdateResource", key, name, properties)
+}
+
+func (c *Client) writeApp(action, key, name string, properties map[string]any) error {
 	body := map[string]any{
 		"key":        key,
 		"name":       name,
@@ -225,7 +234,7 @@ func (c *Client) CreateApp(key, name string, properties map[string]any) error {
 		"meta":       map[string]any{"version": metaVersion},
 		"properties": properties,
 	}
-	return c.post("MakeService.CreateResource", "/meta/v1/app", body)
+	return c.post(action, "/meta/v1/app", body)
 }
 
 // ListApps 调用 MakeService.ListResources 获取 org 下全部 App

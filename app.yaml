@@ -1,0 +1,18 @@
+# [INPUT]: makecli apply 读取此 Make.App 声明。
+# [OUTPUT]: 测试应用、Beta runtime 变量和必需密钥名称契约。
+# [POS]: 仓库根目录的手动验收清单，用于测试变量同步与重复 apply。
+# [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
+
+key: VarTest1020
+name: 运行变量测试
+type: Make.App
+meta:
+  version: 1.0.0
+properties:
+  description: 测试 makecli apply 的变量同步与必需密钥声明
+  vars:
+    BASE_URL: "https://api.example.com"
+    LOG_LEVEL: "info"
+  requiredSecrets:
+    - DATABASE_URL
+    - OPENAI_API_KEY

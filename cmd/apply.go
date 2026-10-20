@@ -1,8 +1,8 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（validResourceKey）、internal/api（Client/ErrNotFound/CreateApp/CreateEntity/GetApp/GetEntity/UpdateEntity/GetRelation/CreateRelation/UpdateRelation/Field/EntityProperties/UniqueConstraint/RelationProperties/RelationEnd）、errors、fmt、io、io/fs、math、os、path/filepath、slices、strings、gopkg.in/yaml.v3、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newApplyCmd 函数、ResourceManifest 类型（Key/Name/Type/AppKey/Meta/Properties）、extractUniqueConstraints/loadManifestsFromFile/loadManifestsFromDir/subdirLevel helper
- * [POS]: cmd 模块的顶层 apply 命令，从 YAML 文件/目录批量应用资源（create-or-update 语义），按 Key 标识资源，Name 仅为展示名；存在性判定依赖 api.ErrNotFound，瞬时/传输错误不会被误判为"不存在"；目录扫描经 filepath.WalkDir 递归，--max-depth 控制层级（1=当前目录/2=含子目录默认/0=不限），隐藏文件与隐藏子目录跳过
- * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app_variable（validVariable/saveAppVariable）、internal/api（Client/ErrNotFound/CreateApp/UpdateApp/CreateEntity/GetApp/GetEntity/UpdateEntity/GetRelation/CreateRelation/UpdateRelation/Field/EntityProperties/UniqueConstraint/RelationProperties/RelationEnd）、errors、fmt、io、io/fs、maps、math、os、path/filepath、slices、strings、gopkg.in/yaml.v3、github.com/spf13/cobra
+ * [OUTPUT]: 对外提供 newApplyCmd 函数、ResourceManifest 类型（Key/Name/Type/AppKey/Meta/Properties）、applyApp/appRuntimeVariables/validateRequiredSecrets/extractUniqueConstraints/loadManifestsFromFile/loadManifestsFromDir/subdirLevel helper
+ * [POS]: cmd 模块的顶层 apply 命令，从 YAML 文件/目录批量应用资源（create-or-update 语义），按 Key 标识资源，Name 仅为展示名；App vars 同步 Beta runtime，requiredSecrets 保存于 Meta；存在性判定依赖 api.ErrNotFound，瞬时/传输错误不会被误判为"不存在"；目录扫描经 filepath.WalkDir 递归，--max-depth 控制层级（1=当前目录/2=含子目录默认/0=不限），隐藏文件与隐藏子目录跳过
+ * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -33,7 +34,9 @@ func newApplyCmd() *cobra.Command {
 		Use:   "apply -f <path>",
 		Short: "Apply resources from YAML file or directory",
 		Long: `Apply resources defined in YAML files or directories.
-Supports creating App, Entity, and Relation resources.`,
+Creates or updates App, Entity, and Relation resources. App properties.vars are
+saved as Beta runtime variables; requiredSecrets declares secret names in App
+metadata. Saving variables does not trigger a deployment or delete omitted keys.`,
 		Example: `  makecli apply -f app.yaml
   makecli apply -f ./configs/`,
 		Args:         cobra.NoArgs,
@@ -60,6 +63,10 @@ func runAppApply(path string, maxDepth int) error {
 	if err != nil {
 		return err
 	}
+	variableClient, err := newClientFromProfile(api.WithAppRole(api.RoleBeta))
+	if err != nil {
+		return err
+	}
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -80,7 +87,7 @@ func runAppApply(path string, maxDepth int) error {
 		return fmt.Errorf("no objects passed to apply")
 	}
 
-	if err := applyResources(resources, client); err != nil {
+	if err := applyResources(resources, client, variableClient); err != nil {
 		return err
 	}
 
@@ -197,7 +204,7 @@ func subdirLevel(root, path string) int {
 // ---------------------------------- 资源应用 ----------------------------------
 
 // applyResources 按依赖顺序应用资源：Make.App → Make.Entity → Make.Relation
-func applyResources(resources []ResourceManifest, client *api.Client) error {
+func applyResources(resources []ResourceManifest, client, variableClient *api.Client) error {
 	// 按类型分组
 	apps := []ResourceManifest{}
 	entities := []ResourceManifest{}
@@ -217,13 +224,11 @@ func applyResources(resources []ResourceManifest, client *api.Client) error {
 
 	// 先应用 App
 	for _, app := range apps {
-		action, err := applyApp(app, client)
+		action, err := applyApp(app, client, variableClient)
 		if err != nil {
 			return fmt.Errorf("应用 App '%s' 失败: %w", app.Key, err)
 		}
-		if action != "" {
-			fmt.Printf("App '%s' %s\n", app.Key, action)
-		}
+		fmt.Printf("App '%s' %s\n", app.Key, action)
 	}
 
 	// 再应用 Entity
@@ -247,24 +252,90 @@ func applyResources(resources []ResourceManifest, client *api.Client) error {
 	return nil
 }
 
-// applyApp 从清单应用 App：不存在则创建，已存在则跳过（App 无 update API）
-// manifest.Key 是英文标识符，manifest.Name 是展示名；name 缺省时回退用 key
-// Get 出现非 not-found 错误时直接上抛，绝不把瞬时故障误判为"不存在"而误建
-func applyApp(manifest ResourceManifest, client *api.Client) (string, error) {
+// applyApp 先校验完整声明，再保存 App，最后逐项同步 Beta runtime 变量。
+func applyApp(manifest ResourceManifest, client, variableClient *api.Client) (string, error) {
 	if err := validResourceKey(manifest.Key); err != nil {
 		return "", err
 	}
+	vars, err := appRuntimeVariables(manifest.Properties)
+	if err != nil {
+		return "", err
+	}
+	if err := validateRequiredSecrets(manifest.Properties, vars); err != nil {
+		return "", err
+	}
+	properties := maps.Clone(manifest.Properties)
+	delete(properties, "vars")
+	action, err := saveAppManifest(manifest, properties, client)
+	if err != nil {
+		return "", err
+	}
+	for _, key := range slices.Sorted(maps.Keys(vars)) {
+		if _, err := saveAppVariable(variableClient, manifest.Key, key, vars[key]); err != nil {
+			return "", fmt.Errorf("properties.vars.%s: %w", key, err)
+		}
+		fmt.Printf("Variable '%s' saved (beta, runtime; applies on the next deployment)\n", key)
+	}
+	return action, nil
+}
 
+func saveAppManifest(manifest ResourceManifest, properties map[string]any, client *api.Client) (string, error) {
 	_, err := client.GetApp(manifest.Key)
+	name := defaultName(manifest.Name, manifest.Key)
 	if err == nil {
-		return "", nil // 已存在；App 无 update API，静默跳过
+		return "updated", client.UpdateApp(manifest.Key, name, properties)
 	}
 	if !errors.Is(err, api.ErrNotFound) {
-		return "", err // 瞬时/传输/非 not-found 业务错误，上抛不创建
+		return "", err
 	}
+	return "created", client.CreateApp(manifest.Key, name, properties)
+}
 
-	displayName := defaultName(manifest.Name, manifest.Key)
-	return "created", client.CreateApp(manifest.Key, displayName, manifest.Properties)
+func appRuntimeVariables(properties map[string]any) (map[string]string, error) {
+	raw, exists := properties["vars"]
+	if !exists {
+		return nil, nil
+	}
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("properties.vars must be a map of variable names to string values")
+	}
+	vars := make(map[string]string, len(values))
+	for _, key := range slices.Sorted(maps.Keys(values)) {
+		value, ok := values[key].(string)
+		if !ok {
+			return nil, fmt.Errorf("properties.vars.%s must be a string (quote numbers and booleans in YAML)", key)
+		}
+		if err := validVariable(key, value); err != nil {
+			return nil, fmt.Errorf("properties.vars.%s: %w", key, err)
+		}
+		vars[key] = value
+	}
+	return vars, nil
+}
+
+func validateRequiredSecrets(properties map[string]any, vars map[string]string) error {
+	raw, exists := properties["requiredSecrets"]
+	if !exists {
+		return nil
+	}
+	keys, ok := raw.([]any)
+	if !ok {
+		return fmt.Errorf("properties.requiredSecrets must be a list of secret names")
+	}
+	for i, rawKey := range keys {
+		key, ok := rawKey.(string)
+		if !ok {
+			return fmt.Errorf("properties.requiredSecrets[%d] must be a secret name", i)
+		}
+		if err := validVariable(key, ""); err != nil {
+			return fmt.Errorf("properties.requiredSecrets[%d]: %w", i, err)
+		}
+		if _, exists := vars[key]; exists {
+			return fmt.Errorf("%q cannot appear in both properties.vars and properties.requiredSecrets", key)
+		}
+	}
+	return nil
 }
 
 // applyEntity 从清单应用 Entity：不存在则创建，已存在则更新
