@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 context、net/http、net/http/httptest、os、path/filepath、strings、testing
- * [OUTPUT]: 覆盖 readLock（缺失/过滤/损坏/版本不匹配）、extractFrontmatter / readSkillMeta（description 折叠 + metadata.version）、fetchRemoteSkills（过滤非 dir/HTTP 错误）、List 合并（五状态/排序/远端不可达降级/description 与 version 填充）
+ * [OUTPUT]: 覆盖 lockfile、frontmatter、远端清单及合并状态；已安装 channel/ref 独立于目标通道与内容哈希
  * [POS]: internal/skillsync 清单层测试，本地数据源用 t.TempDir 隔离文件系统，远端数据源用 httptest 隔离网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -280,6 +280,44 @@ func TestListMergesStatuses(t *testing.T) {
 	for i := 1; i < len(inv.Skills); i++ {
 		if inv.Skills[i-1].Name > inv.Skills[i].Name {
 			t.Fatalf("skills not sorted: %s > %s", inv.Skills[i-1].Name, inv.Skills[i].Name)
+		}
+	}
+}
+
+func TestListInstalledChannelsDoNotFollowTarget(t *testing.T) {
+	stubLockFile(t, `{"version":3,"skills":{
+		"stable-skill":{"source":"qfeius/make-platform-skills","ref":"main","skillFolderHash":"same"},
+		"beta-skill":{"source":"qfeius/make-platform-skills","ref":"beta","skillFolderHash":"same"},
+		"legacy-skill":{"source":"qfeius/make-platform-skills","skillFolderHash":"same"},
+		"tag-skill":{"source":"qfeius/make-platform-skills","ref":"v1.0.0","skillFolderHash":"same"}
+	}}`)
+	stubSkillsDir(t)
+	stubRemoteAPI(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"name":"stable-skill","sha":"same","type":"dir"},
+			{"name":"beta-skill","sha":"same","type":"dir"},
+			{"name":"legacy-skill","sha":"same","type":"dir"},
+			{"name":"tag-skill","sha":"same","type":"dir"},
+			{"name":"not-installed","sha":"same","type":"dir"}
+		]`))
+	})
+	want := map[string]struct{ channel, ref string }{
+		"stable-skill":  {"stable", "main"},
+		"beta-skill":    {"beta", "beta"},
+		"legacy-skill":  {"unknown", ""},
+		"tag-skill":     {"unknown", "v1.0.0"},
+		"not-installed": {"", ""},
+	}
+	for _, target := range []string{"stable", "beta"} {
+		inv := List(context.Background(), target)
+		if inv.RemoteErr != nil || len(inv.Skills) != len(want) {
+			t.Fatalf("unexpected inventory: %+v", inv)
+		}
+		for _, skill := range inv.Skills {
+			expected := want[skill.Name]
+			if skill.Channel != expected.channel || skill.Ref != expected.ref {
+				t.Errorf("target=%s skill=%s: channel=%q ref=%q, want %+v", target, skill.Name, skill.Channel, skill.Ref, expected)
+			}
 		}
 	}
 }

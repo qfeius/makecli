@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 context、encoding/json、fmt、net/http、os、path/filepath、slices、strings、time、gopkg.in/yaml.v3
- * [OUTPUT]: 对外提供 List / Inventory / SkillInfo / Status* 常量（本地 lockfile × 远端 GitHub 状态合并清单）；包内 readLock / lockEntry / readSkillMeta（一次解析 SKILL.md frontmatter 取 description + metadata.version）/ extractFrontmatter 供 Remove（来源校验）复用
+ * [OUTPUT]: 对外提供 List / Inventory / SkillInfo / Status* 常量；SkillInfo.Channel/Ref 表示已安装来源，包内 readLock / lockEntry / readSkillMeta / extractFrontmatter 供 Remove 复用
  * [POS]: internal/skillsync 的清单层，按 channel.go 的分支比对本地哈希；被 cmd/skills_list.go 调用，lockPathFunc / skillsDirFunc / inventoryAPIBaseURL 为测试接缝
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -27,6 +27,7 @@ const lockSchemaVersion = 3
 // lockEntry 是 lockfile 中单个 skill 的安装记录（只取需要的字段）。
 type lockEntry struct {
 	Source          string `json:"source"`
+	Ref             string `json:"ref"`
 	SkillFolderHash string `json:"skillFolderHash"`
 	InstalledAt     string `json:"installedAt"`
 	UpdatedAt       string `json:"updatedAt"`
@@ -144,6 +145,8 @@ const (
 type SkillInfo struct {
 	Name        string `json:"name"`
 	Version     string `json:"version,omitempty"` // 本地已安装 SKILL.md 的 metadata.version；未安装为空
+	Channel     string `json:"channel,omitempty"` // 已安装 ref 对应的通道；缺少或自定义 ref 为 unknown，未安装为空
+	Ref         string `json:"ref,omitempty"`     // 安装时记录的 Git ref，独立于当前 settings.channel
 	Status      string `json:"status"`
 	Description string `json:"description,omitempty"`
 	InstalledAt string `json:"installedAt,omitempty"`
@@ -225,6 +228,8 @@ func List(ctx context.Context, channel string) Inventory {
 		entry, installed := local[name]
 		info := SkillInfo{Name: name, RemoteHash: remote[name]}
 		if installed {
+			info.Channel = installedChannel(entry.Ref)
+			info.Ref = entry.Ref
 			info.Description, info.Version = readSkillMeta(skillsDirFunc(), name)
 			info.InstalledAt = entry.InstalledAt
 			info.UpdatedAt = entry.UpdatedAt

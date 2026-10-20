@@ -63,7 +63,11 @@ makecli settings set channel stable
 makecli skills update
 ```
 
-`settings set` 只保存通道；`skills install`、`skills update` 和 CLI 更新后的自动同步才覆盖已有同名 Skill，角色设置仍决定同步范围。`skills list` 按同一分支检查更新，并展示目标通道和分支；JSON 顶层包含 `channel`、`branch`。切回 stable 也会覆盖安装，不按 Skill 版本号阻止切换；目标分支缺失的已装 Skill 保留，可显式 `skills uninstall`，第三方 Skill 不受影响。
+`settings set` 只保存通道；`skills install`、`skills update` 和 CLI 更新后的自动同步才覆盖已有同名 Skill，角色设置仍决定同步范围。`skills list` 按同一分支检查更新，顶部展示目标通道和分支；每行 `CHANNEL` 列展示该 Skill 实际安装时记录的通道。JSON 顶层 `channel`、`branch` 是当前目标，`data[].channel`、`data[].ref` 是安装来源。
+
+安装记录中的 `ref=main` 显示 `stable`，`ref=beta` 显示 `beta`；旧记录没有 ref 或使用其他分支/tag 时显示 `unknown`，未安装条目显示 `-`。切换配置不会改变已安装来源；使用会记录 ref 的 `skills` 安装器重新执行 `makecli skills update` 后，列表才能据此显示通道。
+
+切回 stable 也会覆盖安装，不按 Skill 版本号阻止切换；目标分支缺失的已装 Skill 保留，可显式 `skills uninstall`，第三方 Skill 不受影响。
 
 显式安装某个 CLI 版本不修改通道配置，其后的 Skill 同步仍读取 `[settings] channel`。`skills read` 是二进制内嵌的构建快照，使用切换后的全局 Skill 时应让 Agent 读取已安装文件。
 

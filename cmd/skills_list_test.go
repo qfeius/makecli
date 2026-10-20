@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 context、encoding/json、strings、testing、internal/skillsync
- * [OUTPUT]: 覆盖 runSkillsList（table/json/空态/警告/非法格式）与 skills 默认行为 = list
+ * [OUTPUT]: 覆盖列表 table/json/空态/警告/非法格式，以及已安装 CHANNEL 列与目标通道分离
  * [POS]: cmd/skills list 子命令测试，stubListSkills 打桩隔离 lockfile 与网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -73,8 +73,8 @@ func stubListSkills(t *testing.T, inv skillsync.Inventory) {
 func sampleInventory() skillsync.Inventory {
 	return skillsync.Inventory{Skills: []skillsync.SkillInfo{
 		{Name: "make-app-auth", Status: skillsync.StatusNotInstalled, RemoteHash: "d"},
-		{Name: "makedsl", Version: "0.2.4", Status: skillsync.StatusOutdated, Description: "DSL 设计与生成", UpdatedAt: "2026-07-02T00:00:00.000Z", LocalHash: "a", RemoteHash: "b"},
-		{Name: "makeui", Version: "0.3.1", Status: skillsync.StatusUpToDate, Description: "页面布局", UpdatedAt: "2026-07-01T00:00:00.000Z", LocalHash: "c", RemoteHash: "c"},
+		{Name: "makedsl", Version: "0.2.4", Channel: config.ChannelStable, Ref: "main", Status: skillsync.StatusOutdated, Description: "DSL 设计与生成", UpdatedAt: "2026-07-02T00:00:00.000Z", LocalHash: "a", RemoteHash: "b"},
+		{Name: "makeui", Version: "0.3.1", Channel: config.ChannelBeta, Ref: "beta", Status: skillsync.StatusUpToDate, Description: "页面布局", UpdatedAt: "2026-07-01T00:00:00.000Z", LocalHash: "c", RemoteHash: "c"},
 	}}
 }
 
@@ -112,7 +112,7 @@ func TestRunSkillsListTable(t *testing.T) {
 		}
 	})
 
-	for _, want := range []string{"NAME", "VERSION", "STATUS", "makedsl", "0.2.4", "outdated", "makeui", "0.3.1", "up-to-date"} {
+	for _, want := range []string{"NAME", "VERSION", "CHANNEL", "STATUS", "makedsl", "0.2.4", "outdated", "makeui", "0.3.1", "up-to-date"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
@@ -130,6 +130,37 @@ func TestRunSkillsListTable(t *testing.T) {
 	// UPDATED AT 裁到日期
 	if !strings.Contains(out, "2026-07-02") || strings.Contains(out, "00:00:00") {
 		t.Errorf("updated at must be date-only:\n%s", out)
+	}
+}
+
+func TestSkillsListChannelColumn(t *testing.T) {
+	inv := sampleInventory()
+	inv.Skills = append(inv.Skills, skillsync.SkillInfo{Name: "legacy-skill", Channel: skillsync.StatusUnknown, Status: skillsync.StatusUpToDate})
+	stubListSkills(t, inv)
+	if err := setSetting("channel", config.ChannelBeta); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() {
+		if err := runSkillsList(context.Background(), outputTable, true); err != nil {
+			t.Fatal(err)
+		}
+	})
+	want := map[string]string{"makedsl": "stable", "makeui": "beta", "legacy-skill": "unknown", "make-app-auth": "-"}
+	for _, line := range strings.Split(out, "\n") {
+		cells := strings.Split(line, "│")
+		if len(cells) < 5 {
+			continue
+		}
+		name := strings.TrimSpace(cells[1])
+		if channel, ok := want[name]; ok {
+			if got := strings.TrimSpace(cells[3]); got != channel {
+				t.Errorf("%s channel = %q, want %q", name, got, channel)
+			}
+			delete(want, name)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing rows %v:\n%s", want, out)
 	}
 }
 
@@ -173,6 +204,9 @@ func TestRunSkillsListJSON(t *testing.T) {
 	}
 	if payload.Data[0].Description != "DSL 设计与生成" {
 		t.Fatalf("JSON must keep full description: %+v", payload.Data[0])
+	}
+	if payload.Data[0].Channel != "stable" || payload.Data[0].Ref != "main" || payload.Data[1].Channel != "beta" || payload.Data[1].Ref != "beta" {
+		t.Fatalf("JSON must preserve each installed source: %+v", payload.Data)
 	}
 }
 
