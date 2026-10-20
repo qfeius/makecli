@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 app_secret.go、真实 Cobra 命令与 httptest、应用测试夹具、internal/api，encoding/json、errors、io、net/http、os、strings、testing
- * [OUTPUT]: 验证密钥 CRUD-L、put 不创建/保留说明/错误脱敏、properties.scope/type 筛选分页/输出、角色隔离、stdin 边界与删除确认门禁
+ * [OUTPUT]: 验证密钥 CRUD-L、put 不创建/保留说明/错误脱敏、properties.scope/type 筛选分页/输出、beta/prod 角色原样路由与隔离、stdin 边界与删除确认门禁
  * [POS]: cmd/app secret 的命令契约测试；密钥均为本地测试值，HTTP 不访问平台
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -26,19 +26,16 @@ func TestAppSecretWrite(t *testing.T) {
 		exists                                 bool
 	}{
 		{"create beta", "add", "beta", outputJSON, " test-secret-value\r\n", " test-secret-value", false},
-		{"rotate production", "add", "production", outputTable, "test-secret-new\nline two  \n", "test-secret-new\nline two  ", true},
+		{"rotate prod", "add", "prod", outputTable, "test-secret-new\nline two  \n", "test-secret-new\nline two  ", true},
 		{"empty", "add", "beta", outputJSON, "", "", false},
 		{"put beta", "put", "beta", outputAuto, " test-secret-value\r\n", " test-secret-value", true},
-		{"put production", "put", "production", outputTable, "test-secret-new\nline two  \n", "test-secret-new\nline two  ", true},
+		{"put prod", "put", "prod", outputTable, "test-secret-new\nline two  \n", "test-secret-new\nline two  ", true},
 		{"put empty", "put", "beta", outputJSON, "", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			enterAppDir(t, "demo")
 			stubStdoutTerminal(t, false)
-			role, writeTarget, action := "beta", "MakeService.CreateResource", "created"
-			if tc.role == "production" {
-				role = "prod"
-			}
+			role, writeTarget, action := tc.role, "MakeService.CreateResource", "created"
 			if tc.exists {
 				writeTarget, action = "MakeService.UpdateResource", "updated"
 			}
@@ -111,7 +108,7 @@ func TestAppSecretFailuresDoNotWrite(t *testing.T) {
 	}{
 		{"non tty", "", nil, 0},
 		{"reject env", "", []string{"--env", "production"}, 0},
-		{"reject role", "", []string{"--appRole", "prod"}, 0},
+		{"reject role", "", []string{"--appRole", "production"}, 0},
 		{"reject value argument", "", []string{"plaintext-value"}, 0},
 		{"variable exists", `{"code":200,"data":{"key":"X","type":"Make.Variable","appKey":"demo","properties":{"scope":"runtime"}}}`, []string{"--from-stdin"}, 1},
 		{"forbidden", `{"code":403,"msg":"denied"}`, []string{"--from-stdin"}, 1},
@@ -199,14 +196,14 @@ func TestAppSecretList(t *testing.T) {
 		output, role string
 		terminal     bool
 	}{
-		{outputTable, "beta", false}, {outputJSON, "production", false},
-		{outputAuto, "beta", false}, {outputAuto, "production", true},
+		{outputTable, "beta", false}, {outputJSON, "prod", false},
+		{outputAuto, "beta", false}, {outputAuto, "prod", true},
 	} {
 		t.Run(tc.output+"/"+tc.role, func(t *testing.T) {
 			enterAppDir(t, "demo")
 			stubStdoutTerminal(t, tc.terminal)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Query().Get("appRole") != api.RoleForEnv(tc.role) || r.Header.Get("X-Make-Target") != "MakeService.ListResources" || r.Header.Get("Authorization") != "Bearer variable-token" {
+				if r.URL.Query().Get("appRole") != tc.role || r.Header.Get("X-Make-Target") != "MakeService.ListResources" || r.Header.Get("Authorization") != "Bearer variable-token" {
 					t.Error("wrong secret list routing or credentials")
 				}
 				var body struct {
@@ -259,8 +256,8 @@ func TestAppSecretDelete(t *testing.T) {
 		cancel                  bool
 	}{
 		{"confirmed", "beta", outputTable, "", false},
-		{"cancelled", "production", outputJSON, "", true},
-		{"yes", "production", outputJSON, "--yes", false},
+		{"cancelled", "prod", outputJSON, "", true},
+		{"yes", "prod", outputJSON, "--yes", false},
 		{"short yes", "beta", outputAuto, "-y", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -282,7 +279,7 @@ func TestAppSecretDelete(t *testing.T) {
 			t.Cleanup(func() { confirmAppSecretDeleteFunc = original })
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
-				if r.Method != http.MethodPost || r.URL.Path != "/api/make/secret/v1/variable" || r.URL.Query().Get("appRole") != api.RoleForEnv(tc.role) || r.Header.Get("X-Make-Target") != "MakeService.DeleteResource" {
+				if r.Method != http.MethodPost || r.URL.Path != "/api/make/secret/v1/variable" || r.URL.Query().Get("appRole") != tc.role || r.Header.Get("X-Make-Target") != "MakeService.DeleteResource" {
 					t.Error("wrong secret delete routing")
 				}
 				var body api.Variable
@@ -345,9 +342,9 @@ func TestAppSecretManageInvalidInput(t *testing.T) {
 	for _, args := range [][]string{
 		{"put"}, {"put", "X", "value"}, {"put", "MAKE_X", "--from-stdin"},
 		{"list", "extra"}, {"list", "--page", "0"}, {"list", "--size", "101"},
-		{"list", "--appRole", "prod"}, {"list", "--output", "yaml"},
+		{"list", "--appRole", "production"}, {"list", "--output", "yaml"},
 		{"delete"}, {"delete", "X", "extra"}, {"delete", "1X"},
-		{"delete", "X", "--appRole", "prod"}, {"delete", "X", "--output", "yaml"},
+		{"delete", "X", "--appRole", "production"}, {"delete", "X", "--output", "yaml"},
 	} {
 		t.Run(strings.Join(args, "/"), func(t *testing.T) {
 			enterAppDir(t, "demo")

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 app_variable.go 的校验/目标解析/写入/列表/删除/回执、delete_confirm.go、internal/api、huh/v2、go-isatty，errors、fmt、io、os、strings、cobra
  * [OUTPUT]: 提供 newAppSecretCmd 的 add/put/list/delete 与掩码输入；--from-stdin 有界读取并去除一个末尾换行
- * [POS]: cmd/app 的密钥管理入口；固定 runtime、--appRole 默认 beta，put 仅更新已有密钥，list 仅返回元数据，delete 按类型确认删除
+ * [POS]: cmd/app 的密钥管理入口，复用 --app 优先/清单回退；固定 runtime、--appRole beta|prod 默认 beta，put 仅更新已有密钥，list 仅返回元数据
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -42,7 +42,7 @@ func newAppSecretPutCmd() *cobra.Command {
 
 func newAppSecretListCmd() *cobra.Command {
 	cmd := newAppConfigListCmd("Secret", (*api.Client).ListSecrets)
-	cmd.Long = "List runtime secret metadata for the app in apps/dsl/app.yaml. Secret values are never displayed."
+	cmd.Long = "List runtime secret metadata for --app, or the app in apps/dsl/app.yaml. Secret values are never displayed."
 	return cmd
 }
 
@@ -55,18 +55,17 @@ func newAppSecretWriteCmd(verb, short, behavior string, write appVariableWriter)
 	var fromStdin bool
 	cmd := &cobra.Command{
 		Use: verb + " <KEY>", Short: short,
-		Long: "Save a runtime secret for the app in apps/dsl/app.yaml. Prompts for a masked value, or reads it with --from-stdin. " + behavior + " Variables cannot be overwritten. Changes apply on the next deployment.",
+		Long: "Save a runtime secret for --app, or the app in apps/dsl/app.yaml. Prompts for a masked value, or reads it with --from-stdin. " + behavior + " Variables cannot be overwritten. Changes apply on the next deployment.",
 		Args: cobra.ExactArgs(1), SilenceUsage: true,
 		Example: fmt.Sprintf(`  makecli app secret %[1]s OPENAI_API_KEY
-  makecli app secret %[1]s OPENAI_API_KEY --appRole production
+  makecli app secret %[1]s OPENAI_API_KEY --app demo --appRole prod
   printf '%%s' "$OPENAI_API_KEY" | makecli app secret %[1]s OPENAI_API_KEY --from-stdin`, verb),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAppSecretWrite(cmd, args[0], o, fromStdin, write)
 		},
 	}
-	cmd.Flags().StringVar(&o.appRole, "appRole", api.EnvBeta, "target app role: beta | production")
+	o.flags(cmd)
 	cmd.Flags().BoolVar(&fromStdin, "from-stdin", false, "read secret from stdin; remove one trailing LF or CRLF")
-	addOutputFlag(cmd, &o.output)
 	return cmd
 }
 

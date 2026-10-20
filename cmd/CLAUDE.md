@@ -27,11 +27,12 @@
 - 单测需要切换 profile 时用 `setProfile(t, "name")`（stdout_test.go），t.Cleanup 自动还原
 
 ## 成员清单
+- `app_config_target_test.go`: variable/secret 全部子命令的 --app 优先级测试，覆盖无清单、不同清单、损坏清单、角色解析实际 AppKey 后仍用入口 key 更新、无效 key 与 production 角色拒绝。
 - `apply_app_test.go`: App 创建与更新、vars 分流及重复执行、Get 必填类型、requiredSecrets 契约、非法声明零写入、变量失败及远端遗漏项保留测试。
-- `app_variable.go`: app variable add/put/list/delete；固定 runtime、--appRole beta|production 默认 beta；校验、目标解析、列表/删除命令骨架与回执供 secret 共用，按类型 upsert/更新供 secret/apply 消费；put 仅更新普通变量，delete 按 key 确认，列表包含普通变量与密钥元数据。
-- `app_secret.go`: app secret add/put/list/delete；add 新增或更新，put 仅更新已存在密钥，掩码输入或 --from-stdin 有界读取；list 在服务端按类型筛选且不显示值，delete 仅删除密钥、输入 key 确认或 --yes；固定 runtime、--appRole 默认 beta，变更下次部署生效。
-- `app_secret_test.go`: Secret CRUD-L、put 不创建/保留说明/错误脱敏、列表 properties.scope/type 筛选及分页/auto 输出、production → prod、stdin 保真与字节上限、删除确认/取消/非 TTY 与后端失败回执测试。
-- `app_variable_test.go`: 真实 Cobra + httptest 验证 CRUD-L、put 仅更新且不存在不创建、说明与原始值保留、应用/角色/properties.scope 筛选、分页/auto 输出、变量与密钥共用空列表、类型保护、删除确认/取消/非 TTY 与失败不输出成功回执。
+- `app_variable.go`: app variable add/put/list/delete；--app 优先、缺省从清单定位，固定 runtime、--appRole beta|prod 默认 beta；校验、目标解析、列表/删除命令骨架与回执供 secret 共用，按类型 upsert/更新供 secret/apply 消费；put 仅更新普通变量，delete 按 key 确认，列表包含普通变量与密钥元数据。
+- `app_secret.go`: app secret add/put/list/delete；--app 优先、缺省从清单定位，add 新增或更新，put 仅更新已存在密钥，掩码输入或 --from-stdin 有界读取；list 在服务端按类型筛选且不显示值，delete 仅删除密钥、输入 key 确认或 --yes；固定 runtime、--appRole 默认 beta，变更下次部署生效。
+- `app_secret_test.go`: Secret CRUD-L、put 不创建/保留说明/错误脱敏、列表 properties.scope/type 筛选及分页/auto 输出、beta/prod 原样路由、stdin 保真与字节上限、删除确认/取消/非 TTY 与后端失败回执测试。
+- `app_variable_test.go`: 真实 Cobra + httptest 验证 CRUD-L、put 仅更新且不存在不创建、说明与原始值保留、应用/beta/prod 角色/properties.scope 筛选、分页/auto 输出、变量与密钥共用空列表、类型保护、删除确认/取消/非 TTY 与失败不输出成功回执。
 - `root.go`: 根命令入口，挂载所有顶级子命令（login / whoami / settings / context / doctor / schema / apply / diff / update / skills / integration / preflight 等；deploy 已下沉为 app 子命令），对外暴露 Execute(version, date)；定义全局 PersistentFlag --profile / --access-token / --meta-server-url / --context / --debug，分别绑定全局变量 Profile / AccessToken / MetaServerURL / Context / DebugMode；后端 URL 兜底交给 config.Context preset（不再持 default*Server 常量）；钩入 notifier.Start(cmdName)/Finish 生命周期（cmdName 在 Execute 前解析传入，供 skipCommands 抑制；Finish 仅在 err == nil 时调用且排在 reportExecuteError 之后，对齐 gh：提示只在成功运行的末尾、失败不提示；JSON 出口的 _notice 见 output.go）；包内 commandName 解析顶级命令名；rootCmd.SilenceErrors=true 把错误呈现收口到 Execute 出口的 reportExecuteError（errors.go）单一出口；installUsageTemplate(root) 装配 GitHub CLI 风格 usageTemplate（按 Cobra Groups/GroupID 渲染分类；无分组继续 AVAILABLE COMMANDS，未归组可见项进 ADDITIONAL COMMANDS，隐藏项不展示）与 globalFlags/parentFlags 模板函数，根命令 help 尾附 `Skills setup (one-time, humans): makecli skills install --all --yes` 引导（仅根级，对齐 lark-cli）
 - `errors.go`: CLI 错误呈现单一出口：reportExecuteError(w, err) 跳过由命令 worker 负责输出的 commandOutputError（保留 Unwrap 与退出码），把退出码哨兵（errDiffFound/errPreflightFailed/errDoctorFailed）静默、api.ErrAuthFailed 升级为带 makecli login next-step + profile/context/token 来源回显的引导（authFailedHint，context 经 contextName 纯展示解析失败回显 unknown，来源为 flag/env 时附「login 不会覆盖它」提示）、其余复刻 cobra 的 `error: <msg>`；终结了原 diff/preflight 各自 SilenceErrors+自打印的特例；ExitCode(err) 对外收口错误→退出码翻译（0 成功 / errBuildFailed 与 errPromoteFailed→2 / errWaitTimeout→124 / 其余 1，被 main 消费），语义化退出码让 CI/agent 免解析文本判定 deploy --wait 结果
 - `errors_test.go`: 覆盖 reportExecuteError 各分支（nil/退出码哨兵静默/真实错误打印/鉴权升级）+ authFailedHint 回显 profile/context/token 来源 + ExitCode 退出码映射（nil→0/构建未成功→2/等待超时→124/普通错误与 diff 哨兵→1），用 setProfile/setContextFlag 隔离全局态
@@ -239,7 +240,7 @@ apply.go → api.UpdateApp（配对应用契约）/ saveAppVariable（Beta runti
 - 2026-10-20：新增 app variable add，按 SecretService API 在 runtime scope 内新增或更新普通变量，默认 beta，保存不触发部署。
 - 2026-10-20：app variable 新增 list/delete；列表支持分页与密钥元数据，删除限定普通变量并复用 key 确认，配置变更在下次部署生效。
 - 2026-10-20：app variable 新增 put <KEY> <VALUE>，只更新已存在的普通变量，保留说明，不存在或读取失败时不创建。
-- 2026-10-20：新增 app secret add 掩码输入与 --from-stdin；配置命令统一 --appRole beta|production，JSON 回执输出 appRole。
+- 2026-10-20：新增 app secret add 掩码输入与 --from-stdin；配置命令统一 --appRole beta|prod，JSON 回执输出 appRole。
 - 2026-10-20：app secret 新增 put/list/delete；put 仅更新、list 服务端筛选密钥、delete 按类型确认删除，与 variable 共用命令流程和脱敏边界。
 
 - 2026-10-20：apply 支持 App 创建或更新；vars 从 Meta properties 分离并同步 Beta runtime，requiredSecrets 只保存名称契约，变量删除不隐式同步。

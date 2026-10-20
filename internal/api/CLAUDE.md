@@ -30,10 +30,10 @@
 
 ## 成员清单
 - `app_update_test.go`: UpdateApp 的 Meta 路由、requiredSecrets/空列表透传、业务错误和无效响应测试。
-- `variable.go`: Variable / VariableProperties 与 Get/List/Create/Update/DeleteVariable；POST /secret/v1/variable，Get/Delete 显式传普通变量类型，appRole 由客户端注入、scope 显式传递；列表按 API 文档字段 properties.scope 筛选、保留分页与 meta、清除密钥值，debug 保留筛选请求及安全响应；DeleteResource 由服务端事务校验类型，密钥写入隐藏正文并清理错误中的值。
+- `variable.go`: Variable / VariableProperties 与 Get/List/Create/Update/DeleteVariable；POST /secret/v1/variable，Get/Delete 显式传普通变量类型，appRole 由客户端注入、服务端解析实际 AppKey，Get/List 保留实际 key 并拒绝空身份/混合应用，scope 显式传递；列表按 API 文档字段 properties.scope 筛选、保留分页与 meta、清除密钥值，debug 保留筛选请求及安全响应；DeleteResource 由服务端事务校验类型，密钥写入隐藏正文并清理错误中的值。
 - `secret.go`: GetSecret / ListSecrets / DeleteSecret 显式限定 Make.Secret；列表在服务端按 properties.scope/type 筛选且 debug 仅移除密钥值，删除携带完整命名空间并由事务校验类型；敏感操作克隆 debug sink 隐藏正文，错误明文替换保留哨兵链，不污染共享客户端。
 - `secret_test.go`: Secret 类型 CRUD-L、列表服务端 properties.scope/type 筛选与分页、类型不符响应拒绝、text/JSON 写入正文隐藏及列表安全展示、错误反射脱敏、错误链与客户端隔离测试。
-- `variable_test.go`: 变量 CRUD-L 请求形态、Beta/production 与 properties.scope 筛选隔离、分页、空值保留、错误分类、损坏回执拒绝及列表 debug 请求可见/密钥值脱敏测试。
+- `variable_test.go`: 变量 CRUD-L 请求形态、beta/prod 实际 AppKey 解析与 properties.scope 筛选隔离、分页、空值保留、错误分类、损坏回执拒绝及列表 debug 请求可见/密钥值脱敏测试。
 - `build_log.go` / `build_log_test.go`：BuildLogChunk、BuildLogOptions 与 GetBuildLog/GetBuildLogWithOptions，固定 BUILD scope，支持 tailLines 回执校验及游标；GetAppContext 让配对查询共用取消期限。空日志合法、缺 data 拒绝；请求契约、业务错误和取消测试。
 - `build.go`：GetBuildTaskContext 用于日志查任务，GetBuildTaskByIDContext 固定 ID 查终态；OrgID 仅供部署事件路由，不改变状态 JSON 输出。旧 GetBuildTask 委托同一路径。
 - `deployment_log.go` / `deployment_log_test.go`：GetDeploymentLog 按租户、实际 Beta appKey、任务 ID 和事件序号读取 deployment/events；复用认证/追踪/取消，请求契约、异常回执与超时测试。

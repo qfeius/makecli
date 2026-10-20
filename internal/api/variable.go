@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 client.go 的 Client.do / Client.post / checkGetResult / authFailedErr / metaVersion、secret.go 的密钥脱敏，encoding/json、fmt
  * [OUTPUT]: 对外提供 Variable / VariableProperties 类型及 Client.GetVariable / ListVariables / CreateVariable / UpdateVariable / DeleteVariable；包内 getVariable 按类型查询
- * [POS]: internal/api 的应用配置 CRUD-L 层，调用 /secret/v1/variable；与 secret.go 共用按 properties.scope 筛选的列表及按类型删除，debug 保留筛选请求和安全响应
+ * [POS]: internal/api 的配置 CRUD-L，appRole 由服务端解析实际 AppKey；Get/List 保留真实身份并校验 key/scope，列表按 properties.scope 筛选
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -57,8 +57,8 @@ func (c *Client) getVariable(key, appKey, scope, resourceType string) (*Variable
 	if err := json.Unmarshal(result.Data, &variable); err != nil {
 		return nil, fmt.Errorf("无效的变量响应: %w", err)
 	}
-	if variable.Key != key || variable.AppKey != appKey || variable.Properties.Scope != scope {
-		return nil, fmt.Errorf("变量响应与请求的 key/appKey/scope 不一致")
+	if variable.Key != key || !c.matchesVariableApp(appKey, variable.AppKey) || variable.Properties.Scope != scope {
+		return nil, fmt.Errorf("变量响应与请求的 key/scope 不一致或 appKey 无效")
 	}
 	if variable.Type != "Make.Variable" && variable.Type != "Make.Secret" {
 		return nil, fmt.Errorf("无效的变量类型 %q", variable.Type)
@@ -111,9 +111,12 @@ func (c *Client) listVariables(appKey, scope, resourceType string, page, size in
 	if err := json.Unmarshal(result.Data, &variables); err != nil {
 		return nil, 0, fmt.Errorf("无效的变量列表响应: %w", err)
 	}
+	if len(variables) > 0 && !c.matchesVariableApp(appKey, variables[0].AppKey) {
+		return nil, 0, fmt.Errorf("变量列表响应的 appKey 无效")
+	}
 	for i, variable := range variables {
-		if variable.AppKey != appKey || variable.Properties.Scope != scope || variable.Key == "" {
-			return nil, 0, fmt.Errorf("变量列表响应与请求的 appKey/scope 不一致或缺少 key")
+		if variable.AppKey != variables[0].AppKey || variable.Properties.Scope != scope || variable.Key == "" {
+			return nil, 0, fmt.Errorf("变量列表响应混入不同应用、scope 不一致或缺少 key")
 		}
 		if variable.Type != "Make.Variable" && variable.Type != "Make.Secret" {
 			return nil, 0, fmt.Errorf("无效的变量类型 %q", variable.Type)
@@ -129,6 +132,11 @@ func (c *Client) listVariables(appKey, scope, resourceType string, page, size in
 		variables = []Variable{}
 	}
 	return variables, result.Pagination.Total, nil
+}
+
+// matchesVariableApp 有角色时允许服务端返回配对应用的实际 key，不推断命名后缀。
+func (c *Client) matchesVariableApp(requested, actual string) bool {
+	return actual != "" && (c.appRole != "" || actual == requested)
 }
 
 func (c *Client) variableListClient() *Client {

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/app 的清单读取、cmd/client、cmd/output、delete_confirm.go、internal/api，errors、fmt、os、regexp、strings、tablewriter、cobra
- * [OUTPUT]: 对外提供 newAppVariableCmd；包内校验、配置写入/更新、列表/删除命令骨架与回执供 secret/apply 共用
- * [POS]: cmd/app 的变量管理与配置公共流程，add/put/list/delete 从 apps/dsl/app.yaml 定位应用；固定 runtime，--appRole 默认 beta，按资源类型限制更新和删除
+ * [OUTPUT]: 对外提供 newAppVariableCmd；包内共享 --app/--appRole/--output、目标解析、配置 CRUD-L 与回执供 secret/apply 消费
+ * [POS]: cmd/app 的配置公共流程，--app 优先，否则从 apps/dsl/app.yaml 定位；固定 runtime，--appRole beta|prod 默认 beta，按类型限制更新和删除
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -28,7 +28,13 @@ var confirmAppVariableDeleteFunc = func(key, appKey, appRole string) error {
 }
 
 type appVariableOptions struct {
-	appRole, output string
+	appKey, appRole, output string
+}
+
+func (o *appVariableOptions) flags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&o.appKey, "app", "", "app key (defaults to apps/dsl/app.yaml)")
+	cmd.Flags().StringVar(&o.appRole, "appRole", api.RoleBeta, "target app role: beta | prod")
+	addOutputFlag(cmd, &o.output)
 }
 
 type appVariableWriter func(client *api.Client, appKey, key, value string) (string, error)
@@ -66,18 +72,17 @@ func newAppVariableWriteCmd(verb, short, behavior string, write appVariableWrite
 	cmd := &cobra.Command{
 		Use:          verb + " <KEY> <VALUE>",
 		Short:        short,
-		Long:         "Save a plain-text runtime variable for the app in apps/dsl/app.yaml. " + behavior + " Secrets cannot be overwritten. Changes apply on the next deployment. Empty values are supported.",
+		Long:         "Save a plain-text runtime variable for --app, or the app in apps/dsl/app.yaml. " + behavior + " Secrets cannot be overwritten. Changes apply on the next deployment. Empty values are supported.",
 		Args:         cobra.ExactArgs(2),
 		SilenceUsage: true,
 		Example: fmt.Sprintf(`  makecli app variable %[1]s BASE_URL https://api.example.com
-  makecli app variable %[1]s BASE_URL https://api.example.com --appRole production
-  makecli app variable %[1]s LOG_LEVEL debug --output json`, verb),
+  makecli app variable %[1]s BASE_URL https://api.example.com --appRole prod
+  makecli app variable %[1]s LOG_LEVEL debug --app demo --output json`, verb),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAppVariableWrite(args[0], args[1], o, write)
 		},
 	}
-	cmd.Flags().StringVar(&o.appRole, "appRole", api.EnvBeta, "target app role: beta | production")
-	addOutputFlag(cmd, &o.output)
+	o.flags(cmd)
 	return cmd
 }
 
@@ -89,8 +94,8 @@ func (o appVariableOptions) validate(key, value string) error {
 }
 
 func (o appVariableOptions) validateRole() error {
-	if o.appRole != api.EnvBeta && o.appRole != api.EnvProduction {
-		return fmt.Errorf("--appRole must be beta or production")
+	if o.appRole != api.RoleBeta && o.appRole != api.RoleProd {
+		return fmt.Errorf("--appRole must be beta or prod")
 	}
 	return nil
 }
@@ -104,12 +109,23 @@ func (o appVariableOptions) target() (string, *api.Client, string, error) {
 	if err != nil {
 		return "", nil, "", err
 	}
+	appKey, err := o.resolveAppKey()
+	if err != nil {
+		return "", nil, "", err
+	}
+	client, err := newClientFromProfile(api.WithAppRole(o.appRole))
+	return appKey, client, output, err
+}
+
+func (o appVariableOptions) resolveAppKey() (string, error) {
+	if o.appKey != "" {
+		return o.appKey, validResourceKey(o.appKey)
+	}
 	appKey, err := appKeyFromManifest(appDSLPath)
 	if err != nil {
-		return "", nil, "", fmt.Errorf("read app identity: %w; run from the app project root", err)
+		return "", fmt.Errorf("read app identity: %w; use --app <appKey> or run from the app project root", err)
 	}
-	client, err := newClientFromProfile(api.WithAppRole(api.RoleForEnv(o.appRole)))
-	return appKey, client, output, err
+	return appKey, nil
 }
 
 // validVariable 是命令参数与 app.yaml 变量声明共用的输入规则。
@@ -150,19 +166,18 @@ func newAppConfigListCmd(kind string, list appConfigLister) *cobra.Command {
 	var page, size int
 	cmd := &cobra.Command{
 		Use: "list", Short: "List runtime app " + strings.ToLower(kind) + "s",
-		Long: "List runtime configuration for the app in apps/dsl/app.yaml. Plain-text values are visible; secret values are never displayed.",
+		Long: "List runtime configuration for --app, or the app in apps/dsl/app.yaml. Plain-text values are visible; secret values are never displayed.",
 		Args: cobra.NoArgs, SilenceUsage: true,
 		Example: fmt.Sprintf(`  makecli app %[1]s list
-  makecli app %[1]s list --appRole production --output json
-  makecli app %[1]s list --page 2 --size 20`, strings.ToLower(kind)),
+  makecli app %[1]s list --appRole prod --output json
+  makecli app %[1]s list --app demo --page 2 --size 20`, strings.ToLower(kind)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAppConfigList(o, page, size, kind, list)
 		},
 	}
-	cmd.Flags().StringVar(&o.appRole, "appRole", api.EnvBeta, "target app role: beta | production")
+	o.flags(cmd)
 	cmd.Flags().IntVar(&page, "page", 1, "page number to fetch (starts from 1)")
 	cmd.Flags().IntVar(&size, "size", 20, "number of entries per page (1–100)")
-	addOutputFlag(cmd, &o.output)
 	return cmd
 }
 
@@ -226,17 +241,16 @@ func newAppConfigDeleteCmd(kind string, remove appConfigDeleter, confirm appConf
 	var yes bool
 	cmd := &cobra.Command{
 		Use: "delete <KEY>", Short: "Delete a runtime app " + strings.ToLower(kind),
-		Long: "Delete a runtime " + strings.ToLower(kind) + " for the app in apps/dsl/app.yaml. Requires typing the key to confirm, or --yes. The change applies on the next deployment.",
+		Long: "Delete a runtime " + strings.ToLower(kind) + " for --app, or the app in apps/dsl/app.yaml. Requires typing the key to confirm, or --yes. The change applies on the next deployment.",
 		Args: cobra.ExactArgs(1), SilenceUsage: true,
 		Example: fmt.Sprintf(`  makecli app %[1]s delete CONFIG_KEY
-  makecli app %[1]s delete CONFIG_KEY --appRole production --yes`, strings.ToLower(kind)),
+  makecli app %[1]s delete CONFIG_KEY --app demo --appRole prod --yes`, strings.ToLower(kind)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAppConfigDelete(args[0], o, yes, kind, remove, confirm)
 		},
 	}
-	cmd.Flags().StringVar(&o.appRole, "appRole", api.EnvBeta, "target app role: beta | production")
+	o.flags(cmd)
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the deletion confirmation prompt")
-	addOutputFlag(cmd, &o.output)
 	return cmd
 }
 
@@ -293,10 +307,16 @@ func updateAppConfig(client *api.Client, appKey, key, value, resourceType string
 }
 
 func getAppConfig(client *api.Client, appKey, key, resourceType string) (*api.Variable, error) {
+	get := client.GetVariable
 	if resourceType == "Make.Secret" {
-		return client.GetSecret(key, appKey, appVariableScope)
+		get = client.GetSecret
 	}
-	return client.GetVariable(key, appKey, appVariableScope)
+	variable, err := get(key, appKey, appVariableScope)
+	if err == nil {
+		// 写入始终使用用户的入口 key + appRole，避免再次解析已返回的实际 key。
+		variable.AppKey = appKey
+	}
+	return variable, err
 }
 
 func saveAppConfig(client *api.Client, appKey, key, value, resourceType string) (string, error) {

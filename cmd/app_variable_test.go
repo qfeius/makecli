@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 app_variable.go、newAppCmd、命令测试夹具、internal/api，bytes、encoding/json、errors、net/http、httptest、os、strings、testing、cobra
- * [OUTPUT]: 验证变量 CRUD-L、put 仅更新/保留说明/不存在不创建、角色/properties.scope 筛选/分页/输出、空列表、类型保护与删除确认门禁
+ * [OUTPUT]: 验证变量 CRUD-L、put 仅更新/保留说明/不存在不创建、beta/prod 角色原样路由/properties.scope 筛选/分页/输出、空列表、类型保护与删除确认门禁
  * [POS]: cmd/app variable 的命令集成测试，复用临时应用清单，HTTP 完全隔离
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -43,7 +43,7 @@ func TestAppVariableList(t *testing.T) {
 		terminal              bool
 	}{
 		{"json defaults", outputJSON, "", false},
-		{"table production", outputTable, "production", false},
+		{"table prod", outputTable, "prod", false},
 		{"auto pipe", outputAuto, "beta", false},
 		{"auto terminal", outputAuto, "beta", true},
 	} {
@@ -52,7 +52,7 @@ func TestAppVariableList(t *testing.T) {
 			stubStdoutTerminal(t, tc.terminal)
 			calls := 0
 			role := api.RoleBeta
-			if tc.appRole == api.EnvProduction {
+			if tc.appRole == api.RoleProd {
 				role = api.RoleProd
 			}
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -144,8 +144,8 @@ func TestAppVariableDelete(t *testing.T) {
 		cancel                     bool
 	}{
 		{"confirmed", outputTable, "beta", "", false},
-		{"cancelled", outputJSON, "production", "", true},
-		{"long flag", outputJSON, "production", "--yes", false},
+		{"cancelled", outputJSON, "prod", "", true},
+		{"long flag", outputJSON, "prod", "--yes", false},
 		{"short flag", outputAuto, "beta", "-y", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -171,7 +171,7 @@ func TestAppVariableDelete(t *testing.T) {
 			t.Cleanup(func() { confirmAppVariableDeleteFunc = original })
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls++
-				if r.URL.Query().Get("appRole") != api.RoleForEnv(tc.appRole) || r.URL.Path != "/api/make/secret/v1/variable" || r.Header.Get("Authorization") != "Bearer variable-token" {
+				if r.URL.Query().Get("appRole") != tc.appRole || r.URL.Path != "/api/make/secret/v1/variable" || r.Header.Get("Authorization") != "Bearer variable-token" {
 					t.Error("wrong deletion app role, path or credentials")
 				}
 				var body api.Variable
@@ -239,9 +239,9 @@ func TestAppVariableDelete(t *testing.T) {
 func TestAppVariableManageInvalidInput(t *testing.T) {
 	for _, args := range [][]string{
 		{"list", "extra"}, {"list", "--page", "0"}, {"list", "--size", "0"}, {"list", "--size", "101"},
-		{"list", "--appRole", "prod"}, {"list", "--output", "yaml"}, {"list", "--scope", "automation"},
+		{"list", "--appRole", "production"}, {"list", "--output", "yaml"}, {"list", "--scope", "automation"},
 		{"delete"}, {"delete", "X", "extra"}, {"delete", "1X"}, {"delete", "MAKE_X"},
-		{"delete", "X", "--appRole", "prod"}, {"delete", "X", "--output", "yaml"},
+		{"delete", "X", "--appRole", "production"}, {"delete", "X", "--output", "yaml"},
 	} {
 		t.Run(strings.Join(args, "/"), func(t *testing.T) {
 			enterAppDir(t, "demo")
@@ -319,23 +319,23 @@ func TestAppVariableDeleteNonInteractive(t *testing.T) {
 
 func TestAppVariableWrite(t *testing.T) {
 	for _, tc := range []struct {
-		name, verb, key, value, output, env string
-		exists                              bool
+		name, verb, key, value, output, appRole string
+		exists                                  bool
 	}{
 		{"create defaults", "add", "BASE_URL", "https://api.example.com", outputJSON, "", false},
-		{"update production", "add", "_X", "  new value\nline two  ", outputTable, "production", true},
+		{"update prod", "add", "_X", "  new value\nline two  ", outputTable, "prod", true},
 		{"create empty", "add", "X", "", outputAuto, "beta", false},
 		{"update long key", "add", strings.Repeat("x", 128), "$(literal) `text`", outputJSON, "beta", true},
 		{"put defaults", "put", "BASE_URL", "https://api-v2.example.com", outputJSON, "", true},
-		{"put production", "put", "_X", "  new value\nline two  ", outputTable, "production", true},
+		{"put prod", "put", "_X", "  new value\nline two  ", outputTable, "prod", true},
 		{"put empty", "put", "X", "", outputAuto, "beta", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			enterAppDir(t, "demo")
 			stubStdoutTerminal(t, false)
-			env, role, action := api.EnvBeta, api.RoleBeta, "created"
-			if tc.env == api.EnvProduction {
-				env, role = api.EnvProduction, api.RoleProd
+			role, action := api.RoleBeta, "created"
+			if tc.appRole == api.RoleProd {
+				role = api.RoleProd
 			}
 			writeTarget := "MakeService.CreateResource"
 			if tc.exists {
@@ -385,8 +385,8 @@ func TestAppVariableWrite(t *testing.T) {
 			defer srv.Close()
 			cmd := appVariableTestCmd(t, srv.URL)
 			args := []string{"variable", tc.verb, tc.key, tc.value, "--output", tc.output}
-			if tc.env != "" {
-				args = append(args, "--appRole", tc.env)
+			if tc.appRole != "" {
+				args = append(args, "--appRole", tc.appRole)
 			}
 			cmd.SetArgs(args)
 			out := captureStdout(t, func() {
@@ -398,7 +398,7 @@ func TestAppVariableWrite(t *testing.T) {
 				t.Fatalf("unexpected actions: %v", targets)
 			}
 			if tc.output == outputTable {
-				if !strings.Contains(out, "updated successfully") || !strings.Contains(out, "production") || !strings.Contains(out, "next deployment") {
+				if !strings.Contains(out, "updated successfully") || !strings.Contains(out, "prod") || !strings.Contains(out, "next deployment") {
 					t.Errorf("unexpected table output: %s", out)
 				}
 				return
@@ -407,7 +407,7 @@ func TestAppVariableWrite(t *testing.T) {
 			if err := json.Unmarshal([]byte(out), &receipt); err != nil {
 				t.Fatal(err)
 			}
-			if receipt.AppKey != "demo" || receipt.Key != tc.key || receipt.Scope != "runtime" || receipt.AppRole != env || receipt.Action != action || !strings.Contains(receipt.Message, "next deployment") {
+			if receipt.AppKey != "demo" || receipt.Key != tc.key || receipt.Scope != "runtime" || receipt.AppRole != role || receipt.Action != action || !strings.Contains(receipt.Message, "next deployment") {
 				t.Errorf("unexpected JSON receipt: %+v", receipt)
 			}
 		})
@@ -418,7 +418,7 @@ func TestAppVariableAddInvalidInput(t *testing.T) {
 	for _, args := range [][]string{
 		{}, {"X"}, {"X", "value", "extra"}, {"1X", "value"}, {"A-B", "value"},
 		{"", "value"}, {strings.Repeat("A", 129), "value"}, {"MAKE_TOKEN", "value"},
-		{"X", strings.Repeat("a", 32*1024+1)}, {"X", "value", "--appRole", "prod"},
+		{"X", strings.Repeat("a", 32*1024+1)}, {"X", "value", "--appRole", "production"},
 		{"X", "value", "--appRole", "all"}, {"X", "value", "--output", "yaml"},
 		{"X", "value", "--scope", "automation"},
 	} {

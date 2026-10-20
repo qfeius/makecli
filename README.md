@@ -330,28 +330,29 @@ makecli entity --app TODO list Task --output json
 
 ### 应用变量与密钥
 
-在应用项目根目录执行，从 `apps/dsl/app.yaml` 读取应用身份：
+默认从项目的 `apps/dsl/app.yaml` 读取应用身份；指定 `--app <appKey>` 时直接使用该 key，可在项目外执行。变量与密钥的 add/put/list/delete 均支持：
 
 ```bash
 makecli app variable add BASE_URL https://api.example.com
 makecli app variable put BASE_URL https://api-v2.example.com
-makecli app variable put LOG_LEVEL debug --appRole production --output json
+makecli app variable put LOG_LEVEL debug --appRole prod --output json
 makecli app variable list
-makecli app variable list --appRole production --page 1 --size 100 --output json
+makecli app variable list --app todo_minimal
+makecli app variable list --appRole prod --page 1 --size 100 --output json
 makecli app variable delete BASE_URL
-makecli app variable delete BASE_URL --appRole production --yes
+makecli app variable delete BASE_URL --appRole prod --yes
 makecli app secret add OPENAI_API_KEY
 # Enter a secret value: ************
 makecli app secret put OPENAI_API_KEY
 makecli app secret list --output json
 makecli app secret delete OPENAI_API_KEY
-makecli app secret delete OPENAI_API_KEY --appRole production --yes
+makecli app secret delete OPENAI_API_KEY --appRole prod --yes
 
-makecli app secret add OPENAI_API_KEY --appRole production
+makecli app secret add OPENAI_API_KEY --appRole prod
 printf '%s' "$OPENAI_API_KEY" | makecli app secret add OPENAI_API_KEY --from-stdin
 ```
 
-固定写入 runtime，`--appRole beta|production` 默认 `beta`；同名同类型配置更新，拒绝跨类型覆盖。保存后在下一次部署生效。密钥输入显示掩码，交互提示写入 stderr，支持 `--output auto|table|json`；debug 隐藏密钥写入的请求及响应正文，列表请求正常展示筛选与分页，响应仅移除密钥值。`--from-stdin` 允许空值、保留空格和内部换行，仅去除一个末尾 LF 或 CRLF，值最多 32 KiB。
+固定写入 runtime，`--appRole beta|prod` 默认 `beta`，角色原样传给 API；后端 context 仍使用 `--context production`。同名同类型配置更新，拒绝跨类型覆盖。保存后在下一次部署生效。密钥输入显示掩码，交互提示写入 stderr，支持 `--output auto|table|json`；debug 隐藏密钥写入的请求及响应正文，列表请求正常展示筛选与分页，响应仅移除密钥值。`--from-stdin` 允许空值、保留空格和内部换行，仅去除一个末尾 LF 或 CRLF，值最多 32 KiB。
 
 `variable put <KEY> <VALUE>` 只更新已存在的普通变量，保留原有说明，支持空字符串；变量不存在、读取失败或类型为密钥时返回错误，不创建变量。更新在下一次部署生效。
 

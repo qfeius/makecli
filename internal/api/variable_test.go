@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 variable.go、Client、debugSink 与错误哨兵，bytes、encoding/json、errors、httptest、http、strings、testing
- * [OUTPUT]: 验证变量 CRUD-L 的请求类型/环境/properties.scope 筛选/分页、空值、错误分类、损坏回执拒绝与 debug 密钥值脱敏
+ * [OUTPUT]: 验证变量 CRUD-L 的角色解析 AppKey、类型/scope/分页、空值、错误分类、损坏回执拒绝与 debug 密钥值脱敏
  * [POS]: internal/api 的变量协议测试，全部请求发往本地 httptest 服务
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -21,6 +21,7 @@ func TestListVariables(t *testing.T) {
 	for _, role := range []string{RoleBeta, RoleProd} {
 		for _, scope := range []string{"runtime", "automation"} {
 			t.Run(role+"/"+scope, func(t *testing.T) {
+				resolvedApp := "resolved_" + role
 				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if r.Method != http.MethodPost || r.URL.Path != variablePath || r.URL.Query().Get("appRole") != role || r.Header.Get("X-Make-Target") != "MakeService.ListResources" || r.Header.Get("Authorization") != "Bearer token" || r.Header.Get("Traceparent") == "" {
 						t.Errorf("unexpected list request: %s %s", r.Method, r.URL)
@@ -39,8 +40,8 @@ func TestListVariables(t *testing.T) {
 					value := ""
 					secret := "must-not-leak"
 					variables := []Variable{
-						{Key: "X", AppKey: "demo", Type: "Make.Variable", Properties: VariableProperties{Scope: scope, Value: &value}},
-						{Key: "TOKEN", AppKey: "demo", Type: "Make.Secret", Properties: VariableProperties{Scope: scope, Value: &secret}},
+						{Key: "X", AppKey: resolvedApp, Type: "Make.Variable", Properties: VariableProperties{Scope: scope, Value: &value}},
+						{Key: "TOKEN", AppKey: resolvedApp, Type: "Make.Secret", Properties: VariableProperties{Scope: scope, Value: &secret}},
 					}
 					_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": variables, "pagination": map[string]int{"total": 15}})
 				}))
@@ -52,7 +53,7 @@ func TestListVariables(t *testing.T) {
 				if err != nil || total != 15 || len(variables) != 2 {
 					t.Fatalf("list = %+v, %d, %v", variables, total, err)
 				}
-				if variables[0].Properties.Value == nil || *variables[0].Properties.Value != "" || variables[1].Properties.Value != nil {
+				if variables[0].AppKey != resolvedApp || variables[0].Properties.Value == nil || *variables[0].Properties.Value != "" || variables[1].Properties.Value != nil {
 					t.Fatal("plain empty value lost or secret value exposed")
 				}
 				if strings.Contains(debug.String(), "must-not-leak") || !strings.Contains(debug.String(), "properties.scope == '") || !strings.Contains(debug.String(), "TOKEN") || client.debug.hideBody || client.debug.redactVariables {
@@ -83,6 +84,55 @@ func TestListVariablesErrors(t *testing.T) {
 				t.Fatalf("authentication sentinel lost: %v", err)
 			}
 		})
+	}
+}
+
+func TestGetVariableResolvedApp(t *testing.T) {
+	for _, tc := range []struct {
+		name, role, actual, resourceType string
+		wantError                        bool
+	}{
+		{"direct", "", "demo", "Make.Variable", false},
+		{"direct mismatch", "", "other", "Make.Variable", true},
+		{"beta variable", RoleBeta, "actual_beta_app", "Make.Variable", false},
+		{"prod variable", RoleProd, "actual_prod_app", "Make.Variable", false},
+		{"beta secret", RoleBeta, "actual_beta_app", "Make.Secret", false},
+		{"prod secret", RoleProd, "actual_prod_app", "Make.Secret", false},
+		{"empty resolved key", RoleBeta, "", "Make.Variable", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body Variable
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				if body.AppKey != "demo" || body.Type != tc.resourceType || r.URL.Query().Get("appRole") != tc.role {
+					t.Error("must send the original app key and role")
+				}
+				variable := Variable{Key: "X", AppKey: tc.actual, Type: tc.resourceType, Properties: VariableProperties{Scope: "runtime"}}
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": variable})
+			}))
+			defer srv.Close()
+			client := New(srv.URL, "token", WithAppRole(tc.role))
+			get := client.GetVariable
+			if tc.resourceType == "Make.Secret" {
+				get = client.GetSecret
+			}
+			got, err := get("X", "demo", "runtime")
+			if (err != nil) != tc.wantError || (err == nil && got.AppKey != tc.actual) {
+				t.Fatalf("resolved app identity = %+v, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestListVariablesRejectsMixedResolvedApps(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":200,"data":[{"key":"X","appKey":"actual_beta","type":"Make.Variable","properties":{"scope":"runtime"}},{"key":"Y","appKey":"another_app","type":"Make.Variable","properties":{"scope":"runtime"}}]}`))
+	}))
+	defer srv.Close()
+	if _, _, err := New(srv.URL, "token", WithAppRole(RoleBeta)).ListVariables("demo", "runtime", 1, 20); err == nil {
+		t.Fatal("one page cannot mix resources from different resolved apps")
 	}
 }
 
