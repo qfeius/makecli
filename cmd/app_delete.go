@@ -26,7 +26,7 @@ const (
 // Tests shorten this interval; production polls only while the status is not terminal.
 var appDeletePollInterval = 3 * time.Second
 
-var errAppDeleteFailed = errors.New("App 删除失败")
+var errAppDeleteFailed = errors.New("app 删除失败")
 
 // confirmDeleteFunc lets tests isolate the interactive confirmation.
 var confirmDeleteFunc = confirmDeleteByTypingKey

@@ -1,5 +1,11 @@
 # App 删除命令适配异步任务
 
+## 2026-10-21：修复删除命令的 CI lint 告警
+- 摘要：将删除失败错误文本的首字母改为小写，符合 staticcheck ST1005。
+- 涉及：`cmd/app_delete.go`。
+- 决策：仅调整错误文本，不改变删除流程和退出码。
+- 验证：本地 `go test ./...`；PR CI 运行项目版本的 golangci-lint。
+
 ## 2026-10-21：删除命令等待最终结果
 - 摘要：`app delete` 改用必填的 `--appRole beta|prod|all`，内部查询删除状态；`all` 等 Beta 成功才删 Prod。
 - 涉及：`cmd/app_delete.go`、`internal/api/client.go`、退出码、测试、CLI 帮助与文档。
