@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 cmd/client、cmd/app、internal/api、delete_confirm.go、errors、fmt、strings、time、context、cobra
- * [OUTPUT]: 提供 app delete --appRole beta|prod|all；内部查询异步删除状态，确认终态后返回
+ * [INPUT]: 依赖 cmd/client、cmd/app、internal/api、delete_confirm.go、errors、fmt、io、net、net/url、strings、time、context、cobra
+ * [OUTPUT]: 提供 app delete --appRole beta|prod|all；内部查询异步删除状态，临时故障重试，409 仅接续 RUNNING 任务
  * [POS]: cmd/app 的 delete 子命令；all 先等 Beta 成功，再发起 Prod 删除
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -11,6 +11,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/url"
 	"strings"
 	"time"
 
@@ -114,11 +117,16 @@ func runAppDelete(key, appRole string, skipConfirm bool, timeout time.Duration) 
 		if err != nil {
 			return err
 		}
-		if err := client.DeleteApp(key); err != nil {
-			return err
+		deleteErr := client.DeleteApp(key)
+		if deleteErr != nil {
+			var conflict *api.BusinessConflictError
+			if !errors.As(deleteErr, &conflict) {
+				return deleteErr
+			}
+		} else {
+			fmt.Printf("App '%s' %s deletion started\n", key, role)
 		}
-		fmt.Printf("App '%s' %s deletion started\n", key, role)
-		if err := waitForAppDeletion(client, key, role, time.Until(deadline)); err != nil {
+		if err := waitForAppDeletion(client, key, role, time.Until(deadline), deleteErr); err != nil {
 			return err
 		}
 		fmt.Printf("App '%s' %s deleted successfully\n", key, role)
@@ -126,7 +134,7 @@ func runAppDelete(key, appRole string, skipConfirm bool, timeout time.Duration) 
 	return nil
 }
 
-func waitForAppDeletion(client *api.Client, key, role string, timeout time.Duration) error {
+func waitForAppDeletion(client *api.Client, key, role string, timeout time.Duration, existingConflict error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -139,7 +147,27 @@ func waitForAppDeletion(client *api.Client, key, role string, timeout time.Durat
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				return fmt.Errorf("%w：%s 删除任务可能仍在执行，尚不能确认成功", errWaitTimeout, role)
 			}
-			return fmt.Errorf("查询 %s 删除状态失败: %w", role, err)
+			if !retryableAppDeletionStatusError(err) {
+				var response *api.AppDeletionStatusResponseError
+				permissionDenied := errors.As(err, &response) && (response.Code == 401 || response.Code == 403)
+				if existingConflict != nil && !errors.Is(err, api.ErrAuthFailed) && !permissionDenied {
+					return existingConflict
+				}
+				return fmt.Errorf("查询 %s 删除状态失败: %w", role, err)
+			}
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("%w：%s 删除任务可能仍在执行，尚不能确认成功", errWaitTimeout, role)
+			case <-ticker.C:
+				continue
+			}
+		}
+		if existingConflict != nil {
+			if status.State != "RUNNING" {
+				return existingConflict
+			}
+			fmt.Printf("App '%s' %s deletion already running\n", key, role)
+			existingConflict = nil
 		}
 		progress := status.StepName
 		if progress == "" {
@@ -176,6 +204,20 @@ func waitForAppDeletion(client *api.Client, key, role string, timeout time.Durat
 		case <-ticker.C:
 		}
 	}
+}
+
+func retryableAppDeletionStatusError(err error) bool {
+	var response *api.AppDeletionStatusResponseError
+	if errors.As(err, &response) {
+		return response.Code == 429 || response.Code >= 500 && response.Code <= 599
+	}
+	var transport *url.Error
+	if !errors.As(err, &transport) {
+		return false
+	}
+	var operation *net.OpError
+	return transport.Timeout() || transport.Temporary() || errors.As(err, &operation) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 func confirmDeleteByTypingKey(key, role string) error {

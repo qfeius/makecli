@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runAppDelete/runAppDeleteFromFile/resolveDeleteRoles/confirmDeleteFunc（包内白盒），internal/api、httptest、time
- * [OUTPUT]: 覆盖 app delete 的角色选择、确认、状态等待、all 顺序、失败、超时和 -f 文件模式
+ * [OUTPUT]: 覆盖 app delete 的角色选择、确认、状态等待、all 顺序、409 接续、临时故障重试、失败、超时和 -f 文件模式
  * [POS]: cmd 模块 app_delete.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -8,10 +8,12 @@
 package cmd
 
 import (
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -343,6 +345,140 @@ func TestAppDeleteFailedBetaStopsAll(t *testing.T) {
 	want := "删除 App 失败：myapp（beta）；失败步骤：归档业务数据（ARCHIVE_DATA）；原因：归档失败"
 	if err.Error() != want {
 		t.Errorf("err = %q, want %q", err, want)
+	}
+}
+
+func TestAppDeleteResumesRunningTaskAfterConflict(t *testing.T) {
+	deletes, checks := 0, 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/make/meta/v1/app":
+			deletes++
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 409, "msg": "应用正在删除，请查询删除状态"})
+		case "/api/make/meta/app/delete-status":
+			checks++
+			state := "RUNNING"
+			if checks > 1 {
+				state = "SUCCEEDED"
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"state": state}})
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	MetaServerURL = srv.URL
+	oldInterval := appDeletePollInterval
+	appDeletePollInterval = time.Millisecond
+	t.Cleanup(func() { appDeletePollInterval = oldInterval })
+
+	if err := runAppDelete("myapp", "beta", true, time.Second); err != nil {
+		t.Fatalf("runAppDelete: %v", err)
+	}
+	if deletes != 1 || checks != 2 {
+		t.Errorf("deletes = %d, checks = %d; want 1 and 2", deletes, checks)
+	}
+}
+
+func TestAppDeleteKeepsUnrelatedConflict(t *testing.T) {
+	const refusal = "当前应用存在 Beta 环境，请先删除 Beta 环境，再删除正式环境。"
+	checks := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/make/meta/v1/app" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 409, "msg": refusal})
+			return
+		}
+		checks++
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"state": "NORMAL"}})
+	}))
+	defer srv.Close()
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	MetaServerURL = srv.URL
+
+	err := runAppDelete("myapp", "prod", true, time.Second)
+	if err == nil || err.Error() != refusal || checks != 1 {
+		t.Fatalf("err = %v, checks = %d; want original refusal after one status check", err, checks)
+	}
+}
+
+func TestAppDeleteRetriesTemporaryStatusError(t *testing.T) {
+	checks := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/make/meta/v1/app" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": true})
+			return
+		}
+		checks++
+		if checks == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 503, "msg": "暂时无法查询删除任务"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"state": "SUCCEEDED"}})
+	}))
+	defer srv.Close()
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	MetaServerURL = srv.URL
+	oldInterval := appDeletePollInterval
+	appDeletePollInterval = time.Millisecond
+	t.Cleanup(func() { appDeletePollInterval = oldInterval })
+
+	if err := runAppDelete("myapp", "beta", true, time.Second); err != nil {
+		t.Fatalf("runAppDelete: %v", err)
+	}
+	if checks != 2 {
+		t.Errorf("checks = %d, want 2", checks)
+	}
+}
+
+func TestAppDeleteDoesNotRetryAuthFailure(t *testing.T) {
+	checks := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/make/meta/v1/app" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": true})
+			return
+		}
+		checks++
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 990300403, "msg": "token 已失效"})
+	}))
+	defer srv.Close()
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	MetaServerURL = srv.URL
+
+	err := runAppDelete("myapp", "beta", true, time.Second)
+	if !errors.Is(err, api.ErrAuthFailed) || checks != 1 {
+		t.Fatalf("err = %v, checks = %d; want auth failure after one check", err, checks)
+	}
+}
+
+func TestAppDeleteConflictProbeSurfacesPermissionDenial(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/make/meta/v1/app" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 409, "msg": "应用正在删除，请查询删除状态"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 403, "msg": "无删除应用权限"})
+	}))
+	defer srv.Close()
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	MetaServerURL = srv.URL
+
+	err := runAppDelete("myapp", "beta", true, time.Second)
+	var response *api.AppDeletionStatusResponseError
+	if !errors.As(err, &response) || response.Code != 403 {
+		t.Fatalf("err = %v, want permission denial from status query", err)
+	}
+}
+
+func TestAppDeleteDoesNotRetryInvalidTLSCertificate(t *testing.T) {
+	err := &url.Error{Op: "Get", URL: "https://meta.example", Err: x509.UnknownAuthorityError{}}
+	if retryableAppDeletionStatusError(err) {
+		t.Fatal("invalid TLS certificate cannot recover by retrying")
 	}
 }
 

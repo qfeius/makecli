@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 internal/api 包内的 Client（包内白盒），encoding/json、errors、net/http、net/http/httptest、testing
  * [OUTPUT]: 覆盖 Client.CreateApp / ListApps / DeleteApp（含成功 data 为标量 true 的写路径）/ GetAppDeletionStatus（GET 路径、角色、鉴权与状态）/ writeStatusErr（409 按 data 形态分流：带 constraint 才是唯一性冲突，其余原样回 msg）/ WithAppRole（?appRole= 注入 / 续接 / 缺席）/ RoleForEnv（与 HostedEnv 互逆）/ WithHeaders / WithDebug / WithDryRun（X-Dry-Run 注入/缺席）/ GetApp / GetEntity / GetRelation（含 ErrNotFound 语义）/ ErrAuthFailed 鉴权语义 / Traceparent+X-Log-Id 出站头 的单元测试
- * [POS]: internal/api client.go 的配套测试，用 httptest 隔离网络
+ * [POS]: internal/api client.go 的配套测试，用 httptest 隔离网络；覆盖可判别的 409 和删除状态响应码
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -140,6 +140,10 @@ func TestGetAppDeletionStatus(t *testing.T) {
 		_, err := New(srv.URL, "test-token").GetAppDeletionStatus("myapp")
 		if err == nil || !strings.Contains(err.Error(), "暂时无法查询删除任务") {
 			t.Fatalf("err = %v", err)
+		}
+		var responseErr *AppDeletionStatusResponseError
+		if !errors.As(err, &responseErr) || responseErr.Code != 503 {
+			t.Fatalf("err = %T %v, want status response code 503", err, err)
 		}
 	})
 }
@@ -505,8 +509,15 @@ func TestWriteStatusErr(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := writeStatusErr(tt.code, msg, json.RawMessage(tt.data)).Error(); got != tt.want {
+			err := writeStatusErr(tt.code, msg, json.RawMessage(tt.data))
+			if got := err.Error(); got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
+			}
+			if tt.code == 409 && tt.name != "409 带约束 → UniqueConstraintError" {
+				var conflict *BusinessConflictError
+				if !errors.As(err, &conflict) {
+					t.Errorf("err = %T, want BusinessConflictError", err)
+				}
 			}
 		})
 	}
