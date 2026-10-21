@@ -26,7 +26,7 @@ const (
 // Tests shorten this interval; production polls only while the status is not terminal.
 var appDeletePollInterval = 3 * time.Second
 
-var errAppDeleteFailed = errors.New("app 删除失败")
+var errAppDeleteFailed = errors.New("删除 App 失败")
 
 // confirmDeleteFunc lets tests isolate the interactive confirmation.
 var confirmDeleteFunc = confirmDeleteByTypingKey
@@ -153,7 +153,22 @@ func waitForAppDeletion(client *api.Client, key, role string, timeout time.Durat
 		case "SUCCEEDED":
 			return nil
 		case "FAILED":
-			return fmt.Errorf("%w：%s / %s：%s", errAppDeleteFailed, role, progress, status.Message)
+			details := []string{fmt.Sprintf("%s（%s）", key, role)}
+			step := status.StepName
+			if status.Step != "" {
+				if step == "" {
+					step = status.Step
+				} else {
+					step += "（" + status.Step + "）"
+				}
+			}
+			if step != "" {
+				details = append(details, "失败步骤："+step)
+			}
+			if status.Message != "" {
+				details = append(details, "原因："+status.Message)
+			}
+			return fmt.Errorf("%w：%s", errAppDeleteFailed, strings.Join(details, "；"))
 		}
 		select {
 		case <-ctx.Done():

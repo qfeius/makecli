@@ -340,6 +340,10 @@ func TestAppDeleteFailedBetaStopsAll(t *testing.T) {
 	if !errors.Is(err, errAppDeleteFailed) || len(calls) != 2 {
 		t.Fatalf("err = %v, calls = %v", err, calls)
 	}
+	want := "删除 App 失败：myapp（beta）；失败步骤：归档业务数据（ARCHIVE_DATA）；原因：归档失败"
+	if err.Error() != want {
+		t.Errorf("err = %q, want %q", err, want)
+	}
 }
 
 func TestAppDeleteWaitTimeoutDoesNotReportSuccess(t *testing.T) {
