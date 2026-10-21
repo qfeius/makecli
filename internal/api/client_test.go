@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 internal/api 包内的 Client（包内白盒），encoding/json、errors、net/http、net/http/httptest、testing
- * [OUTPUT]: 覆盖 Client.CreateApp / ListApps / DeleteApp（含成功 data 为标量 true 的写路径）/ writeStatusErr（409 按 data 形态分流：带 constraint 才是唯一性冲突，其余原样回 msg）/ WithAppRole（?appRole= 注入 / 续接 / 缺席）/ RoleForEnv（与 HostedEnv 互逆）/ WithHeaders / WithDebug / WithDryRun（X-Dry-Run 注入/缺席）/ GetApp / GetEntity / GetRelation（含 ErrNotFound 语义）/ ErrAuthFailed 鉴权语义 / Traceparent+X-Log-Id 出站头 的单元测试
+ * [OUTPUT]: 覆盖 Client.CreateApp / ListApps / DeleteApp（含成功 data 为标量 true 的写路径）/ GetAppDeletionStatus（GET 路径、角色、鉴权与状态）/ writeStatusErr（409 按 data 形态分流：带 constraint 才是唯一性冲突，其余原样回 msg）/ WithAppRole（?appRole= 注入 / 续接 / 缺席）/ RoleForEnv（与 HostedEnv 互逆）/ WithHeaders / WithDebug / WithDryRun（X-Dry-Run 注入/缺席）/ GetApp / GetEntity / GetRelation（含 ErrNotFound 语义）/ ErrAuthFailed 鉴权语义 / Traceparent+X-Log-Id 出站头 的单元测试
  * [POS]: internal/api client.go 的配套测试，用 httptest 隔离网络
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -100,6 +100,46 @@ func TestDeleteApp(t *testing.T) {
 
 		if err := New(srv.URL, "test-token").DeleteApp("myapp"); err == nil {
 			t.Fatal("expected error on API failure")
+		}
+	})
+}
+
+func TestGetAppDeletionStatus(t *testing.T) {
+	t.Run("queries selected role with credentials", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet || r.URL.Path != "/meta/app/delete-status" {
+				t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			}
+			if r.URL.Query().Get("appKey") != "my app" || r.URL.Query().Get("appRole") != "beta" {
+				t.Errorf("unexpected query: %s", r.URL.RawQuery)
+			}
+			if r.Header.Get("Authorization") != "Bearer test-token" {
+				t.Errorf("unexpected authorization header")
+			}
+			if _, exists := r.Header["X-Make-Target"]; exists {
+				t.Error("delete status must not send an X-Make-Target")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{
+				"state": "RUNNING", "step": "DELETE_REPOSITORIES", "stepName": "清理代码仓库", "message": "",
+			}})
+		}))
+		defer srv.Close()
+
+		status, err := New(srv.URL, "test-token", WithAppRole(RoleBeta)).GetAppDeletionStatus("my app")
+		if err != nil || status.State != "RUNNING" || status.StepName != "清理代码仓库" {
+			t.Fatalf("status = %+v, err = %v", status, err)
+		}
+	})
+
+	t.Run("returns business error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 503, "msg": "暂时无法查询删除任务"})
+		}))
+		defer srv.Close()
+
+		_, err := New(srv.URL, "test-token").GetAppDeletionStatus("myapp")
+		if err == nil || !strings.Contains(err.Error(), "暂时无法查询删除任务") {
+			t.Fatalf("err = %v", err)
 		}
 	})
 }

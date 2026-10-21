@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 cmd 包内的 runAppDelete/runAppDeleteFromFile/resolveDeleteEnvs/confirmDeleteFunc（包内白盒），internal/api、encoding/json、errors、net/http、net/http/httptest、path/filepath、slices
- * [OUTPUT]: 覆盖 app delete 子命令核心逻辑的单元测试（含 -f 文件模式与删除确认门控）
- * [POS]: cmd 模块 app_delete.go 的配套测试，用 httptest 隔离网络（断言删除只走 DeleteResource 且 ?appRole= 与 --env 对应、零 GetResource）、t.Setenv 隔离凭证、打桩 confirmDeleteFunc 隔离终端交互
+ * [INPUT]: 依赖 cmd 包内的 runAppDelete/runAppDeleteFromFile/resolveDeleteRoles/confirmDeleteFunc（包内白盒），internal/api、httptest、time
+ * [OUTPUT]: 覆盖 app delete 的角色选择、确认、状态等待、all 顺序、失败、超时和 -f 文件模式
+ * [POS]: cmd 模块 app_delete.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
 
@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/qfeius/makecli/internal/api"
 )
@@ -29,26 +30,26 @@ func stubConfirm(t *testing.T, err error) {
 
 func TestRunAppDelete(t *testing.T) {
 	t.Run("deletes app via API with --yes", func(t *testing.T) {
-		srv := newMockMeta(t, 200, "delete app success")
+		srv := newSuccessDeleteMeta(t)
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		MetaServerURL = srv.URL
 
-		if err := runAppDelete("myapp", api.EnvProduction, true); err != nil {
+		if err := runAppDelete("myapp", api.RoleProd, true, time.Second); err != nil {
 			t.Fatalf("runAppDelete: %v", err)
 		}
 	})
 
 	t.Run("deletes app after confirmation succeeds", func(t *testing.T) {
 		stubConfirm(t, nil)
-		srv := newMockMeta(t, 200, "delete app success")
+		srv := newSuccessDeleteMeta(t)
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		MetaServerURL = srv.URL
 
-		if err := runAppDelete("myapp", api.EnvProduction, false); err != nil {
+		if err := runAppDelete("myapp", api.RoleProd, false, time.Second); err != nil {
 			t.Fatalf("runAppDelete: %v", err)
 		}
 	})
@@ -56,12 +57,12 @@ func TestRunAppDelete(t *testing.T) {
 	t.Run("confirmation refusal stops before API", func(t *testing.T) {
 		sentinel := errors.New("declined")
 		stubConfirm(t, sentinel)
-		// 没有 mock server：删除路径零读请求，确认失败必须在触网前短路
+		// 没有 mock server：确认失败必须在触网前短路
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
 		MetaServerURL = "http://unused"
 
-		if err := runAppDelete("myapp", api.EnvProduction, false); !errors.Is(err, sentinel) {
+		if err := runAppDelete("myapp", api.RoleProd, false, time.Second); !errors.Is(err, sentinel) {
 			t.Fatalf("expected confirmation error, got %v", err)
 		}
 	})
@@ -70,7 +71,7 @@ func TestRunAppDelete(t *testing.T) {
 		// 不打桩，走真 confirmDeleteByTypingKey；go test 下 stdin 非 TTY，应直接拒绝
 		t.Setenv("HOME", t.TempDir())
 		MetaServerURL = "http://unused"
-		if err := runAppDelete("myapp", api.EnvProduction, false); err == nil {
+		if err := runAppDelete("myapp", api.RoleProd, false, time.Second); err == nil {
 			t.Fatal("expected refusal without --yes in non-interactive shell")
 		}
 	})
@@ -78,7 +79,7 @@ func TestRunAppDelete(t *testing.T) {
 	t.Run("fails without credentials", func(t *testing.T) {
 		t.Setenv("HOME", t.TempDir())
 		MetaServerURL = "http://unused"
-		if err := runAppDelete("myapp", api.EnvProduction, true); err == nil {
+		if err := runAppDelete("myapp", api.RoleProd, true, time.Second); err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
 	})
@@ -90,7 +91,7 @@ func TestRunAppDelete(t *testing.T) {
 		saveDefaultToken(t)
 		MetaServerURL = srv.URL
 
-		if err := runAppDelete("myapp", api.EnvProduction, true); err == nil {
+		if err := runAppDelete("myapp", api.RoleProd, true, time.Second); err == nil {
 			t.Fatal("expected error on API failure")
 		}
 	})
@@ -104,7 +105,7 @@ func TestRunAppDelete(t *testing.T) {
 		saveDefaultToken(t)
 		MetaServerURL = srv.URL
 
-		if err := runAppDelete("myapp", api.EnvProduction, true); err == nil || err.Error() != msg {
+		if err := runAppDelete("myapp", api.RoleProd, true, time.Second); err == nil || err.Error() != msg {
 			t.Fatalf("err = %v, want exactly %q", err, msg)
 		}
 	})
@@ -115,20 +116,23 @@ func TestRunAppDelete(t *testing.T) {
 		MetaServerURL = "http://unused"
 		setProfile(t, "nonexistent")
 
-		if err := runAppDelete("myapp", api.EnvProduction, true); err == nil {
+		if err := runAppDelete("myapp", api.RoleProd, true, time.Second); err == nil {
 			t.Fatal("expected error for unknown profile")
 		}
 	})
 }
 
-// newMockDeleteMeta 只认 DeleteResource：按序把 "<key>?appRole=<role>" 追加到 *deleted；
-// 任何其他 target（尤其 GetResource）直接判失败——删除路径不得反查 app
+// newMockDeleteMeta records deletions and reports their final status without looking up the App.
 func newMockDeleteMeta(t *testing.T, deleted *[]string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/make/meta/app/delete-status" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"state": "SUCCEEDED", "step": "COMPLETED", "stepName": "删除完成"}})
+			return
+		}
 		if target := r.Header.Get("X-Make-Target"); target != "MakeService.DeleteResource" {
-			t.Errorf("unexpected X-Make-Target %q: delete must not look up the app", target)
+			t.Errorf("unexpected X-Make-Target %q", target)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
@@ -141,21 +145,32 @@ func newMockDeleteMeta(t *testing.T, deleted *[]string) *httptest.Server {
 	}))
 }
 
-func TestResolveDeleteEnvs(t *testing.T) {
+func newSuccessDeleteMeta(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/make/meta/app/delete-status" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"state": "SUCCEEDED", "step": "COMPLETED", "stepName": "删除完成"}})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": true})
+	}))
+}
+
+func TestResolveDeleteRoles(t *testing.T) {
 	tests := []struct {
 		name, env string
 		want      []string
 		wantErr   bool
 	}{
-		{"production 只删 prod", api.EnvProduction, []string{api.EnvProduction}, false},
-		{"beta 只删 beta", api.EnvBeta, []string{api.EnvBeta}, false},
-		{"all 先 beta 后 production", envAll, []string{api.EnvBeta, api.EnvProduction}, false},
-		{"空 env 拒绝", "", nil, true},
-		{"未知 env 拒绝", "preview", nil, true},
+		{"prod 只删 prod", api.RoleProd, []string{api.RoleProd}, false},
+		{"beta 只删 beta", api.RoleBeta, []string{api.RoleBeta}, false},
+		{"all 先 beta 后 prod", appRoleAll, []string{api.RoleBeta, api.RoleProd}, false},
+		{"空 appRole 拒绝", "", nil, true},
+		{"未知 appRole 拒绝", "preview", nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := resolveDeleteEnvs(tt.env)
+			got, err := resolveDeleteRoles(tt.env)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -167,7 +182,7 @@ func TestResolveDeleteEnvs(t *testing.T) {
 }
 
 func TestRunAppDeleteAll(t *testing.T) {
-	// --env ALL（大小写不敏感）按 beta → prod 顺序删两次，key 始终是 prod key，确认只问一次
+	// --appRole ALL（大小写不敏感）按 beta → prod 顺序删两次，确认只问一次
 	var deleted []string
 	srv := newMockDeleteMeta(t, &deleted)
 	defer srv.Close()
@@ -180,7 +195,7 @@ func TestRunAppDeleteAll(t *testing.T) {
 	confirmDeleteFunc = func(_, _ string) error { confirms++; return nil }
 	t.Cleanup(func() { confirmDeleteFunc = orig })
 
-	if err := runAppDelete("myapp", "ALL", false); err != nil {
+	if err := runAppDelete("myapp", "ALL", false, time.Second); err != nil {
 		t.Fatalf("runAppDelete: %v", err)
 	}
 	want := []string{"myapp?appRole=beta", "myapp?appRole=prod"}
@@ -190,7 +205,7 @@ func TestRunAppDeleteAll(t *testing.T) {
 }
 
 func TestRunAppDeleteBetaTarget(t *testing.T) {
-	// --env beta：body 仍是用户给的 prod key，靠 ?appRole=beta 让服务端定位配对 app；确认表单也只见 prod key
+	// --appRole beta：body 仍是用户给的 prod key，服务端按 ?appRole=beta 定位配对 App
 	var deleted []string
 	srv := newMockDeleteMeta(t, &deleted)
 	defer srv.Close()
@@ -203,7 +218,7 @@ func TestRunAppDeleteBetaTarget(t *testing.T) {
 	confirmDeleteFunc = func(k, _ string) error { confirmed = k; return nil }
 	t.Cleanup(func() { confirmDeleteFunc = orig })
 
-	if err := runAppDelete("myapp", api.EnvBeta, false); err != nil {
+	if err := runAppDelete("myapp", api.RoleBeta, false, time.Second); err != nil {
 		t.Fatalf("runAppDelete: %v", err)
 	}
 	if confirmed != "myapp" || !slices.Equal(deleted, []string{"myapp?appRole=beta"}) {
@@ -213,7 +228,7 @@ func TestRunAppDeleteBetaTarget(t *testing.T) {
 
 func TestRunAppDeleteFromFile(t *testing.T) {
 	t.Run("deletes app from YAML file", func(t *testing.T) {
-		srv := newMockMeta(t, 200, "delete app success")
+		srv := newSuccessDeleteMeta(t)
 		defer srv.Close()
 		t.Setenv("HOME", t.TempDir())
 		saveDefaultToken(t)
@@ -222,7 +237,7 @@ func TestRunAppDeleteFromFile(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "app.yaml")
 		writeTestFile(t, f, []byte("key: fileapp\nname: 文件应用\ntype: Make.App\n"))
 
-		if err := runAppDeleteFromFile(f, api.EnvProduction, true); err != nil {
+		if err := runAppDeleteFromFile(f, api.RoleProd, true, time.Second); err != nil {
 			t.Fatalf("runAppDeleteFromFile: %v", err)
 		}
 	})
@@ -231,7 +246,7 @@ func TestRunAppDeleteFromFile(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "app.txt")
 		writeTestFile(t, f, []byte("name: foo"))
 
-		if err := runAppDeleteFromFile(f, api.EnvProduction, true); err == nil {
+		if err := runAppDeleteFromFile(f, api.RoleProd, true, time.Second); err == nil {
 			t.Fatal("expected error for non-yaml file")
 		}
 	})
@@ -240,8 +255,113 @@ func TestRunAppDeleteFromFile(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "entity.yaml")
 		writeTestFile(t, f, []byte("key: foo\nname: 实体\ntype: Make.Entity\nappKey: bar\n"))
 
-		if err := runAppDeleteFromFile(f, api.EnvProduction, true); err == nil {
+		if err := runAppDeleteFromFile(f, api.RoleProd, true, time.Second); err == nil {
 			t.Fatal("expected error for missing Make.App")
 		}
 	})
+}
+
+func TestAppDeleteRoleFlag(t *testing.T) {
+	command := newAppDeleteCmd()
+	if command.Flags().Lookup("appRole") == nil {
+		t.Fatal("app delete must require --appRole")
+	}
+	if command.Flags().Lookup("env") != nil {
+		t.Fatal("app delete should no longer expose --env")
+	}
+	if command.Flags().Lookup("timeout") == nil {
+		t.Fatal("app delete must allow a bounded wait")
+	}
+}
+
+func TestAppDeleteWaitsForBetaBeforeProd(t *testing.T) {
+	var calls []string
+	betaChecks := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		role := r.URL.Query().Get("appRole")
+		switch r.URL.Path {
+		case "/api/make/meta/v1/app":
+			calls = append(calls, "delete:"+role)
+			if role == "prod" && betaChecks < 2 {
+				t.Error("prod deletion started before beta succeeded")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": true})
+		case "/api/make/meta/app/delete-status":
+			calls = append(calls, "status:"+role)
+			state := "SUCCEEDED"
+			if role == "beta" {
+				betaChecks++
+				if betaChecks == 1 {
+					state = "RUNNING"
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{
+				"state": state, "step": "COMPLETED", "stepName": "删除完成",
+			}})
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	MetaServerURL = srv.URL
+	oldInterval := appDeletePollInterval
+	appDeletePollInterval = time.Millisecond
+	t.Cleanup(func() { appDeletePollInterval = oldInterval })
+
+	if err := runAppDelete("myapp", "ALL", true, time.Second); err != nil {
+		t.Fatalf("runAppDelete: %v", err)
+	}
+	want := []string{"delete:beta", "status:beta", "status:beta", "delete:prod", "status:prod"}
+	if !slices.Equal(calls, want) {
+		t.Errorf("calls = %v, want %v", calls, want)
+	}
+}
+
+func TestAppDeleteFailedBetaStopsAll(t *testing.T) {
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.URL.Path)
+		if r.URL.Path == "/api/make/meta/v1/app" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": true})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{
+			"state": "FAILED", "step": "ARCHIVE_DATA", "stepName": "归档业务数据", "message": "归档失败",
+		}})
+	}))
+	defer srv.Close()
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	MetaServerURL = srv.URL
+
+	err := runAppDelete("myapp", "all", true, time.Second)
+	if !errors.Is(err, errAppDeleteFailed) || len(calls) != 2 {
+		t.Fatalf("err = %v, calls = %v", err, calls)
+	}
+}
+
+func TestAppDeleteWaitTimeoutDoesNotReportSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/make/meta/v1/app" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": true})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{
+			"state": "RUNNING", "step": "DELETE_REPOSITORIES", "stepName": "清理代码仓库",
+		}})
+	}))
+	defer srv.Close()
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	MetaServerURL = srv.URL
+	oldInterval := appDeletePollInterval
+	appDeletePollInterval = time.Millisecond
+	t.Cleanup(func() { appDeletePollInterval = oldInterval })
+
+	err := runAppDelete("myapp", "beta", true, 5*time.Millisecond)
+	if !errors.Is(err, errWaitTimeout) {
+		t.Fatalf("err = %v, want timeout", err)
+	}
 }

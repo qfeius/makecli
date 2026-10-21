@@ -1,115 +1,168 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/app（loadAppManifestFromFile）、internal/api（EnvBeta/EnvProduction、RoleForEnv、WithAppRole、DeleteApp）、delete_confirm.go（共享交互确认）、fmt、strings、github.com/spf13/cobra
- * [OUTPUT]: 对外提供 newAppDeleteCmd 函数；包内 resolveDeleteEnvs（--env → 有序环境序列）、envAll 常量；包级 confirmDeleteFunc 可打桩变量（测试替换，参照 deploy.go gitPushFunc 模式）
- * [POS]: cmd/app 的 delete 子命令。每个 App 是 prod/beta 一对（MetaAPIDesign.md：meta.appRole 标角色，prod 有 beta 配对时服务端 409 拒删）。
- *        --env 必填（大小写不敏感）：production / beta 各删一半，all 先 beta 后 production；每一步用 WithAppRole(RoleForEnv(env)) 的 client 发「prod key + ?appRole=」交服务端定位目标，
- *        CLI 不反查 pairAppKey、不触 GetApp——配对关系是服务端知识，删除路径零读请求。
- *        用户面只见「app key + 环境」：确认表单敲的是用户给的 app key（标题注明环境），成功提示逐环境一行，--yes 跳过；支持 -f 文件模式
+ * [INPUT]: 依赖 cmd/client、cmd/app、internal/api、delete_confirm.go、errors、fmt、strings、time、context、cobra
+ * [OUTPUT]: 提供 app delete --appRole beta|prod|all；内部查询异步删除状态，确认终态后返回
+ * [POS]: cmd/app 的 delete 子命令；all 先等 Beta 成功，再发起 Prod 删除
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/qfeius/makecli/internal/api"
 	"github.com/spf13/cobra"
 )
 
-// envAll 是 --env 的第三个取值：一次删掉整对（先 beta 后 production，服务端要求先清 beta）
-const envAll = "all"
+const (
+	appRoleAll              = "all"
+	defaultAppDeleteTimeout = 30 * time.Minute
+)
 
-// confirmDeleteFunc 为包级可打桩变量，单测替换以隔离真实终端交互
+// Tests shorten this interval; production polls only while the status is not terminal.
+var appDeletePollInterval = 3 * time.Second
+
+var errAppDeleteFailed = errors.New("App 删除失败")
+
+// confirmDeleteFunc lets tests isolate the interactive confirmation.
 var confirmDeleteFunc = confirmDeleteByTypingKey
 
 func newAppDeleteCmd() *cobra.Command {
 	var file string
-	var env string
+	var appRole string
 	var yes bool
+	var timeout time.Duration
 
 	cmd := &cobra.Command{
-		Use:   "delete [key] --env production|beta|ALL",
+		Use:   "delete [key] --appRole beta|prod|all",
 		Short: "Delete an app on Make",
-		Long: `Delete one half of a Make app pair. Every app is created as a prod/beta pair;
---env production deletes the prod app, --env beta deletes its paired beta app,
---env ALL deletes beta first and then production (the server refuses to delete a prod app
-while its beta pair still exists). <key> is always the prod app key.`,
-		Example: `  makecli app delete myapp --env beta
-  makecli app delete myapp --env production --yes
-  makecli app delete myapp --env ALL
-  makecli app delete -f app.yaml --env beta`,
+		Long: `Delete one half of a Make app pair, or both in order.
+--appRole beta deletes the paired Beta app, --appRole prod deletes the Prod app,
+and --appRole all waits for Beta to finish before deleting Prod.
+<key> is always the Prod app key. The command waits for the final deletion result.`,
+		Example: `  makecli app delete myapp --appRole beta
+  makecli app delete myapp --appRole prod --yes
+  makecli app delete myapp --appRole all
+  makecli app delete -f app.yaml --appRole beta`,
 		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if file != "" {
-				return runAppDeleteFromFile(file, env, yes)
+				return runAppDeleteFromFile(file, appRole, yes, timeout)
 			}
 			if len(args) == 0 {
 				return fmt.Errorf("requires app key or -f flag")
 			}
-			return runAppDelete(args[0], env, yes)
+			return runAppDelete(args[0], appRole, yes, timeout)
 		},
 	}
 
 	cmd.Flags().StringVarP(&file, "file", "f", "", "path to YAML file containing Make.App resource")
-	cmd.Flags().StringVar(&env, "env", "", "which environment to delete: production | beta | ALL (required)")
+	cmd.Flags().StringVar(&appRole, "appRole", "", "App role to delete: beta | prod | all (required)")
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the deletion confirmation prompt")
-	_ = cmd.MarkFlagRequired("env")
+	cmd.Flags().DurationVar(&timeout, "timeout", defaultAppDeleteTimeout, "maximum time to wait for deletion to finish")
+	_ = cmd.MarkFlagRequired("appRole")
 	return cmd
 }
 
-func runAppDeleteFromFile(path, env string, skipConfirm bool) error {
+func runAppDeleteFromFile(path, appRole string, skipConfirm bool, timeout time.Duration) error {
 	manifest, err := loadAppManifestFromFile(path)
 	if err != nil {
 		return err
 	}
-	return runAppDelete(manifest.Key, env, skipConfirm)
+	return runAppDelete(manifest.Key, appRole, skipConfirm, timeout)
 }
 
-// resolveDeleteEnvs 把 --env 展开成有序的用户面环境序列：
-// production / beta 各一步；all 先 beta 后 production（服务端要求先清 beta）。
-// 纯函数不触网：每一步的删除目标都由服务端按 ?appRole= 定位，CLI 无需知道配对 key
-func resolveDeleteEnvs(env string) ([]string, error) {
-	switch env {
-	case api.EnvProduction:
-		return []string{api.EnvProduction}, nil
-	case api.EnvBeta:
-		return []string{api.EnvBeta}, nil
-	case envAll:
-		return []string{api.EnvBeta, api.EnvProduction}, nil
+// resolveDeleteRoles returns the order in which the server allows the pair to be deleted.
+func resolveDeleteRoles(appRole string) ([]string, error) {
+	switch strings.ToLower(appRole) {
+	case api.RoleProd:
+		return []string{api.RoleProd}, nil
+	case api.RoleBeta:
+		return []string{api.RoleBeta}, nil
+	case appRoleAll:
+		return []string{api.RoleBeta, api.RoleProd}, nil
+	default:
+		return nil, fmt.Errorf("invalid --appRole %q: must be beta, prod or all", appRole)
 	}
-	return nil, fmt.Errorf("invalid --env %q: must be %s, %s or %s", env, api.EnvProduction, api.EnvBeta, envAll)
 }
 
-func runAppDelete(key, env string, skipConfirm bool) error {
-	env = strings.ToLower(env)
-	envs, err := resolveDeleteEnvs(env)
+func runAppDelete(key, appRole string, skipConfirm bool, timeout time.Duration) error {
+	roles, err := resolveDeleteRoles(appRole)
 	if err != nil {
 		return err
 	}
+	if timeout <= 0 {
+		return fmt.Errorf("--timeout must be greater than zero")
+	}
 	if !skipConfirm {
-		if err := confirmDeleteFunc(key, env); err != nil {
+		if err := confirmDeleteFunc(key, strings.ToLower(appRole)); err != nil {
 			return err
 		}
 	}
-	// 每个环境一个 client：appRole 是 client 级横切 query，删哪一半由它选定
-	for _, e := range envs {
-		client, err := newClientFromProfile(api.WithAppRole(api.RoleForEnv(e)))
+
+	deadline := time.Now().Add(timeout)
+	for _, role := range roles {
+		if time.Until(deadline) <= 0 {
+			return fmt.Errorf("%w：删除任务可能仍在执行，尚不能确认成功", errWaitTimeout)
+		}
+		client, err := newClientFromProfile(api.WithAppRole(role))
 		if err != nil {
 			return err
 		}
-		// 错误原样上抛：409 业务拒绝（如 prod 仍有 beta 配对）的服务端 msg 已是完整说明，不再套环境前缀
 		if err := client.DeleteApp(key); err != nil {
 			return err
 		}
-		fmt.Printf("App '%s' %s environment deleted successfully\n", key, e)
+		fmt.Printf("App '%s' %s deletion started\n", key, role)
+		if err := waitForAppDeletion(client, key, role, time.Until(deadline)); err != nil {
+			return err
+		}
+		fmt.Printf("App '%s' %s deleted successfully\n", key, role)
 	}
 	return nil
 }
 
-// confirmDeleteByTypingKey 以 app + 环境描述删除目标，共用输入 key 的确认表单。
-func confirmDeleteByTypingKey(key, env string) error {
-	return confirmDeletionByTypingKey(key, fmt.Sprintf("%s environment of app %q", env, key))
+func waitForAppDeletion(client *api.Client, key, role string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(appDeletePollInterval)
+	defer ticker.Stop()
+	lastProgress := ""
+	for {
+		status, err := client.GetAppDeletionStatusContext(ctx, key)
+		if err != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("%w：%s 删除任务可能仍在执行，尚不能确认成功", errWaitTimeout, role)
+			}
+			return fmt.Errorf("查询 %s 删除状态失败: %w", role, err)
+		}
+		progress := status.StepName
+		if progress == "" {
+			progress = status.State
+		}
+		if progress != lastProgress {
+			fmt.Printf("  %s: %s\n", role, progress)
+			lastProgress = progress
+		}
+		switch status.State {
+		case "SUCCEEDED":
+			return nil
+		case "FAILED":
+			return fmt.Errorf("%w：%s / %s：%s", errAppDeleteFailed, role, progress, status.Message)
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w：%s 删除任务可能仍在执行，尚不能确认成功", errWaitTimeout, role)
+		case <-ticker.C:
+		}
+	}
+}
+
+func confirmDeleteByTypingKey(key, role string) error {
+	return confirmDeletionByTypingKey(key, fmt.Sprintf("%s app %q", role, key))
 }

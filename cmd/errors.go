@@ -45,13 +45,13 @@ func reportExecuteError(w io.Writer, err error) {
 }
 
 // ExitCode 把 Execute 返回的错误翻译成进程退出码（main 的唯一消费点）：
-// 0 成功；2 构建/发布未成功（deploy/promote --wait 等到非成功终态）；124 等待超时（沿用 GNU timeout 惯例）；
+// 0 成功；2 构建、发布或 App 删除未成功；124 等待超时（沿用 GNU timeout 惯例）；
 // 日志读取被中断返回 130，其余一律 1。CI 与 agent 靠退出码判定结果。
 func ExitCode(err error) int {
 	switch {
 	case err == nil:
 		return 0
-	case errors.Is(err, errBuildFailed), errors.Is(err, errPromoteFailed):
+	case errors.Is(err, errBuildFailed), errors.Is(err, errPromoteFailed), errors.Is(err, errAppDeleteFailed):
 		return 2
 	case errors.Is(err, errWaitTimeout):
 		return 124
