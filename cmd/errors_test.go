@@ -73,8 +73,8 @@ func TestAuthFailedHintShowsContext(t *testing.T) {
 	}
 }
 
-// TestExitCode 锁定退出码契约：0 成功、2 构建未成功、124 等待超时（GNU timeout 惯例）、其余 1。
-// CI 与 agent 靠退出码区分「构建失败」与「超时未完成」，不必解析文本。
+// TestExitCode 锁定退出码契约：0 成功、2 任务失败、124 等待超时（GNU timeout 惯例）、其余 1。
+// CI 与 agent 靠退出码区分「任务失败」与「超时未完成」，不必解析文本。
 func TestExitCode(t *testing.T) {
 	cases := []struct {
 		name string
@@ -83,6 +83,7 @@ func TestExitCode(t *testing.T) {
 	}{
 		{"nil is success", nil, 0},
 		{"build failed maps to 2", fmt.Errorf("%w（status: FAILED）", errBuildFailed), 2},
+		{"app deletion failed maps to 2", fmt.Errorf("%w: ARCHIVE_DATA", errAppDeleteFailed), 2},
 		{"wait timeout maps to 124", fmt.Errorf("%w（5m0s）", errWaitTimeout), 124},
 		{"generic error maps to 1", errors.New("boom"), 1},
 		{"diff sentinel keeps 1", errDiffFound, 1},

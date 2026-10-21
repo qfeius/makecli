@@ -26,7 +26,7 @@ It is resolved as --context > $` + EnvContext + ` > credentials [profile] contex
 
 Not to be confused with an app's deployment environment (beta / production):
 "app deploy" always targets beta, "app promote" publishes beta to production,
-and "app delete --env" picks which half of the pair to delete.`,
+and "app delete --appRole" picks which half of the pair to delete.`,
 		Example: `  makecli context list
   makecli context use test
   makecli context show

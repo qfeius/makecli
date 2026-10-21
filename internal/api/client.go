@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 context、bytes、encoding/json、errors、fmt、io、net/http、strings、time，依赖 debug.go 的 debugSink，依赖 internal/trace 的 TraceID/Traceparent
- * [OUTPUT]: 对外提供 Client 类型、ErrNotFound / ErrAuthFailed 哨兵错误、UniqueConstraintError 类型化错误（409 且 data 带 constraint 的唯一性冲突，errors.As 判定；其余 409 是业务规则拒绝，服务端 msg 原样返回）、Option / WithDebug(on, DebugFormat) / WithHeaders / WithDryRun / WithAppRole 功能选项、New 构造函数、App（Role / PairAppKey / HostedEnv / KeyForEnv：prod/beta 配对知识收口，环境 → 承载 app key）、RoleForEnv（HostedEnv 逆映射：环境 → app 角色）、RoleProd / RoleBeta 常量 / Field / Entity / EntityProperties / UniqueConstraint / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp(key, name, properties) / UpdateApp(key, name, properties) / ListApps(page, size, filter) / DeleteApp(key) / GetApp(key) / GetAppContext(ctx, key) / CreateEntity(key, name, appKey, props) / ListEntities(appKey, page, size, filter) / GetEntity(appKey, key) / UpdateEntity(key, name, appKey, props) / DeleteEntity / CreateRelation(key, name, appKey, props) / UpdateRelation / ListRelations(appKey, ...) / GetRelation(appKey, key) / DeleteRelation / GetSchema(appKey) 方法。资源以 Key 为唯一标识符（英数下划线），Name 为用户可见展示名（支持中文）。Get* 方法在资源确实不存在时返回 ErrNotFound（可用 errors.Is 判定），其余错误（传输/非 not-found 业务码/解码）原样返回
- * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用；requestContext 支持取消，旧 request 委托同一路径以保持兼容
+ * [INPUT]: 依赖 context、bytes、encoding/json、errors、fmt、io、net/http、net/url、strings、time，依赖 debug.go 的 debugSink，依赖 internal/trace 的 TraceID/Traceparent
+ * [OUTPUT]: 对外提供 Client 类型、ErrNotFound / ErrAuthFailed 哨兵错误、UniqueConstraintError 类型化错误（409 且 data 带 constraint 的唯一性冲突，errors.As 判定；其余 409 是业务规则拒绝，服务端 msg 原样返回）、Option / WithDebug(on, DebugFormat) / WithHeaders / WithDryRun / WithAppRole 功能选项、New 构造函数、App（Role / PairAppKey / HostedEnv / KeyForEnv：prod/beta 配对知识收口，环境 → 承载 app key）、RoleForEnv（HostedEnv 逆映射：环境 → app 角色）、RoleProd / RoleBeta 常量 / Field / Entity / EntityProperties / UniqueConstraint / RelationEnd / RelationProperties / Relation / Schema 类型、CreateApp(key, name, properties) / UpdateApp(key, name, properties) / ListApps(page, size, filter) / DeleteApp(key) / AppDeletionStatus / GetAppDeletionStatus(Context) / GetApp(key) / GetAppContext(ctx, key) / CreateEntity(key, name, appKey, props) / ListEntities(appKey, page, size, filter) / GetEntity(appKey, key) / UpdateEntity(key, name, appKey, props) / DeleteEntity / CreateRelation(key, name, appKey, props) / UpdateRelation / ListRelations(appKey, ...) / GetRelation(appKey, key) / DeleteRelation / GetSchema(appKey) 方法。资源以 Key 为唯一标识符（英数下划线），Name 为用户可见展示名（支持中文）。Get* 方法在资源确实不存在时返回 ErrNotFound（可用 errors.Is 判定），其余错误（传输/非 not-found 业务码/解码）原样返回
+ * [POS]: internal/api 的核心，封装 Make Meta Service 的 HTTP 调用；requestContext 支持取消，旧 request 委托同一路径以保持兼容；新增可判别的 409 与删除状态响应错误类型
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -64,6 +64,11 @@ func (e *UniqueConstraintError) Error() string {
 	return fmt.Sprintf("唯一性约束冲突 [%s]：字段 (%s) 已存在相同值", e.Constraint, strings.Join(e.Fields, ", "))
 }
 
+// BusinessConflictError preserves the server message for non-constraint 409 responses.
+type BusinessConflictError struct{ Message string }
+
+func (e *BusinessConflictError) Error() string { return e.Message }
+
 // conflictData 承载 409 唯一性冲突响应的 data 形态（constraint + fields）。
 type conflictData struct {
 	Constraint string   `json:"constraint"`
@@ -85,7 +90,7 @@ func writeStatusErr(code int, msg string, data json.RawMessage) error {
 			return &UniqueConstraintError{Constraint: conflict.Constraint, Fields: conflict.Fields}
 		}
 		if msg != "" {
-			return errors.New(msg)
+			return &BusinessConflictError{Message: msg}
 		}
 	}
 	return fmt.Errorf("API 错误 [%d]: %s", code, msg)
@@ -275,6 +280,48 @@ func (c *Client) DeleteApp(key string) error {
 		"type": "Make.App",
 	}
 	return c.post("MakeService.DeleteResource", "/meta/v1/app", body)
+}
+
+// AppDeletionStatus is the current state of the asynchronous App deletion.
+type AppDeletionStatus struct {
+	State    string `json:"state"`
+	Step     string `json:"step"`
+	StepName string `json:"stepName"`
+	Message  string `json:"message"`
+}
+
+// AppDeletionStatusResponseError keeps the business code for retry decisions.
+type AppDeletionStatusResponseError struct {
+	Code    int
+	Message string
+}
+
+func (e *AppDeletionStatusResponseError) Error() string {
+	return fmt.Sprintf("API 错误 [%d]: %s", e.Code, e.Message)
+}
+
+// GetAppDeletionStatus queries the current App selected by its prod key and WithAppRole.
+func (c *Client) GetAppDeletionStatus(key string) (*AppDeletionStatus, error) {
+	return c.GetAppDeletionStatusContext(context.Background(), key)
+}
+
+func (c *Client) GetAppDeletionStatusContext(ctx context.Context, key string) (*AppDeletionStatus, error) {
+	var result struct {
+		Code    int                `json:"code"`
+		Message string             `json:"msg"`
+		Data    *AppDeletionStatus `json:"data"`
+	}
+	path := "/meta/app/delete-status?appKey=" + url.QueryEscape(key)
+	if err := c.requestContext(ctx, http.MethodGet, "", path, nil, &result); err != nil {
+		return nil, err
+	}
+	if result.Code != 200 {
+		return nil, &AppDeletionStatusResponseError{Code: result.Code, Message: result.Message}
+	}
+	if result.Data == nil || result.Data.State == "" {
+		return nil, fmt.Errorf("删除状态响应缺少 state")
+	}
+	return result.Data, nil
 }
 
 // ---------------------------------- Entity 操作 ----------------------------------
@@ -625,9 +672,11 @@ func (c *Client) requestContext(ctx context.Context, method, target, path string
 	if body != nil {
 		headers = append(headers, [2]string{"Content-Type", "application/json"})
 	}
+	headers = append(headers, [2]string{"Authorization", "Bearer " + c.token})
+	if target != "" {
+		headers = append(headers, [2]string{"X-Make-Target", target})
+	}
 	headers = append(headers,
-		[2]string{"Authorization", "Bearer " + c.token},
-		[2]string{"X-Make-Target", target},
 		[2]string{"Traceparent", traceparent},
 		[2]string{"X-Log-Id", logID},
 	)
