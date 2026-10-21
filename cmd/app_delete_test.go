@@ -348,6 +348,117 @@ func TestAppDeleteFailedBetaStopsAll(t *testing.T) {
 	}
 }
 
+func TestAppDeleteAllResumesProdAfterBetaSucceeded(t *testing.T) {
+	var calls []string
+	prodChecks := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		role := r.URL.Query().Get("appRole")
+		if got := r.URL.Query().Get("appRole"); got != api.RoleBeta && got != api.RoleProd {
+			t.Errorf("appRole = %q", got)
+		}
+		switch r.URL.Path {
+		case "/api/make/meta/v1/app":
+			calls = append(calls, "delete:"+role)
+			if role == api.RoleBeta {
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 10000001, "msg": "当前应用没有可用的 beta 环境"})
+			} else {
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 409, "msg": "应用正在删除，请查询删除状态"})
+			}
+		case "/api/make/meta/app/delete-status":
+			calls = append(calls, "status:"+role)
+			state := "SUCCEEDED"
+			if role == api.RoleProd {
+				prodChecks++
+				if prodChecks == 1 {
+					state = "RUNNING"
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"state": state}})
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	MetaServerURL = srv.URL
+	oldInterval := appDeletePollInterval
+	appDeletePollInterval = time.Millisecond
+	t.Cleanup(func() { appDeletePollInterval = oldInterval })
+
+	if err := runAppDelete("myapp", "all", true, time.Second); err != nil {
+		t.Fatalf("runAppDelete: %v", err)
+	}
+	want := []string{"delete:beta", "status:beta", "delete:prod", "status:prod", "status:prod"}
+	if !slices.Equal(calls, want) {
+		t.Errorf("calls = %v, want %v", calls, want)
+	}
+}
+
+func TestAppDeleteAllDoesNotSkipBetaUnlessSucceeded(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		statusCode int
+		state      string
+	}{
+		{name: "normal", statusCode: 200, state: "NORMAL"},
+		{name: "running", statusCode: 200, state: "RUNNING"},
+		{name: "failed", statusCode: 200, state: "FAILED"},
+		{name: "status missing", statusCode: 404},
+		{name: "status unavailable", statusCode: 503},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				role := r.URL.Query().Get("appRole")
+				calls = append(calls, r.URL.Path+":"+role)
+				if r.URL.Path == "/api/make/meta/v1/app" {
+					_ = json.NewEncoder(w).Encode(map[string]any{"code": 10000001, "msg": "当前应用没有可用的 beta 环境"})
+					return
+				}
+				if tc.statusCode != 200 {
+					_ = json.NewEncoder(w).Encode(map[string]any{"code": tc.statusCode, "msg": "状态不存在"})
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"state": tc.state}})
+			}))
+			defer srv.Close()
+			t.Setenv("HOME", t.TempDir())
+			saveDefaultToken(t)
+			MetaServerURL = srv.URL
+
+			err := runAppDelete("myapp", "all", true, time.Second)
+			if err == nil || err.Error() != "API 错误 [10000001]: 当前应用没有可用的 beta 环境" {
+				t.Fatalf("err = %v, want original beta error", err)
+			}
+			want := []string{"/api/make/meta/v1/app:beta", "/api/make/meta/app/delete-status:beta"}
+			if !slices.Equal(calls, want) {
+				t.Errorf("calls = %v, want %v", calls, want)
+			}
+		})
+	}
+}
+
+func TestAppDeleteAllDoesNotProbeBetaAfterAuthFailure(t *testing.T) {
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls = append(calls, r.URL.Path)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 990300403, "msg": "token 已失效"})
+	}))
+	defer srv.Close()
+	t.Setenv("HOME", t.TempDir())
+	saveDefaultToken(t)
+	MetaServerURL = srv.URL
+
+	err := runAppDelete("myapp", "all", true, time.Second)
+	if !errors.Is(err, api.ErrAuthFailed) {
+		t.Fatalf("err = %v, want auth failure", err)
+	}
+	if want := []string{"/api/make/meta/v1/app"}; !slices.Equal(calls, want) {
+		t.Errorf("calls = %v, want %v", calls, want)
+	}
+}
+
 func TestAppDeleteResumesRunningTaskAfterConflict(t *testing.T) {
 	deletes, checks := 0, 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1,7 +1,7 @@
 /**
  * [INPUT]: 依赖 cmd/client、cmd/app、internal/api、delete_confirm.go、errors、fmt、io、net、net/url、strings、time、context、cobra
- * [OUTPUT]: 提供 app delete --appRole beta|prod|all；内部查询异步删除状态，临时故障重试，409 仅接续 RUNNING 任务
- * [POS]: cmd/app 的 delete 子命令；all 先等 Beta 成功，再发起 Prod 删除
+ * [OUTPUT]: 提供 app delete --appRole beta|prod|all；内部查询异步删除状态，临时故障重试，409 仅接续 RUNNING 任务；all 可跳过已完成的 Beta
+ * [POS]: cmd/app 的 delete 子命令；all 确认 Beta 已成功后，再发起或接续 Prod 删除
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -121,6 +121,16 @@ func runAppDelete(key, appRole string, skipConfirm bool, timeout time.Duration) 
 		if deleteErr != nil {
 			var conflict *api.BusinessConflictError
 			if !errors.As(deleteErr, &conflict) {
+				if strings.EqualFold(appRole, appRoleAll) && role == api.RoleBeta &&
+					!errors.Is(deleteErr, api.ErrAuthFailed) {
+					ctx, cancel := context.WithDeadline(context.Background(), deadline)
+					status, statusErr := client.GetAppDeletionStatusContext(ctx, key)
+					cancel()
+					if statusErr == nil && status.State == "SUCCEEDED" {
+						fmt.Printf("App '%s' beta deletion already succeeded\n", key)
+						continue
+					}
+				}
 				return deleteErr
 			}
 		} else {

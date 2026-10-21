@@ -1,5 +1,11 @@
 # App 删除命令适配异步任务
 
+## 2026-10-21：all 重跑时跳过已完成的 Beta
+- 摘要：`--appRole all` 的 Beta 删除请求失败后，只有状态接口确认 Beta 为 `SUCCEEDED` 才继续 Prod。
+- 涉及：`cmd/app_delete.go`、`cmd/app_delete_test.go`、`cmd/CLAUDE.md`。
+- 决策：状态未知、失败或查询出错时保留原删除错误；鉴权错误直接返回；原有 409 仅接续 RUNNING 规则不变。
+- 验证：先补失败测试，再实现；覆盖 Beta 已完成且 Prod 正在运行，以及不能跳过 Beta 的各状态。
+
 ## 2026-10-21：接续删除任务并重试临时查询故障
 - 摘要：删除请求遇到非唯一约束 409 时，仅在状态为 RUNNING 时接续等待；状态查询的 429/5xx 和临时网络错误在超时内重试。
 - 涉及：`cmd/app_delete.go`、`internal/api/client.go` 及对应测试。
