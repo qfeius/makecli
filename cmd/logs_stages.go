@@ -1,6 +1,6 @@
 /**
  * [INPUT]: Build byte logs, deployment event pages and an environment-selected pinned task identity
- * [OUTPUT]: deploy/all snapshots with appRole, follow with independent cursors and a final drain after task termination
+ * [OUTPUT]: deploy/all snapshots, zero-tail follow start cursors and a final drain after task termination
  * [POS]: Stage orchestration; shares the command context and process output cancellation
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -126,6 +126,9 @@ func readDeploymentStages(ctx context.Context, client *api.Client, task api.Buil
 }
 
 func (reader *stageLogReader) read(ctx context.Context, stdout io.Writer) (string, bool, error) {
+	if err := reader.initializeDeploymentCursor(ctx); err != nil {
+		return "", false, err
+	}
 	buildContent := ""
 	if !reader.buildDone {
 		chunk, err := readStageBuild(ctx, reader.client, reader.task.ID, reader.cursor.Build, reader.opts.tail, reader.initialBuild)
@@ -153,6 +156,20 @@ func (reader *stageLogReader) read(ctx context.Context, stdout io.Writer) (strin
 	}
 	reader.cursor.Deploy, reader.initialDeploy = chunk.NextCursor, false
 	return buildContent + chunk.Content, reader.buildDone && chunk.Completed, nil
+}
+
+// Combined zero-tail follow establishes both cursors before polling the build.
+// Later deployment reads resume this cursor instead of discarding new events.
+func (reader *stageLogReader) initializeDeploymentCursor(ctx context.Context) error {
+	if !reader.initialDeploy || reader.opts.stage != "all" || !reader.opts.follow || reader.opts.tail != 0 {
+		return nil
+	}
+	cursor, err := readStageDeploymentCursor(ctx, reader.client, reader.task, reader.cursor.Deploy)
+	if err != nil {
+		return fmt.Errorf("initialize deploy stage: %w", err)
+	}
+	reader.cursor.Deploy, reader.initialDeploy = cursor, false
+	return nil
 }
 
 func (reader *stageLogReader) write(stdout io.Writer, content string) error {
@@ -183,6 +200,35 @@ func readStageBuild(ctx context.Context, client *api.Client, id int64, cursor st
 	return chunk, nil
 }
 
+// Initial history ends at the first empty page, without observing task status or
+// draining terminal events that arrive after that page established the cursor.
+func readStageDeploymentCursor(ctx context.Context, client *api.Client, task api.BuildTask, cursor uint64) (uint64, error) {
+	if task.Finished() && task.Phase != "DEPLOY" {
+		return cursor, nil
+	}
+	for {
+		chunk, err := readStageDeploymentChunk(ctx, client, task, cursor)
+		if err != nil {
+			return cursor, err
+		}
+		cursor = chunk.NextCursor
+		if chunk.Completed || chunk.Content == "" {
+			return cursor, nil
+		}
+	}
+}
+
+func readStageDeploymentChunk(ctx context.Context, client *api.Client, task api.BuildTask, cursor uint64) (*api.DeploymentLogChunk, error) {
+	chunk, err := client.GetDeploymentLog(ctx, task, cursor)
+	if err != nil {
+		return nil, err
+	}
+	if chunk.NextCursor < cursor || chunk.Content != "" && chunk.NextCursor == cursor {
+		return nil, fmt.Errorf("invalid deployment log response: event cursor did not advance or moved backwards")
+	}
+	return chunk, nil
+}
+
 // readStageDeployment drains existing pages before applying tail. Resume requests
 // retain the event sequence even when tail zero suppresses all initial content.
 // An observed terminal task requires a subsequent event read before completion.
@@ -193,12 +239,9 @@ func readStageDeployment(ctx context.Context, client *api.Client, task api.Build
 	history := ""
 	terminalObserved := task.Finished()
 	for {
-		chunk, err := client.GetDeploymentLog(ctx, task, cursor)
+		chunk, err := readStageDeploymentChunk(ctx, client, task, cursor)
 		if err != nil {
 			return nil, err
-		}
-		if chunk.NextCursor < cursor || chunk.Content != "" && chunk.NextCursor == cursor {
-			return nil, fmt.Errorf("invalid deployment log response: event cursor did not advance or moved backwards")
 		}
 		history += chunk.Content
 		if initial && tail >= 0 {

@@ -1,5 +1,14 @@
 # AI 变更记录：构建日志查询
 
+## 2026-10-26：all 零历史跟随保留新增部署事件（TC-013）
+- 摘要：修复 all + tail=0 + follow 在阶段切换时再次跳过历史，遗漏命令跟随后新增的部署事件及快速失败原因。
+- 涉及模块：`cmd/logs_stages.go`、新增 `logs_follow_start_test.go`、命令帮助、README 与 cmd 模块地图。
+- 决策：在跟随构建前逐页建立部署游标，首次空页即固定起点；初始化不查询任务或补拉终态，后续正式读取保留终态补拉及构建→部署输出顺序。
+- 兼容：只有无续读游标的 all + tail=0 + follow 提前初始化；快照、其他 tail 值、单阶段和 cursor 续读沿用原有语义。
+- 错误：初始化存储/游标错误直接报错，继续使用同一 context 和超时，保留 124/130 分类。
+- TDD：先复现 stdout 仅有 B_NEW 而游标已越过部署失败，再加入初始化与历史分页、完成任务、错误及取消回归。
+- 验证：全量竞态、vet/build、npm 5 项、lint 及独立复审通过；新增三函数覆盖率 100%；真实 Test/Beta 任务 505 修复版与全量输出逐字节一致，原版遗漏 875 字节。
+
 ## 2026-10-19：build 查询统一传 prod
 - 摘要：logs deploy 按 appRole 原样发送 build 查询的 environment（beta/prod）。
 - 涉及模块：`cmd/logs_deploy.go`、`cmd/logs_app_role_test.go`、根与 cmd 模块地图。

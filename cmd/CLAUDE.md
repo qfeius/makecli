@@ -3,8 +3,9 @@
 
 ## 渲染约定
 - `logs_deploy.go`：顶级 logs deploy，app.yaml/--app 与 HEAD/--commit-sha、--appRole beta（默认）/prod 定位任务；build 查询直接传 beta/prod，兼容旧任务环境并校验对应应用配对，JSON 输出 appRole（beta/prod）；stage=build/deploy/all；tail 默认每阶段 200，follow 默认总计 3m；单个进程 worker 负责正文、debug 和最终错误输出，stdout/stderr 阻塞仍可按 124/130 退出。
-- `logs_stages.go`：部署事件分页与末尾行截取；all 按构建、部署顺序读取，组合游标隔离字节偏移和事件序号并绑定任务；固定 ID 观察终态后再补拉事件，读到 completed 或后续空页才结束，构建失败后不等待不存在的部署。
+- `logs_stages.go`：部署事件分页与末尾行截取；all 按构建、部署顺序输出，all + tail=0 + follow 在初始化时保存部署游标，切换阶段后从该游标续读新增事件；组合游标隔离字节偏移和事件序号并绑定任务；固定 ID 观察终态后再补拉事件，读到 completed 或后续空页才结束，构建失败后不等待不存在的部署。
 - `logs_deploy_test.go` / `logs_deploy_contract_test.go` / `logs_stages_test.go` / `logs_terminal_test.go` / `logs_pipe_test.go`：项目默认值、SHA 与应用归属、阶段选择、tail/分页/游标契约、终态补拉和 HTTP 取消；子进程走完整根命令，覆盖各阶段 stdout/stderr 阻塞、最终错误输出和鉴权指引。
+- `logs_follow_start_test.go`：TC-013 的零历史跟随起点、部署历史分页、快速失败、已完成任务及初始化错误/取消回归。
 - `logs_app_role_test.go`：默认 Beta、显式 appRole=beta/prod、三个阶段的快照及跟随、生产配对应用、跨环境任务/游标拒绝、非法角色、旧参数移除和超时重试提示。
 - `output.go`：writeJSONTo 可注入输出流，writeJSON 保留旧 stdout 与通知语义。
 - 表格统一用 `github.com/olekukonko/tablewriter`（边框 + Header），禁止用 stdlib `text/tabwriter`
