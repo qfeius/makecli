@@ -1,6 +1,6 @@
 /**
  * [INPUT]: Build byte logs, deployment event pages and an environment-selected pinned task identity
- * [OUTPUT]: deploy/all snapshots, zero-tail follow start cursors and a final drain after task termination
+ * [OUTPUT]: deploy/all snapshots, build-first zero-tail cursors and a final drain after termination
  * [POS]: Stage orchestration; shares the command context and process output cancellation
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -126,9 +126,6 @@ func readDeploymentStages(ctx context.Context, client *api.Client, task api.Buil
 }
 
 func (reader *stageLogReader) read(ctx context.Context, stdout io.Writer) (string, bool, error) {
-	if err := reader.initializeDeploymentCursor(ctx); err != nil {
-		return "", false, err
-	}
 	buildContent := ""
 	if !reader.buildDone {
 		chunk, err := readStageBuild(ctx, reader.client, reader.task.ID, reader.cursor.Build, reader.opts.tail, reader.initialBuild)
@@ -144,6 +141,9 @@ func (reader *stageLogReader) read(ctx context.Context, stdout io.Writer) (strin
 		}
 		buildContent = chunk.Content
 	}
+	if err := reader.initializeDeploymentCursor(ctx); err != nil {
+		return "", false, err
+	}
 	if !reader.buildDone && reader.opts.follow {
 		return buildContent, false, nil
 	}
@@ -158,8 +158,9 @@ func (reader *stageLogReader) read(ctx context.Context, stdout io.Writer) (strin
 	return buildContent + chunk.Content, reader.buildDone && chunk.Completed, nil
 }
 
-// Combined zero-tail follow establishes both cursors before polling the build.
-// Later deployment reads resume this cursor instead of discarding new events.
+// Save the build snapshot before scanning deployment history, so build events
+// added during that scan are read incrementally rather than skipped by tail zero.
+// Each stream has its own initial snapshot; these APIs do not share a snapshot.
 func (reader *stageLogReader) initializeDeploymentCursor(ctx context.Context) error {
 	if !reader.initialDeploy || reader.opts.stage != "all" || !reader.opts.follow || reader.opts.tail != 0 {
 		return nil

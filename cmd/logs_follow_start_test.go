@@ -1,6 +1,6 @@
 /**
  * [INPUT]: Combined zero-tail followers and build/deployment HTTP fixtures
- * [OUTPUT]: Start cursors, stage transitions, history exclusion and initialization errors
+ * [OUTPUT]: Start cursors, build events during initialization, stage transitions and errors
  * [POS]: TC-013 regression contracts; all new deployment events survive stage switching
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -15,6 +15,64 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestLogsAllZeroTailFollowKeepsBuildDuringDeploymentInitialization(t *testing.T) {
+	for _, historyPages := range []int{0, 2} {
+		t.Run(fmt.Sprintf("historyPages=%d", historyPages), func(t *testing.T) {
+			setupBuildInitializationRace(t, historyPages)
+			out, diagnostic, err := executeLogsContract(context.Background(), append(stageArgs("all"), "--tail", "0", "--follow", "--timeout", "1s")...)
+			if err != nil || out != "BUILD_FAILED_AFTER_START\n" {
+				t.Fatalf("stdout=%q stderr=%q err=%v", out, diagnostic, err)
+			}
+			cursor := (stageLogCursor{TaskID: 42, Build: "20", Deploy: uint64(historyPages * 10)}).encode("all")
+			if !strings.Contains(diagnostic, "nextCursor="+cursor+", completed=true") {
+				t.Fatalf("final cursor/completion missing: %s", diagnostic)
+			}
+		})
+	}
+}
+
+func setupBuildInitializationRace(t *testing.T, historyPages int) {
+	t.Helper()
+	deploymentReads := 0
+	setupDeployLogsTest(t, func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/build"):
+			status := "RUNNING"
+			if body["id"] != nil {
+				status = "FAILED"
+			}
+			_, _ = fmt.Fprintf(w, `{"code":200,"data":{"id":42,"orgId":1001,"appKey":"test_app","status":%q,"phase":"BUILD"}}`, status)
+		case strings.HasSuffix(r.URL.Path, "/build-log"):
+			writeBuildInitializationRace(w, body, deploymentReads > 0)
+		default:
+			deploymentReads++
+			content := ""
+			if deploymentReads <= historyPages {
+				content = "D_OLD\n"
+			}
+			cursor := min(deploymentReads, historyPages) * 10
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"content": content, "nextCursor": cursor, "completed": false}})
+		}
+	})
+}
+
+func writeBuildInitializationRace(w http.ResponseWriter, body map[string]any, failed bool) {
+	content, cursor := "", "10"
+	if failed {
+		cursor = "20"
+		if body["cursor"] == "10" {
+			content = "BUILD_FAILED_AFTER_START\n"
+		}
+	}
+	reply := map[string]any{"content": content, "nextCursor": cursor, "completed": failed}
+	if tail, ok := body["tailLines"]; ok {
+		reply["tailLines"] = tail
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": reply})
+}
 
 func TestLogsAllZeroTailFollowKeepsDeploymentAfterStart(t *testing.T) {
 	for _, historyPages := range []int{0, 2} {

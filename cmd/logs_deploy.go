@@ -1,6 +1,6 @@
 /**
  * [INPUT]: Build and deployment event APIs, app manifest, Git HEAD, beta/prod app roles and CLI output helpers
- * [OUTPUT]: logs deploy with initial tail, combined zero-tail start cursors and bounded follow
+ * [OUTPUT]: logs deploy with initial tail, build-first zero-tail snapshots and bounded follow
  * [POS]: Read-only deployment log command; process worker owns stdout, stderr and final error output
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
@@ -58,8 +58,9 @@ App and commit default to apps/dsl/app.yaml and Git HEAD.
 
 --tail limits the initial history of each selected stage. --follow reads new content
 until the stage completes or --timeout expires.
-With --stage all --tail 0 --follow, both log cursors are initialized before
-following the build; switching to deployment does not skip new events.`,
+With --stage all --tail 0 --follow, the build cursor is saved before deployment
+history is scanned. Each stream has its own initial snapshot; later reads use
+the saved cursors, including when switching from build to deployment.`,
 		Example: `  makecli logs deploy
   makecli logs deploy --appRole prod --commit-sha <fullSHA>
   makecli logs deploy --stage all -f --timeout 3m --tail 100

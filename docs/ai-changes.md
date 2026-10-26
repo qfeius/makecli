@@ -1,3 +1,9 @@
+## 2026-10-26：TC-013 初始化期间构建日志漏读回归
+- 摘要：先保存构建起点，再扫描部署历史，防止期间新增构建失败被 tail=0 跳过。
+- 涉及文件：logs_stages、logs_follow_start_test、帮助、README及模块地图；详见 ai-changes-app-build-logs.md。
+- 决策：保持各流独立初始快照和既有部署历史过滤语义，后续按游标读取；不依赖任务阶段猜测历史。
+- 验证：两例先红后绿，专项竞态20轮及全量竞态、vet/build、npm、lint通过；独立复审通过。
+
 ## 2026-10-26：TC-013 阶段跟随游标初始化
 - 摘要：all + tail=0 + follow 在初始化阶段建立部署读取起点，阶段切换后不再过滤新事件。
 - 涉及模块：logs_stages、HTTP 回归测试、命令帮助及文档；详细记录见 ai-changes-app-build-logs.md。
