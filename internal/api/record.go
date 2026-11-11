@@ -1,7 +1,7 @@
 /**
- * [INPUT]: 依赖 encoding/json、fmt，依赖同包 Client.do / Client.post 方法、writeStatusErr（非 200 翻译，含 409 唯一性冲突，收口于 client.go）
+ * [INPUT]: 依赖 encoding/json、errors、fmt、strings，依赖同包 Client.do / Client.post 方法、writeStatusErr（非 200 翻译，含 409 唯一性冲突，收口于 client.go）
  * [OUTPUT]: 对外提供 DeleteRecordResult / SortField / ListRecordOpts / GroupField / AggregateField / AggregateOpts 类型、CreateRecord / GetRecord / UpdateRecord / UpdateRecordsBatch / DeleteRecords / ListRecords / AggregateRecords 方法（写方法违反唯一性约束时返回 UniqueConstraintError）
- * [POS]: 已知 appKey 时通过 ForApp 副本携带 X-Make-App-Key；internal/api 的 Data Service 层，封装 Record CRUD 与聚合统计（/data/v1/aggregate，声明式 GROUP BY），与 client.go 的 Meta Service 层平级；ListRecords / AggregateRecords 共用 listPage 解码分页响应
+ * [POS]: GroupField 文档区分直接分组与 DateTime 分桶。已知 appKey 时通过 ForApp 副本携带 X-Make-App-Key；internal/api 的 Data Service 层，封装 Record CRUD 与聚合统计（/data/v1/aggregate，声明式 GROUP BY），与 client.go 的 Meta Service 层平级；ListRecords / AggregateRecords 共用 listPage 按业务码解码分页行或错误详情
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
  */
 
@@ -9,7 +9,9 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 )
 
 // ---------------------------------- 数据类型 ----------------------------------
@@ -39,9 +41,10 @@ type ListRecordOpts struct {
 	Size   int
 }
 
-// GroupField 是聚合查询的分组维度（DataAPIDesign「聚合统计 Record 数据」group 元素）：
-// FieldKey 须为 Schema 中 capabilities.aggregable=true 的字段（与列表分组的 groupable 独立，Lookup 按关联 ID 分组），
-// Granularity 仅 Date 字段可用（day/week/month/quarter/year），Alias 缺省时输出列名为 FieldKey；取值合法性由服务端裁决
+// GroupField 是聚合查询的分组维度。FieldKey 引用 Schema 中可读的业务字段。
+// 直接分组使用 capabilities.aggregable=true，Lookup 按关联 ID 分组。
+// DateTime 保持 aggregable=false，分桶时须在同一 GroupField 传 Granularity。Date 可以省略 Granularity。
+// 粒度由 Data API 校验。Alias 缺省时输出列名为 FieldKey。
 type GroupField struct {
 	FieldKey    string `json:"fieldKey"`
 	Granularity string `json:"granularity,omitempty"`
@@ -228,9 +231,9 @@ func expression(cel string) map[string]any {
 // listPage 发送 MakeService.ListResources 请求并解码分页响应，返回行列表与服务端 total
 func (c *Client) listPage(path string, reqBody map[string]any) ([]map[string]any, int, error) {
 	var result struct {
-		Code       int              `json:"code"`
-		Message    string           `json:"msg"`
-		Data       []map[string]any `json:"data"`
+		Code       int             `json:"code"`
+		Message    string          `json:"msg"`
+		Data       json.RawMessage `json:"data"`
 		Pagination struct {
 			Total int `json:"total"`
 		} `json:"pagination"`
@@ -239,7 +242,31 @@ func (c *Client) listPage(path string, reqBody map[string]any) ([]map[string]any
 		return nil, 0, err
 	}
 	if result.Code != 200 {
-		return nil, 0, fmt.Errorf("API 错误 [%d]: %s", result.Code, result.Message)
+		// 错误响应的 data 可以携带 errors 对象，成功响应的 data 才是行数组。
+		var details struct {
+			Errors []struct {
+				Path       string `json:"path"`
+				Message    string `json:"message"`
+				Suggestion string `json:"suggestion"`
+			} `json:"errors"`
+		}
+		var message strings.Builder
+		_, _ = fmt.Fprintf(&message, "API 错误 [%d]: %s", result.Code, result.Message)
+		if json.Unmarshal(result.Data, &details) == nil {
+			for _, detail := range details.Errors {
+				_, _ = fmt.Fprintf(&message, "\n  %s: %s", detail.Path, detail.Message)
+				if detail.Suggestion != "" {
+					_, _ = fmt.Fprintf(&message, "\n    建议：%s", detail.Suggestion)
+				}
+			}
+		}
+		return nil, 0, errors.New(message.String())
 	}
-	return result.Data, result.Pagination.Total, nil
+	var rows []map[string]any
+	if len(result.Data) > 0 {
+		if err := json.Unmarshal(result.Data, &rows); err != nil {
+			return nil, 0, fmt.Errorf("无效的响应格式: %w", err)
+		}
+	}
+	return rows, result.Pagination.Total, nil
 }

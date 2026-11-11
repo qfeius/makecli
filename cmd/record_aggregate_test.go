@@ -1,6 +1,6 @@
 /**
- * [INPUT]: 依赖 cmd 包内的 runRecordAggregate / aggregateColumns / formatAggregateCell（包内白盒），encoding/json、net/http、net/http/httptest、strings、testing
- * [OUTPUT]: 覆盖 record aggregate 子命令的单元测试（请求体直透/表格列序与单元格渲染/JSON 输出/空结果/非法 JSON flag/非法分页/无凭证/API 错误）
+ * [INPUT]: 依赖 cmd 包内的 runRecordAggregate / aggregateColumns / formatAggregateCell / reportExecuteError，bytes、encoding/json、net/http、net/http/httptest、strings、testing
+ * [OUTPUT]: 覆盖 record aggregate 的请求体、输出格式、本地校验，以及 DateTime 分桶参数错误的后端修复提示
  * [POS]: cmd 模块 record_aggregate.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -8,6 +8,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,7 @@ import (
 )
 
 const (
-	testGroupJSON      = `[{"fieldKey":"status"},{"fieldKey":"orderDate","granularity":"month","alias":"month"}]`
+	testGroupJSON      = `[{"fieldKey":"status"},{"fieldKey":"orderTime","granularity":"month","alias":"month"}]`
 	testAggregatesJSON = `[{"aggregate":"count","alias":"orderCount"},{"fieldKey":"amount","aggregate":"sum","alias":"totalAmount"}]`
 )
 
@@ -56,8 +57,14 @@ func TestRunRecordAggregate(t *testing.T) {
 			if sort["alias"] != "totalAmount" || sort["order"] != "desc" || sort["fieldKey"] != nil {
 				t.Errorf("unexpected sort: %v", sort)
 			}
-			if len(req["group"].([]any)) != 2 || len(req["aggregates"].([]any)) != 2 {
+			group := req["group"].([]any)
+			if len(group) != 2 || len(req["aggregates"].([]any)) != 2 {
 				t.Errorf("unexpected group/aggregates: %v / %v", req["group"], req["aggregates"])
+				return
+			}
+			timeGroup := group[1].(map[string]any)
+			if timeGroup["fieldKey"] != "orderTime" || timeGroup["granularity"] != "month" || timeGroup["alias"] != "month" {
+				t.Errorf("expected DateTime monthly group, got %v", timeGroup)
 			}
 		}, []map[string]any{
 			{"status": map[string]any{"value": "completed", "label": "已完成"}, "month": map[string]any{"value": "2026-03", "label": "2026-03"}, "orderCount": 128, "totalAmount": 1250000.5},
@@ -207,6 +214,70 @@ func TestRunRecordAggregate(t *testing.T) {
 			t.Fatalf("expected server error surfaced, got %v", err)
 		}
 	})
+}
+
+func TestRecordAggregateShowsDateTimeValidationDetails(t *testing.T) {
+	tests := []struct {
+		name, grain, path, message, suggestion string
+	}{
+		{
+			name:       "missing granularity",
+			path:       "plan.resolve",
+			message:    "group[0] 字段[orderTime]: DateTime 分组必须指定 granularity",
+			suggestion: "在对应 group 项指定 day、week、month、quarter 或 year",
+		},
+		{
+			name:       "invalid granularity",
+			grain:      "hour",
+			path:       "group[0].granularity",
+			message:    "无效的 granularity",
+			suggestion: "仅使用 day、week、month、quarter 或 year",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			groupJSON := `[{"fieldKey":"orderTime"}]`
+			if tt.grain != "" {
+				groupJSON = `[{"fieldKey":"orderTime","granularity":"hour"}]`
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Group []map[string]string `json:"group"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Errorf("decode request: %v", err)
+				} else if len(request.Group) != 1 || request.Group[0]["fieldKey"] != "orderTime" || request.Group[0]["granularity"] != tt.grain {
+					t.Errorf("expected group to reach the server, got %v", request.Group)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"code": 20000001,
+					"msg":  "聚合参数错误",
+					"data": map[string]any{"errors": []map[string]string{
+						{"path": tt.path, "message": tt.message, "suggestion": tt.suggestion},
+					}},
+				})
+			}))
+			defer srv.Close()
+			t.Setenv(EnvAccessToken, "test-token")
+			previousURL := MetaServerURL
+			MetaServerURL = srv.URL
+			t.Cleanup(func() { MetaServerURL = previousURL })
+
+			err := runRecordAggregate("crm", "order", recordAggregateOpts{
+				page: 1, size: 10, output: outputJSON, groupJSON: groupJSON, aggregatesJSON: testAggregatesJSON,
+			})
+			if code := ExitCode(err); code != 1 {
+				t.Fatalf("expected exit code 1, got %d (%v)", code, err)
+			}
+			var stderr bytes.Buffer
+			reportExecuteError(&stderr, err)
+			for _, want := range []string{"API 错误 [20000001]: 聚合参数错误", tt.path, tt.message, tt.suggestion} {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("expected stderr to contain %q, got %q", want, stderr.String())
+				}
+			}
+		})
+	}
 }
 
 // columnsInOrder 判定各列名在表头中依次出现（缺席或乱序均为 false）
