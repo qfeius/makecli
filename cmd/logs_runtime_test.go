@@ -26,11 +26,11 @@ func TestLogsRuntimeQueriesTraceWithoutAppOrTimeAndPaginates(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body["traceId"] != traceID || body["appKey"] != nil || body["timeRange"] != nil || body["sortOrder"] != "asc" {
+		if body["traceId"] != nil || body["appKey"] != nil || body["timeRange"] != nil || body["sortOrder"] != "asc" {
 			t.Errorf("unexpected body: %v", body)
 		}
 		filter := body["filter"].(map[string]any)
-		if filter["expression"] != "event_type = 'make_runtime'" {
+		if filter["expression"] != "trace_id = '"+traceID+"' AND event_type = 'make_runtime'" {
 			t.Errorf("unexpected filter: %v", filter)
 		}
 		page := int(body["pagination"].(map[string]any)["page"].(float64))
@@ -110,5 +110,21 @@ func TestRuntimeLogsReportsServerFailure(t *testing.T) {
 	err := readRuntimeLogs(context.Background(), api.New(server.URL, "token"), "9615209586ba957b3423f1023fd2d601", outputJSON, &out, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "appKey不能为空") || out.Len() != 0 {
 		t.Fatalf("failure not propagated: %v / %s", err, out.String())
+	}
+}
+
+func TestRuntimeLogsTableIncludesStackTrace(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"code":200,"data":[{"occurredAt":"2026-11-18T11:00:00+08:00","serviceName":"make-meta-service","level":"error","content":{"message":"create entity failed"},"stackTrace":"java.lang.IllegalStateException: failed\n\tat example.EntityService.create(EntityService.java:42)"}],"pagination":{"page":1,"size":100,"total":1}}`))
+	}))
+	defer server.Close()
+	var out bytes.Buffer
+	if err := readRuntimeLogs(context.Background(), api.New(server.URL, "token"), "9615209586ba957b3423f1023fd2d601", outputTable, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"create entity failed", "java.lang.IllegalStateException: failed", "example.EntityService.create"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("missing %q in output: %s", want, out.String())
+		}
 	}
 }

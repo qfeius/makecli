@@ -87,7 +87,14 @@ func readRuntimeLogs(ctx context.Context, client *api.Client, traceID, format st
 	table.Header("TIME", "SERVICE", "LEVEL", "MESSAGE")
 	for _, row := range rows {
 		content, _ := row["content"].(map[string]any)
-		if err := table.Append([]string{runtimeLogText(row["occurredAt"]), runtimeLogText(row["serviceName"]), runtimeLogText(row["level"]), runtimeLogText(content["message"])}); err != nil {
+		message := runtimeLogText(content["message"])
+		if stackTrace := runtimeLogText(row["stackTrace"]); stackTrace != "" {
+			if message != "" {
+				message += "\n"
+			}
+			message += stackTrace
+		}
+		if err := table.Append([]string{runtimeLogText(row["occurredAt"]), runtimeLogText(row["serviceName"]), runtimeLogText(row["level"]), message}); err != nil {
 			return err
 		}
 	}

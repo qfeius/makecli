@@ -25,8 +25,7 @@ type RuntimeLogPage struct {
 // ListRuntimeLogs fetches one page without imposing app or time constraints.
 func (c *Client) ListRuntimeLogs(ctx context.Context, traceID string, page, size int) (*RuntimeLogPage, error) {
 	body := map[string]any{
-		"traceId":    traceID,
-		"filter":     map[string]string{"expression": "event_type = 'make_runtime'"},
+		"filter":     map[string]string{"expression": "trace_id = '" + traceID + "' AND event_type = 'make_runtime'"},
 		"pagination": map[string]int{"page": page, "size": size},
 		"sortOrder":  "asc",
 	}
