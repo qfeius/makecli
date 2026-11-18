@@ -375,8 +375,9 @@ func TestRecordList(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		if _, _, err := New(srv.URL, "test-token").ListRecords("myapp", "user", ListRecordOpts{Page: 1, Size: 10}); err == nil {
-			t.Fatal("expected error on API failure")
+		_, _, err := New(srv.URL, "test-token").ListRecords("myapp", "user", ListRecordOpts{Page: 1, Size: 10})
+		if err == nil || err.Error() != "API 错误 [500]: internal error" {
+			t.Fatalf("expected the original business error, got %v", err)
 		}
 	})
 }

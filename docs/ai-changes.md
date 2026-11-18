@@ -1,3 +1,13 @@
+## 2026-11-11 DateTime 聚合 CLI 错误提示
+- `record aggregate --help` 明确 DateTime 在同一分组项传粒度，示例按 `orderTime` 取月。组合规则由 Data 服务校验。
+- `listPage` 按业务码解码响应，成功读取行数组，失败沿用 stderr 和非零退出码并保留后端错误位置、描述与建议。
+- 缺少粒度和非法粒度用例先失败后通过。Go 全量测试、vet、二进制帮助检查及 npm 测试通过。
+
+## 2026-11-10 DateTime 聚合帮助
+- `record aggregate --help` 说明 DateTime 保持 `aggregable=false`，分桶必须指定 `granularity`。Date 粒度可选，示例使用 `orderTime` 按月分组。
+- 同步 `GroupField` 注释和命令目录说明，沿用现有请求参数透传。
+- CLI 聚合专项测试通过，用锁定的 Skill 快照构建二进制并验证实际帮助与示例 JSON。
+
 ## 2026-10-26：TC-013 初始化期间构建日志漏读回归
 - 摘要：先保存构建起点，再扫描部署历史，防止期间新增构建失败被 tail=0 跳过。
 - 涉及文件：logs_stages、logs_follow_start_test、帮助、README及模块地图；详见 ai-changes-app-build-logs.md。

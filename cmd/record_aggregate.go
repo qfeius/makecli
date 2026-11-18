@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd/client（newClientFromProfile）、cmd/jsonflag（decodeJSONFlag）、cmd/record_list（checkPagination/upperHeaders）、internal/api（AggregateOpts/GroupField/AggregateField/SortField）、fmt、os、strconv、github.com/olekukonko/tablewriter、github.com/spf13/cobra、cmd/output 辅助
- * [OUTPUT]: 对外提供 newRecordAggregateCmd 函数
+ * [OUTPUT]: 对外提供 newRecordAggregateCmd 函数，帮助说明 DateTime 分桶必填 granularity
  * [POS]: cmd/record 的 aggregate 子命令，对单个 Entity 做服务端聚合统计（/data/v1/aggregate，声明式 GROUP BY）。flag 与 API 字段机械映射：JSON 型 --group-json / --aggregates-json / --sort-json 直透（结构本地严格解码，取值服务端裁决），CEL 文本 --filter（聚合前 WHERE）/ --aggregate-filter（聚合后 HAVING）直透；表格列序取自请求声明（group 后 aggregates），维度列显示 label、指标列显示裸数值
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -43,9 +43,12 @@ and --aggregates-json the metrics; together they decide the output columns. Omit
 groups after it (HAVING) and may only reference metric aliases. Both are CEL
 expressions evaluated server-side, same dialect as 'record list --filter'.
 
-A group fieldKey must have capabilities.aggregable=true in 'makecli schema' output.
-It is independent of groupable (list grouping): a Lookup field is typically
-aggregable but not groupable, and it groups by the related record ID. Number and
+For direct grouping, choose a readable field with capabilities.aggregable=true
+in 'makecli schema' output. A readable business Make.Field.DateTime can group
+into time buckets with capabilities.aggregable=false. Set granularity in the
+same --group-json item as the DateTime fieldKey. Granularity is optional for
+Make.Field.Date. Allowed values are day, week, month, quarter, and year.
+List grouping uses groupable. Lookup groups by the related record ID. Number and
 Currency fields are metric inputs, not dimensions.
 
 JSON flags accept inline JSON, @file, or - for stdin (stdin at most once per call).
@@ -53,9 +56,9 @@ Element shapes (values are validated server-side):
   group:      {"fieldKey": "...", "granularity": "day|week|month|quarter|year", "alias": "..."}
   aggregates: {"fieldKey": "...", "aggregate": "count|countDistinct|sum|avg|min|max", "alias": "..."}
   sort:       {"alias": "..."} or {"fieldKey": "..."}, plus "order": "asc|desc"`,
-		Example: `  # orders by status and month: count + total amount, keep groups over 10000, largest first
+		Example: `  # orders by status and month using the DateTime field orderTime
   makecli record aggregate --app crm --entity order \
-    --group-json '[{"fieldKey":"status"},{"fieldKey":"orderDate","granularity":"month","alias":"month"}]' \
+    --group-json '[{"fieldKey":"status"},{"fieldKey":"orderTime","granularity":"month","alias":"month"}]' \
     --aggregates-json '[{"aggregate":"count","alias":"orderCount"},{"fieldKey":"amount","aggregate":"sum","alias":"totalAmount"}]' \
     --filter "status != 'draft'" \
     --aggregate-filter "totalAmount > 10000" \
