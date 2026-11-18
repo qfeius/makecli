@@ -2,6 +2,7 @@
 > L2 | 父级: /CLAUDE.md
 
 ## 渲染约定
+- `logs_runtime.go`：通过 Trace ID 查询运行日志，无需应用及时间；服务端正序分页，auto/table/json 输出并标识不完整结果。
 - `logs_deploy.go`：顶级 logs deploy，app.yaml/--app 与 HEAD/--commit-sha、--appRole beta（默认）/prod 定位任务；build 查询直接传 beta/prod，兼容旧任务环境并校验对应应用配对，JSON 输出 appRole（beta/prod）；stage=build/deploy/all；tail 默认每阶段 200，follow 默认总计 3m；单个进程 worker 负责正文、debug 和最终错误输出，stdout/stderr 阻塞仍可按 124/130 退出。
 - `logs_stages.go`：部署事件分页与末尾行截取；all 按构建、部署顺序输出，all + tail=0 + follow 先保存构建游标再扫描部署历史，两流独立取初始快照，后续及切换阶段按已保存游标续读；组合游标隔离字节偏移和事件序号并绑定任务；固定 ID 观察终态后再补拉事件，读到 completed 或后续空页才结束，构建失败后不等待不存在的部署。
 - `logs_deploy_test.go` / `logs_deploy_contract_test.go` / `logs_stages_test.go` / `logs_terminal_test.go` / `logs_pipe_test.go`：项目默认值、SHA 与应用归属、阶段选择、tail/分页/游标契约、终态补拉和 HTTP 取消；子进程走完整根命令，覆盖各阶段 stdout/stderr 阻塞、最终错误输出和鉴权指引。

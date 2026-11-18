@@ -29,6 +29,7 @@
 - 设计意图：与 ErrNotFound / ErrAuthFailed 同为「api 报事实、cmd 管呈现」的分层边界
 
 ## 成员清单
+- `runtime_log.go`：调用 Console 日志列表的 Trace ID 查询，透传运行日志分页；不添加应用和时间参数。
 - `app_header_test.go`: 覆盖 App/Entity/Relation/Record/变量/密钥/Agent/仓库/发布/日志的应用身份头、appRole 原值透传、显式作用域覆盖及复用隔离。
 - `app_update_test.go`: UpdateApp 的 Meta 路由、requiredSecrets/空列表透传、业务错误和无效响应测试。
 - `variable.go`: Variable / VariableProperties 与 Get/List/Create/Update/DeleteVariable；POST /secret/v1/variable，Get/Delete 显式传普通变量类型，appRole 由客户端注入、服务端解析实际 AppKey，Get/List 保留实际 key 并拒绝空身份/混合应用，scope 显式传递；列表按 API 文档字段 properties.scope 筛选、保留分页与 meta、清除密钥值，debug 保留筛选请求及安全响应；DeleteResource 由服务端事务校验类型，密钥写入隐藏正文并清理错误中的值。

@@ -360,6 +360,14 @@ printf '%s' "$OPENAI_API_KEY" | makecli app secret add OPENAI_API_KEY --from-std
 
 `variable list` 固定查询 runtime，列出普通变量及密钥元数据，密钥值显示 `(encrypted)`；`--page` 默认 1，`--size` 默认 20（1–100），JSON 包含 `data` 与 `pagination`。`variable delete` 仅删除普通变量，默认输入 key 确认，`--yes/-y` 跳过；非交互环境必须显式使用 `--yes`。删除不会触发部署或改写 app.yaml；若变量仍在 `properties.vars` 中，后续 apply 会重新创建它。
 
+### 按 Trace ID 查询运行日志
+
+```bash
+makecli logs runtime --trace-id 9615209586ba957b3423f1023fd2d601
+```
+
+命令无需应用标识和时间范围，按时间正序读取运行日志并自动翻页。`--output auto|table|json` 控制输出；JSON 包含 `data`、`total` 和 `truncated`，结果未取全时 `truncated` 为 true。该能力依赖 Console 日志接口支持不传应用及时间的 Trace ID 查询；旧接口会返回错误。
+
 ### 构建与部署日志
 
 ```bash
