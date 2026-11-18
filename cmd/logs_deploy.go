@@ -42,7 +42,7 @@ type logsDeployOptions struct {
 
 func newLogsCmd() *cobra.Command {
 	command := &cobra.Command{Use: "logs", Short: "Read Make logs"}
-	command.AddCommand(newLogsDeployCmd())
+	command.AddCommand(newLogsDeployCmd(), newLogsRuntimeCmd())
 	return command
 }
 
