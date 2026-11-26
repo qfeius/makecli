@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.5.23] - 2026-11-26
+
+### Features
+
+- **logs**: Add `makecli logs runtime --trace-id` to query runtime logs by trace ID (#54).
+
+### Bug Fixes
+
+- **record**: Preserve JSON number precision in create and update requests and single-record reads (make-000079).
+- **logs**: Use a log filter expression to query runtime logs by trace ID (#54).
+
+### Maintenance
+
+- **skills**: Bump embedded Make platform skills to `da84067`.
+
 ## [v0.5.22] - 2026-11-06
 
 ### Features
@@ -408,7 +423,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Releases before v0.3.0 (v0.1.x–v0.2.x) predate this changelog. See the
 [GitHub releases](https://github.com/qfeius/makecli/releases) for their notes.
 
-[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.22...HEAD
+[Unreleased]: https://github.com/qfeius/makecli/compare/v0.5.23...HEAD
+[v0.5.23]: https://github.com/qfeius/makecli/releases/tag/v0.5.23
 [v0.5.22]: https://github.com/qfeius/makecli/releases/tag/v0.5.22
 [v0.5.21]: https://github.com/qfeius/makecli/releases/tag/v0.5.21
 [v0.5.20]: https://github.com/qfeius/makecli/releases/tag/v0.5.20
