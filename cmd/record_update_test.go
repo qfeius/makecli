@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runRecordUpdate / loadRecordData（包内白盒），internal/config、encoding/json、net/http、net/http/httptest、os、strings、testing
- * [OUTPUT]: 覆盖 record update 子命令核心逻辑的单元测试，重点验证单条/批量路由选择
+ * [OUTPUT]: 覆盖 record update 单条/批量路由选择与请求体数字精度的单元测试
  * [POS]: cmd 模块 record_update.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -26,6 +26,7 @@ func TestRunRecordUpdate(t *testing.T) {
 			if got := r.Header.Get("X-Make-Target"); got != "MakeService.UpdateResource" {
 				t.Errorf("expected X-Make-Target MakeService.UpdateResource, got %s", got)
 			}
+			assertRecordRequestNumbers(t, r, "FDEBITTOTAL", "FQUANTITY")
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "success"})
 		}))
@@ -35,7 +36,7 @@ func TestRunRecordUpdate(t *testing.T) {
 		saveDefaultToken(t)
 		MetaServerURL = srv.URL
 
-		jsonFile := writeRecordJSON(t, map[string]any{"status": "done"})
+		jsonFile := writeRecordJSON(t, map[string]any{"FDEBITTOTAL": recordDecimal, "FQUANTITY": recordDecimal})
 
 		out := captureStdout(t, func() {
 			if err := runRecordUpdate("myapp", "tasks", []string{"rec-001"}, jsonFile); err != nil {
@@ -55,6 +56,7 @@ func TestRunRecordUpdate(t *testing.T) {
 			if got := r.Header.Get("X-Make-Target"); got != "MakeService.UpdateResource" {
 				t.Errorf("expected X-Make-Target MakeService.UpdateResource, got %s", got)
 			}
+			assertRecordRequestNumbers(t, r, "FDEBITTOTAL", "FQUANTITY")
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "msg": "success"})
 		}))
@@ -64,7 +66,7 @@ func TestRunRecordUpdate(t *testing.T) {
 		saveDefaultToken(t)
 		MetaServerURL = srv.URL
 
-		jsonFile := writeRecordJSON(t, map[string]any{"status": "archived"})
+		jsonFile := writeRecordJSON(t, map[string]any{"FDEBITTOTAL": recordDecimal, "FQUANTITY": recordDecimal})
 
 		out := captureStdout(t, func() {
 			ids := []string{"rec-001", "rec-002", "rec-003"}

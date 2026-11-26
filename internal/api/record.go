@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 encoding/json、fmt，依赖同包 Client.do / Client.post 方法、writeStatusErr（非 200 翻译，含 409 唯一性冲突，收口于 client.go）
+ * [INPUT]: 依赖 bytes、encoding/json、fmt，依赖同包 Client.do / Client.post 方法、writeStatusErr（非 200 翻译，含 409 唯一性冲突，收口于 client.go）
  * [OUTPUT]: 对外提供 DeleteRecordResult / SortField / ListRecordOpts / GroupField / AggregateField / AggregateOpts 类型、CreateRecord / GetRecord / UpdateRecord / UpdateRecordsBatch / DeleteRecords / ListRecords / AggregateRecords 方法（写方法违反唯一性约束时返回 UniqueConstraintError）
  * [POS]: 已知 appKey 时通过 ForApp 副本携带 X-Make-App-Key；internal/api 的 Data Service 层，封装 Record CRUD 与聚合统计（/data/v1/aggregate，声明式 GROUP BY），与 client.go 的 Meta Service 层平级；ListRecords / AggregateRecords 共用 listPage 解码分页响应
  * [PROTOCOL]: 变更时更新此头部，然后检查 AGENTS.md
@@ -8,6 +8,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -99,7 +100,7 @@ func (c *Client) CreateRecord(appKey, entityKey string, data map[string]any) (st
 }
 
 // GetRecord 调用 MakeService.GetResource 获取单条记录
-// 返回记录的动态字段 map
+// 返回记录的动态字段 map，其中 JSON 数字保留为 json.Number。
 func (c *Client) GetRecord(appKey, entityKey, recordID string) (map[string]any, error) {
 	c = c.ForApp(appKey)
 	reqBody := map[string]any{
@@ -108,9 +109,9 @@ func (c *Client) GetRecord(appKey, entityKey, recordID string) (map[string]any, 
 		"recordID":  recordID,
 	}
 	var result struct {
-		Code    int            `json:"code"`
-		Message string         `json:"msg"`
-		Data    map[string]any `json:"data"`
+		Code    int             `json:"code"`
+		Message string          `json:"msg"`
+		Data    json.RawMessage `json:"data"`
 	}
 	if err := c.do("MakeService.GetResource", "/data/v1/record", reqBody, &result); err != nil {
 		return nil, err
@@ -118,7 +119,16 @@ func (c *Client) GetRecord(appKey, entityKey, recordID string) (map[string]any, 
 	if result.Code != 200 {
 		return nil, fmt.Errorf("API 错误 [%d]: %s", result.Code, result.Message)
 	}
-	return result.Data, nil
+	if len(result.Data) == 0 {
+		return nil, nil
+	}
+	var data map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(result.Data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&data); err != nil {
+		return nil, fmt.Errorf("无效的响应格式: %w", err)
+	}
+	return data, nil
 }
 
 // UpdateRecord 调用 MakeService.UpdateResource 更新单条记录

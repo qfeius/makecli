@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runRecordGet（包内白盒），internal/config、encoding/json、net/http、net/http/httptest
- * [OUTPUT]: 覆盖 record get 子命令核心逻辑的单元测试（成功/JSON输出/无凭证/API错误/未知profile/非法格式）
+ * [OUTPUT]: 覆盖 record get 子命令核心逻辑的单元测试（成功/JSON输出与数字精度/无凭证/API错误/未知profile/非法格式）
  * [POS]: cmd 模块 record_get.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -57,6 +57,7 @@ func TestRunRecordGet(t *testing.T) {
 					"recordID": "rec_001",
 					"name":     "张三",
 					"age":      18,
+					"amount":   recordDecimal,
 				},
 			})
 		}))
@@ -76,6 +77,9 @@ func TestRunRecordGet(t *testing.T) {
 		}
 		if !strings.Contains(out, "\"data\"") {
 			t.Fatalf("expected data key in JSON output, got %q", out)
+		}
+		if !strings.Contains(out, `"amount": `+recordDecimal.String()) {
+			t.Fatalf("expected the original amount as a JSON number, got %q", out)
 		}
 	})
 

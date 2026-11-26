@@ -1,6 +1,6 @@
 /**
  * [INPUT]: 依赖 cmd 包内的 runRecordCreate / loadRecordData（包内白盒），internal/config、encoding/json、net/http、net/http/httptest、os、testing
- * [OUTPUT]: 覆盖 record create 子命令核心逻辑的单元测试
+ * [OUTPUT]: 覆盖 record create、请求体数字精度及 JSON 文件校验的单元测试
  * [POS]: cmd 模块 record_create.go 的配套测试，用 httptest 隔离网络、t.Setenv 隔离凭证
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
  */
@@ -20,6 +20,7 @@ import (
 func TestRunRecordCreate(t *testing.T) {
 	t.Run("creates record successfully", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assertRecordRequestNumbers(t, r, "amount")
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200, "msg": "success",
@@ -34,6 +35,7 @@ func TestRunRecordCreate(t *testing.T) {
 		jsonFile := writeRecordJSON(t, map[string]any{
 			"title":  "Test Record",
 			"status": "active",
+			"amount": recordDecimal,
 		})
 
 		output := captureStdout(t, func() {
@@ -113,6 +115,34 @@ func TestRunRecordCreate(t *testing.T) {
 			t.Fatal("expected error for nonexistent file")
 		}
 	})
+}
+
+func TestLoadRecordDataRejectsTrailingJSON(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "record.json")
+	if err := os.WriteFile(path, []byte(`{"amount":1} {"amount":2}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadRecordData(path); err == nil {
+		t.Fatal("expected an error for a second JSON value")
+	}
+}
+
+const recordDecimal = json.Number("9999999999999.9999999999")
+
+func assertRecordRequestNumbers(t *testing.T, r *http.Request, fields ...string) {
+	t.Helper()
+	var body struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		t.Errorf("decode record request: %v", err)
+		return
+	}
+	for _, field := range fields {
+		if got := string(body.Data[field]); got != recordDecimal.String() {
+			t.Errorf("request field %s: got %q, want %s as a JSON number", field, got, recordDecimal)
+		}
+	}
 }
 
 // writeRecordJSON 将 record data 写入临时 JSON 文件，返回路径

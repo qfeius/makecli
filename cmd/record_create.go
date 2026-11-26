@@ -1,5 +1,5 @@
 /**
- * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（WithDryRun）、encoding/json、fmt、os、github.com/spf13/cobra
+ * [INPUT]: 依赖 cmd/client（newClientFromProfile）、internal/api（WithDryRun）、bytes、encoding/json、fmt、io、os、github.com/spf13/cobra
  * [OUTPUT]: 对外提供 newRecordCreateCmd 函数、loadRecordData 辅助函数
  * [POS]: cmd/record 的 create 子命令，从 JSON 文件加载数据，调用 Data Service API 创建 Record；--dry-run 经 api.WithDryRun 注入 X-Dry-Run 让远端校验不落库，成功打印 would-be 行（不展示回滚事务的 recordID）
  * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
@@ -8,8 +8,10 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/qfeius/makecli/internal/api"
@@ -65,15 +67,20 @@ func runRecordCreate(appKey, entityKey, jsonFile string, dryRun bool) error {
 	return nil
 }
 
-// loadRecordData 读取 JSON 文件并解析为动态 KV map
+// loadRecordData 读取单个 JSON 值并保留动态字段中数字的原始精度。
 func loadRecordData(path string) (map[string]any, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("读取 JSON 文件失败: %w", err)
 	}
 	var data map[string]any
-	if err := json.Unmarshal(raw, &data); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&data); err != nil {
 		return nil, fmt.Errorf("JSON 文件格式错误: %w", err)
+	}
+	if err := decoder.Decode(new(json.RawMessage)); err != io.EOF {
+		return nil, fmt.Errorf("JSON 文件格式错误: 首个 JSON 值后只允许空白")
 	}
 	return data, nil
 }
